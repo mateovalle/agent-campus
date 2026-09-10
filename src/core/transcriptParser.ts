@@ -1,5 +1,6 @@
 import * as path from 'path';
 
+import { recordToolError, recordToolUse, suggestActions } from './actionSuggestions.js';
 import {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
@@ -13,7 +14,7 @@ import {
   startPermissionTimer,
   startWaitingTimer,
 } from './timerManager.js';
-import type { CoreAgentState, TrackerContext } from './types.js';
+import { type CoreAgentState, createTurnStats, type TrackerContext } from './types.js';
 
 export const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'AskUserQuestion']);
 
@@ -98,6 +99,7 @@ export function processTranscriptLine(
           agent.activeToolIds.add(block.id);
           agent.activeToolStatuses.set(block.id, status);
           agent.activeToolNames.set(block.id, toolName);
+          recordToolUse(agent.turnStats, toolName, block.input || {});
           if (!PERMISSION_EXEMPT_TOOLS.has(toolName)) {
             hasNonExemptTool = true;
           }
@@ -125,11 +127,12 @@ export function processTranscriptLine(
     const message = record.message as Record<string, unknown> | undefined;
     const content = message?.content;
     if (Array.isArray(content)) {
-      const blocks = content as Array<{ type: string; tool_use_id?: string }>;
+      const blocks = content as Array<{ type: string; tool_use_id?: string; is_error?: boolean }>;
       const hasToolResult = blocks.some((b) => b.type === 'tool_result');
       if (hasToolResult) {
         for (const block of blocks) {
           if (block.type === 'tool_result' && block.tool_use_id) {
+            if (block.is_error) recordToolError(agent.turnStats);
             console.log(`[Pixel Agents] Agent ${agentId} tool done: ${block.tool_use_id}`);
             const completedToolId = block.tool_use_id;
             // If the completed tool was a Task, clear its subagent tools
@@ -162,12 +165,16 @@ export function processTranscriptLine(
         cancelWaitingTimer(ctx, agentId);
         clearAgentActivity(ctx, agentId);
         agent.hadToolsInTurn = false;
+        agent.turnStats = createTurnStats();
+        ctx.send({ type: 'agentSuggestions', id: agentId, suggestions: [] });
       }
     } else if (typeof content === 'string' && content.trim()) {
       // New user text prompt — new turn starting
       cancelWaitingTimer(ctx, agentId);
       clearAgentActivity(ctx, agentId);
       agent.hadToolsInTurn = false;
+      agent.turnStats = createTurnStats();
+      ctx.send({ type: 'agentSuggestions', id: agentId, suggestions: [] });
     }
   } else if (record.type === 'system' && record.subtype === 'turn_duration') {
     cancelWaitingTimer(ctx, agentId);
@@ -187,6 +194,12 @@ export function processTranscriptLine(
     agent.permissionSent = false;
     agent.hadToolsInTurn = false;
     ctx.send({ type: 'agentStatus', id: agentId, status: 'waiting' });
+    ctx.send({
+      type: 'agentSuggestions',
+      id: agentId,
+      suggestions: suggestActions(agent.turnStats),
+    });
+    agent.turnStats = createTurnStats();
   }
 }
 
@@ -250,6 +263,7 @@ function processProgressRecord(
           agent.activeSubagentToolNames.set(parentToolId, subNames);
         }
         subNames.set(block.id, toolName);
+        recordToolUse(agent.turnStats, toolName, block.input || {});
 
         if (!PERMISSION_EXEMPT_TOOLS.has(toolName)) {
           hasNonExemptSubTool = true;

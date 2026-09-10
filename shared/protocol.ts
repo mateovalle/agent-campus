@@ -44,6 +44,15 @@ export interface AgentSeatMeta {
   palette?: number;
   seatId?: string | null;
   hueShift?: number;
+  /** Role skin id (e.g. 'qa'), or null/absent for the base look. */
+  role?: string | null;
+}
+
+/** A role skin: named character sprite set (same sheet layout as the base). */
+export interface RoleSpriteSet {
+  id: string;
+  name: string;
+  sprites: CharacterDirectionSprites;
 }
 
 export type AgentStatus = 'active' | 'waiting';
@@ -119,6 +128,22 @@ export interface AgentTodo {
   status: 'pending' | 'in_progress' | 'completed';
 }
 
+// ── Agent actions ────────────────────────────────────────────
+
+/**
+ * A contextual next-step action for an agent, rendered as a button in the
+ * office UI. Suggested by the host from end-of-turn heuristics; clicking it
+ * sends `command` to the agent's session (runAgentAction).
+ */
+export interface AgentActionSuggestion {
+  /** Short button label, e.g. "Review". */
+  label: string;
+  /** Text injected into the agent's session (slash command or plain prompt). */
+  command: string;
+  /** Why this action is suggested (shown as tooltip). */
+  reason?: string;
+}
+
 // ── Achievements ─────────────────────────────────────────────
 
 export interface AchievementInfo {
@@ -181,6 +206,8 @@ export type HostToWebviewMessage =
   | { type: 'agentToolPermission'; id: number }
   | { type: 'agentToolPermissionClear'; id: number }
   | { type: 'agentStatus'; id: number; status: AgentStatus }
+  /** End-of-turn action suggestions (empty array clears existing buttons). */
+  | { type: 'agentSuggestions'; id: number; suggestions: AgentActionSuggestion[] }
   // Sub-agent activity
   | { type: 'subagentToolStart'; id: number; parentToolId: string; toolId: string; status: string }
   | { type: 'subagentToolDone'; id: number; parentToolId: string; toolId: string }
@@ -190,6 +217,7 @@ export type HostToWebviewMessage =
   // workspacePath absent = the global default layout; present = that office's own layout
   | { type: 'layoutLoaded'; layout: LayoutData | null; workspacePath?: string }
   | { type: 'characterSpritesLoaded'; characters: CharacterDirectionSprites[] }
+  | { type: 'roleSpritesLoaded'; roles: RoleSpriteSet[] }
   | { type: 'floorTilesLoaded'; sprites: SpriteData[] }
   | { type: 'wallTilesLoaded'; sprites: SpriteData[] }
   | {
@@ -265,6 +293,8 @@ export type WebviewToHostMessage =
       message?: string;
     }
   | { type: 'focusAgent'; id: number }
+  /** Send an action's command text to an agent's session (terminal or chat). */
+  | { type: 'runAgentAction'; id: number; command: string }
   | { type: 'closeAgent'; id: number }
   | { type: 'saveAgentSeats'; seats: Record<number, AgentSeatMeta> }
   // Sent as the webview's own OfficeLayout shape; hosts validate structurally
@@ -287,8 +317,8 @@ export type WebviewToHostMessage =
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
   | { type: 'deleteTodo'; path: string; id: string }
-  /** Open (or focus) the global Assistant chat session. */
-  | { type: 'openAssistant' }
+  /** Open (or focus) the global Assistant chat session; `prompt` is sent into it. */
+  | { type: 'openAssistant'; prompt?: string }
   /** Spawn a chat agent in the workspace with the todo's text as first prompt. */
   | { type: 'assignTodo'; path: string; id: string }
   /** Resume a past session as a new chat agent. */

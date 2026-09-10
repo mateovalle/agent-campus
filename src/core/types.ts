@@ -11,6 +11,20 @@ import type { HostToWebviewMessage } from '../../shared/protocol.js';
 /** Posts a message to the current UI (webview / renderer). */
 export type Send = (message: HostToWebviewMessage) => void;
 
+/** Per-turn tool-usage tallies, feeding end-of-turn action suggestions. */
+export interface TurnStats {
+  /** Edit/Write/NotebookEdit tool_use count (main agent + sub-agents). */
+  editCount: number;
+  /** tool_results flagged is_error. */
+  errorCount: number;
+  /** A Bash command matching a test/check pattern ran this turn. */
+  ranTests: boolean;
+}
+
+export function createTurnStats(): TurnStats {
+  return { editCount: 0, errorCount: 0, ranTests: false };
+}
+
 export interface CoreAgentState {
   id: number;
   projectDir: string;
@@ -26,6 +40,8 @@ export interface CoreAgentState {
   isWaiting: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
+  /** Reset on every new user prompt and after each turn_duration. */
+  turnStats: TurnStats;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
 }
@@ -50,6 +66,7 @@ export function createCoreAgentState(
     isWaiting: false,
     permissionSent: false,
     hadToolsInTurn: false,
+    turnStats: createTurnStats(),
   };
 }
 
