@@ -11,10 +11,12 @@ import {
   loadDefaultLayout,
   loadFloorTiles,
   loadFurnitureAssets,
+  loadRoleSprites,
   loadWallTiles,
   sendAssets,
   sendCharacterSprites,
   sendFloorTiles,
+  sendRoleSprites,
   sendWallTiles,
 } from '../src/core/assetLoader.js';
 import {
@@ -52,6 +54,12 @@ import {
 
 // ── Electron-specific constants ──────────────────────────────
 const PTY_SCROLLBACK_MAX_CHARS = 200_000;
+// Delay between injecting action text and pressing Enter, so the Claude TUI
+// finishes rendering (slash-command autocomplete) before the submit keystroke.
+const PTY_ACTION_ENTER_DELAY_MS = 150;
+// Per-workspace layout hot-reload (watch ~/.pixel-agents/layouts/)
+const WORKSPACE_LAYOUT_DEBOUNCE_MS = 300;
+const WORKSPACE_LAYOUT_OWN_WRITE_MS = 1000;
 const WINDOW_WIDTH = 900;
 const WINDOW_HEIGHT = 700;
 const WINDOW_BACKGROUND = '#1e1e2e';
@@ -151,6 +159,44 @@ function loadSettings(): { soundEnabled: boolean } {
 /** Per-workspace office layout file (~/.pixel-agents/layouts/<sanitized>.json). */
 function getWorkspaceLayoutFile(workspacePath: string): string {
   return path.join(DATA_DIR, 'layouts', `${workspacePath.replace(/[^a-zA-Z0-9-]/g, '-')}.json`);
+}
+
+// ── Per-workspace layout hot-reload ──────────────────────────
+// The default layout has its own cross-window watcher (layoutPersistence);
+// this covers the per-workspace override files, so external edits (scripts,
+// other windows) apply live instead of waiting for the next app start.
+const LAYOUTS_DIR = path.join(DATA_DIR, 'layouts');
+let layoutsDirWatcher: fs.FSWatcher | null = null;
+const layoutsOwnWrites = new Map<string, number>(); // file basename → epoch ms
+const layoutsDebounce = new Map<string, ReturnType<typeof setTimeout>>();
+
+function watchWorkspaceLayouts(): void {
+  try {
+    fs.mkdirSync(LAYOUTS_DIR, { recursive: true });
+    layoutsDirWatcher = fs.watch(LAYOUTS_DIR, (_event, filename) => {
+      if (!filename) return;
+      const own = layoutsOwnWrites.get(filename);
+      if (own && Date.now() - own < WORKSPACE_LAYOUT_OWN_WRITE_MS) return;
+      clearTimeout(layoutsDebounce.get(filename));
+      layoutsDebounce.set(
+        filename,
+        setTimeout(() => {
+          layoutsDebounce.delete(filename);
+          const ws = loadWorkspaces().find(
+            (w) => path.basename(getWorkspaceLayoutFile(w.path)) === filename,
+          );
+          if (!ws) return;
+          const layout = loadJsonFile<Record<string, unknown>>(getWorkspaceLayoutFile(ws.path));
+          if (layout && isValidLayout(layout)) {
+            console.log(`[Pixel Agents] Workspace layout changed on disk — pushing ${ws.path}`);
+            ctx.send({ type: 'layoutLoaded', layout, workspacePath: ws.path });
+          }
+        }, WORKSPACE_LAYOUT_DEBOUNCE_MS),
+      );
+    });
+  } catch (err) {
+    console.error('[Pixel Agents] Failed to watch workspace layouts:', err);
+  }
 }
 
 /** Same transcript-directory mapping Claude Code uses: cwd → ~/.claude/projects/<sanitized>. */
@@ -555,6 +601,26 @@ function trackAchievement(
 // ── The Assistant ────────────────────────────────────────────
 // A global chat session with campus-wide tools: it reads project/agent
 // state, backlogs and usage, and can dispatch new agents to workspaces.
+// The assistant's CEO-style planning procedure: forcing questions on scope,
+// then well-specified tasks written to the board, then human-gated dispatch.
+const ASSISTANT_PLANNING_PROCEDURE =
+  ' PLANNING PROCEDURE — run this whenever the user brings a goal, feature idea, or ' +
+  'asks to plan work: ' +
+  '(1) SCOPE: before writing any tasks, ask at most 3 forcing questions, and only ' +
+  'those not already answered: what is the smallest shippable version? what is ' +
+  'explicitly OUT of scope? how do we verify it worked? ' +
+  '(2) SPECIFY: decompose into 2-7 self-contained tasks, written via add_task in ' +
+  'priority order. Each task text must start with a role tag in brackets — [build], ' +
+  '[review], [qa], [security], [docs], [release] — followed by what to do and ' +
+  'acceptance criteria ("Done when: ..."). A task must be executable by an agent with ' +
+  'no other context than its text. ' +
+  '(3) CONFIRM, do not dispatch: after writing the tasks, tell the user to review ' +
+  'them on the Board (they can edit/delete/reorder there). Only call create_agent ' +
+  'once the user approves dispatch. ' +
+  '(4) DISPATCH with a budget: check agents_status first and keep at most 3 agents ' +
+  'busy at once unless the user says otherwise; prefer assigning to an idle agent in ' +
+  'that workspace before creating a new one.';
+
 function openAssistant(): void {
   // Tab-only by design: the assistant has no office or character on the
   // campus (user preference) — she exists purely as her chat session.
@@ -573,7 +639,8 @@ function openAssistant(): void {
       'Your job is orchestration: keep an overview of workspaces, agents, tasks and ' +
       'spending via your campus tools, help the user prioritize, and dispatch work by ' +
       'creating agents with clear, self-contained task prompts. Prefer checking real ' +
-      'state with tools over assuming. Be concise.',
+      'state with tools over assuming. Be concise.' +
+      ASSISTANT_PLANNING_PROCEDURE,
     toolsFactory: (sdk, z) => ({
       mcpServers: {
         campus: sdk.createSdkMcpServer({
@@ -829,6 +896,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     } else {
       openAssistant();
     }
+    if (msg.prompt && assistantAgentId !== null) {
+      chatSessions.get(assistantAgentId)?.send(msg.prompt);
+    }
   } else if (msg.type === 'openChatAgent') {
     void resolveAgentCwd(msg.folderPath).then((cwd) => {
       if (cwd) launchChatAgent(cwd);
@@ -890,7 +960,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'saveLayout') {
     if (isValidLayout(msg.layout)) {
       if (msg.workspacePath) {
-        saveJsonFile(getWorkspaceLayoutFile(msg.workspacePath), msg.layout);
+        const file = getWorkspaceLayoutFile(msg.workspacePath);
+        layoutsOwnWrites.set(path.basename(file), Date.now());
+        saveJsonFile(file, msg.layout);
       } else {
         layoutWatcher?.markOwnWrite();
         writeLayoutToFile(msg.layout);
@@ -925,6 +997,29 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       ctx.send({ type: 'chat-focus', agentId: msg.id });
     } else if (agent?.ptyId) {
       ctx.send({ type: 'pty-focus', ptyId: agent.ptyId, agentId: msg.id });
+    }
+  } else if (msg.type === 'runAgentAction') {
+    const agent = ctx.agents.get(msg.id);
+    const command = msg.command.trim();
+    if (!agent || !command) return;
+    if (agent.kind === 'chat') {
+      chatSessions.get(msg.id)?.send(command);
+      ctx.send({ type: 'chat-focus', agentId: msg.id });
+    } else if (agent.ptyId) {
+      const rec = ptys.get(agent.ptyId);
+      if (rec) {
+        rec.lastInputAt = Date.now();
+        rec.proc.write(command);
+        const ptyId = agent.ptyId;
+        setTimeout(() => {
+          const live = ptys.get(ptyId);
+          if (live) {
+            live.lastInputAt = Date.now();
+            live.proc.write('\r');
+          }
+        }, PTY_ACTION_ENTER_DELAY_MS);
+        ctx.send({ type: 'pty-focus', ptyId, agentId: msg.id });
+      }
     }
   } else if (msg.type === 'getUsageSummary') {
     ctx.send({ type: 'usageSummary', summary: summarizeUsage() });
@@ -969,6 +1064,7 @@ function onWebviewReady(): void {
   void (async () => {
     const charSprites = await loadCharacterSprites(assetsRoot);
     if (charSprites) sendCharacterSprites(ctx.send, charSprites);
+    sendRoleSprites(ctx.send, await loadRoleSprites(assetsRoot));
     const floorTiles = await loadFloorTiles(assetsRoot);
     if (floorTiles) sendFloorTiles(ctx.send, floorTiles);
     const wallTiles = await loadWallTiles(assetsRoot);
@@ -988,6 +1084,7 @@ function onWebviewReady(): void {
     for (const ws of loadWorkspaces()) {
       const wsLayout = loadJsonFile<Record<string, unknown>>(getWorkspaceLayoutFile(ws.path));
       if (wsLayout && isValidLayout(wsLayout)) {
+        console.log(`[Pixel Agents] Sending workspace layout override for ${ws.path}`);
         ctx.send({ type: 'layoutLoaded', layout: wsLayout, workspacePath: ws.path });
       }
     }
@@ -1114,6 +1211,10 @@ function createWindow(): void {
 function cleanupAndQuit(): void {
   layoutWatcher?.dispose();
   layoutWatcher = null;
+  layoutsDirWatcher?.close();
+  layoutsDirWatcher = null;
+  for (const timer of layoutsDebounce.values()) clearTimeout(timer);
+  layoutsDebounce.clear();
   for (const timer of projectScanTimers.values()) clearInterval(timer);
   projectScanTimers.clear();
   for (const session of chatSessions.values()) session.dispose();
@@ -1128,6 +1229,7 @@ app.whenReady().then(() => {
   setupIpcHandlers();
 
   // Cross-window layout sync (e.g. edits made from a VS Code window)
+  watchWorkspaceLayouts();
   layoutWatcher = watchLayoutFile((layout) => {
     ctx.send({ type: 'layoutLoaded', layout });
   });

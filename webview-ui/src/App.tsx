@@ -6,6 +6,8 @@ import type {
   WorkspaceInfo,
 } from '../../shared/protocol.js';
 import { AchievementToast } from './components/AchievementToast.js';
+import type { BoardAgent } from './components/BoardPanel.js';
+import { BoardPanel } from './components/BoardPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
@@ -22,7 +24,7 @@ import {
 } from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
-import { useExtensionMessages } from './hooks/useExtensionMessages.js';
+import { saveAgentSeats, useExtensionMessages } from './hooks/useExtensionMessages.js';
 import { OfficeCanvas } from './office/components/OfficeCanvas.js';
 import { ToolOverlay } from './office/components/ToolOverlay.js';
 import { EditorState } from './office/editor/editorState.js';
@@ -164,6 +166,9 @@ function App() {
     achievements,
     unlockQueue,
     dismissUnlock,
+    agentSuggestions,
+    clearAgentSuggestions,
+    roles,
   } = useExtensionMessages(campus, editor.setLastSavedLayout, isEditDirty);
 
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -197,6 +202,10 @@ function App() {
   const [tasksDrawerPath, setTasksDrawerPath] = useState<string | null>(null);
   const handleOpenTasks = useCallback((path: string) => setTasksDrawerPath(path), []);
   const handleCloseTasksDrawer = useCallback(() => setTasksDrawerPath(null), []);
+
+  const [isBoardOpen, setIsBoardOpen] = useState(false);
+  const handleToggleBoard = useCallback(() => setIsBoardOpen((v) => !v), []);
+  const handleCloseBoard = useCallback(() => setIsBoardOpen(false), []);
 
   // Close the popup if its workspace was removed
   useEffect(() => {
@@ -280,6 +289,19 @@ function App() {
     vscode.postMessage({ type: 'closeAgent', id });
   }, []);
 
+  const handleRunAction = useCallback(
+    (id: number, command: string) => {
+      clearAgentSuggestions(id);
+      vscode.postMessage({ type: 'runAgentAction', id, command });
+    },
+    [clearAgentSuggestions],
+  );
+
+  const handleSetRole = useCallback((id: number, role: string | null) => {
+    campus.getOfficeForAgent(id)?.setAgentRole(id, role);
+    saveAgentSeats(campus);
+  }, []);
+
   const handleClick = useCallback((agentId: number, office: OfficeState) => {
     // If clicked agent is a sub-agent, focus the parent's terminal instead
     const meta = office.subagentMeta.get(agentId);
@@ -326,6 +348,28 @@ function App() {
         )
         .map(([idStr, todos]) => ({ agentId: Number(idStr), label: `Agent ${idStr}`, todos }))
     : [];
+
+  // Board data — every live agent with its state, activity, plan, and
+  // suggested actions, resolved through the campus for workspace names.
+  const boardAgents: BoardAgent[] = agents.map((id) => {
+    const tools = agentTools[id] ?? [];
+    const activeTool = [...tools].reverse().find((t) => !t.done);
+    const needsPermission = tools.some((t) => t.permissionWait && !t.done);
+    const isWaiting = agentStatuses[id] === 'waiting';
+    const entry = campus.getEntryForAgent(id);
+    const folderName = campus.getCharacter(id)?.folderName;
+    const planItem = (agentTodos[id] ?? []).find((t) => t.status === 'in_progress');
+    return {
+      id,
+      label: folderName ? `${folderName} · Agent ${id}` : `Agent ${id}`,
+      workspaceName: entry?.workspace.name ?? '',
+      state: activeTool ? 'working' : isWaiting ? 'waiting' : 'idle',
+      needsPermission,
+      activity: activeTool?.status ?? null,
+      currentPlanItem: planItem?.content ?? null,
+      suggestions: agentSuggestions[id] ?? [],
+    };
+  });
 
   if (!layoutReady) {
     return (
@@ -402,11 +446,24 @@ function App() {
         <BottomToolbar
           isEditMode={editor.isEditMode}
           onToggleEditMode={editor.handleToggleEditMode}
+          isBoardOpen={isBoardOpen}
+          onToggleBoard={handleToggleBoard}
           isDebugMode={isDebugMode}
           onToggleDebugMode={handleToggleDebugMode}
           usageSummary={usageSummary}
           achievements={achievements}
         />
+
+        {isBoardOpen && !editor.isEditMode && (
+          <BoardPanel
+            workspaces={workspaces}
+            workspaceTodos={workspaceTodos}
+            agents={boardAgents}
+            onRunAction={handleRunAction}
+            onFocusAgent={handleSelectAgent}
+            onClose={handleCloseBoard}
+          />
+        )}
 
         <AchievementToast queue={unlockQueue} onDismiss={dismissUnlock} />
 
@@ -473,6 +530,10 @@ function App() {
           zoom={editor.zoom}
           panRef={editor.panRef}
           onCloseAgent={handleCloseAgent}
+          agentSuggestions={agentSuggestions}
+          onRunAction={handleRunAction}
+          roles={roles}
+          onSetRole={handleSetRole}
         />
 
         {officePopup && !editor.isEditMode && (

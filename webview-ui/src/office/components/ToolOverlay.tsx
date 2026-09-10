@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { AgentActionSuggestion } from '../../../../shared/protocol.js';
 import { CHARACTER_SITTING_OFFSET_PX, TOOL_OVERLAY_VERTICAL_OFFSET } from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import type { CampusState } from '../engine/campusState.js';
@@ -16,6 +17,11 @@ interface ToolOverlayProps {
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
   onCloseAgent: (id: number) => void;
+  agentSuggestions: Record<number, AgentActionSuggestion[]>;
+  onRunAction: (id: number, command: string) => void;
+  /** Available role skins (empty until loaded — hides the picker). */
+  roles: Array<{ id: string; name: string }>;
+  onSetRole: (id: number, role: string | null) => void;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -52,8 +58,14 @@ export function ToolOverlay({
   zoom,
   panRef,
   onCloseAgent,
+  agentSuggestions,
+  onRunAction,
+  roles,
+  onSetRole,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
+  /** Agent id whose role dropdown is open, or null. */
+  const [rolePickerFor, setRolePickerFor] = useState<number | null>(null);
   // Only re-render (and measure the container) while an overlay is visible —
   // i.e., an agent is hovered or selected — plus one final tick to clear it.
   const hadOverlayRef = useRef(false);
@@ -251,6 +263,120 @@ export function ToolOverlay({
                 </button>
               )}
             </div>
+            {isSelected && !isSub && roles.length > 0 && (
+              <div style={{ position: 'relative', marginTop: 4 }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRolePickerFor((prev) => (prev === id ? null : id));
+                  }}
+                  title="Assign a role skin to this agent"
+                  style={{
+                    background: 'var(--pixel-bg)',
+                    border: '2px solid var(--pixel-border)',
+                    borderRadius: 0,
+                    boxShadow: 'var(--pixel-shadow)',
+                    color: 'var(--pixel-text-dim)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '16px',
+                    lineHeight: 1,
+                    padding: '3px 7px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {roles.find((r) => r.id === ch.role)?.name ?? 'No role'} ▾
+                </button>
+                {rolePickerFor === id && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      marginTop: 2,
+                      background: 'var(--pixel-bg)',
+                      border: '2px solid var(--pixel-border-light)',
+                      boxShadow: 'var(--pixel-shadow)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      zIndex: 'var(--pixel-overlay-selected-z)',
+                    }}
+                  >
+                    {[{ id: null as string | null, name: 'No role' }, ...roles].map((r) => (
+                      <button
+                        key={r.id ?? 'none'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSetRole(id, r.id);
+                          setRolePickerFor(null);
+                        }}
+                        style={{
+                          background:
+                            (ch.role ?? null) === r.id ? 'var(--pixel-active-bg)' : 'transparent',
+                          border: 'none',
+                          borderRadius: 0,
+                          color: 'var(--pixel-text)',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          fontSize: '16px',
+                          lineHeight: 1,
+                          padding: '4px 10px',
+                          textAlign: 'left',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {isSelected && !isSub && !ch.isActive && (agentSuggestions[id]?.length ?? 0) > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 4,
+                  marginTop: 4,
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                }}
+              >
+                {agentSuggestions[id].map((s) => (
+                  <button
+                    key={s.label}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRunAction(id, s.command);
+                    }}
+                    title={s.reason ? `${s.reason} — sends: ${s.command}` : s.command}
+                    style={{
+                      background: 'var(--pixel-bg)',
+                      border: '2px solid var(--pixel-border)',
+                      borderRadius: 0,
+                      boxShadow: 'var(--pixel-shadow)',
+                      color: 'var(--vscode-foreground)',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      fontSize: '18px',
+                      lineHeight: 1,
+                      padding: '4px 8px',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.borderColor =
+                        'var(--pixel-border-light)';
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.borderColor = 'var(--pixel-border)';
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}

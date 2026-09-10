@@ -13,7 +13,10 @@ shared/
 src/core/                     — Host-agnostic backend core (no vscode/electron imports)
   types.ts                    — CoreAgentState, TrackerContext (agents+watchers+timers+send()), Send
   constants.ts                — Shared timing/truncation/PNG/layout constants
-  transcriptParser.ts         — JSONL parsing: tool_use/tool_result → send() messages; idle detection
+  transcriptParser.ts         — JSONL parsing: tool_use/tool_result → send() messages; idle detection;
+                                per-turn TurnStats tally → agentSuggestions on turn_duration
+  actionSuggestions.ts        — End-of-turn heuristics: TurnStats (edits/errors/ranTests) →
+                                AgentActionSuggestion[] (Review/Test/Commit/Investigate buttons)
   timerManager.ts             — Waiting/permission timer logic
   fileWatcher.ts              — startFileWatching/stopFileWatching/readNewLines (fs.watch + watchFile +
                                 poll, byte-level UTF-8-safe line carry, truncation reset, error handlers)
@@ -42,7 +45,10 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 dir; a new JSONL is reassigned to the agent there whose PTY/composer most
                                 recently received input. Scrollback replay (pty-ready→pty-replay),
                                 seat/palette persistence keyed by SESSION id, settings, folder picker on
-                                agent creation, login-shell PATH fix, sandbox+navigation guards
+                                agent creation, login-shell PATH fix, sandbox+navigation guards.
+                                Per-workspace layout files (~/.pixel-agents/layouts/) are sent on
+                                webviewReady AND hot-reloaded via a layouts-dir watcher (debounced,
+                                own-write suppression) — external edits apply without restart
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
@@ -59,6 +65,15 @@ webview-ui/src/               — React + TypeScript (Vite)
   office/engine/campusState.ts — CAMPUS: one OfficeState per workspace at grid origins; per-office
                                 layouts (default + overrides); office popup (+ Agent/Tasks/Resume/Remove)
   components/TasksDrawer.tsx  — per-workspace human todos (assignable to agents) + live agent TodoWrite plans
+  components/BoardPanel.tsx   — campus-wide kanban overlay (Board button in toolbar): Backlog (open
+                                todos, ▶ Assign) / In Progress (working agents + activity + plan) /
+                                Needs You (permission/waiting/idle agents + suggestion buttons) /
+                                Done. Data composed in App.tsx (boardAgents); "✦ Plan" header button
+                                opens the Assistant with BOARD_PLAN_KICKOFF_PROMPT (openAssistant
+                                message accepts optional `prompt`). The Assistant's system prompt
+                                carries ASSISTANT_PLANNING_PROCEDURE (electron/main.ts): scope
+                                forcing-questions → role-tagged tasks ([build]/[qa]/…) via add_task
+                                → human review on the Board → budget-capped dispatch on approval
   components/chat/            — Rich chat UI for SDK agents: ChatView (event reducer + message list +
                                 composer + permission cards), ToolCard (collapsible, Edit diffs),
                                 Markdown (dependency-free safe renderer)
@@ -110,6 +125,10 @@ scripts/                      — 7-stage asset extraction pipeline
   5-export-assets.ts          — Export PNGs + furniture-catalog.json
   asset-manager.html          — Unified editor (Stage 2+4 combined), Save/Save As via File System Access API
   generate-walls.js           — Generate walls.png (4×4 grid of 16×32 auto-tile pieces)
+  export-role-characters.ts   — Role skins (gstack-style team roles): base char PNG + lightness-
+                                preserving garment recolors + procedural accessories (hat/glasses/
+                                sunglasses/tie/stripe) → scripts/asset-gen/roles/*.png + preview.html
+                                (review artifacts; copy to assets/characters/roles/ once approved)
   wall-tile-editor.html       — Browser UI for editing wall tile appearance
 ```
 
@@ -117,7 +136,7 @@ scripts/                      — 7-stage asset extraction pipeline
 
 **Vocabulary**: Terminal = VS Code terminal running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
 
-**Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in `shared/protocol.ts` (`HostToWebviewMessage` / `WebviewToHostMessage`) — add new message types THERE first; all three targets typecheck against it. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`, `settingsLoaded`, `setSoundEnabled`, plus Electron-only `pty-*` terminal messages.
+**Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in `shared/protocol.ts` (`HostToWebviewMessage` / `WebviewToHostMessage`) — add new message types THERE first; all three targets typecheck against it. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`, `settingsLoaded`, `setSoundEnabled`, `agentSuggestions`/`runAgentAction` (action buttons), plus Electron-only `pty-*` terminal messages.
 
 **One-agent-per-terminal**: Each "+ Agent" click → new terminal (`claude --session-id <uuid>`) → immediate agent creation → 1s poll for `<uuid>.jsonl` → file watching starts.
 
@@ -145,9 +164,15 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 
 **Spawn/despawn effect**: Matrix-style digital rain animation (0.3s). 16 vertical columns sweep top-to-bottom with staggered timing (per-column random seeds). Spawn: green rain reveals character pixels behind the sweep. Despawn: character pixels consumed by green rain trails. `matrixEffect` field on Character (`'spawn'`/`'despawn'`/`null`). Normal FSM is paused during effect. Despawning characters skip hit-testing. Restored agents (`existingAgents`) use `skipSpawnEffect: true` to appear instantly. `matrixEffect.ts` contains `renderMatrixEffect()` (per-pixel rendering) called from renderer instead of cached sprite draw.
 
+**Role skins**: Optional per-agent character sheets (gstack-style team roles: ceo, eng-manager, qa, security, designer, release, debugger, writer). Assets in `assets/characters/roles/char_role_<id>.png` (same 112×96 layout as base chars; generated by `scripts/export-role-characters.ts`; registry = `ROLE_SKIN_DEFS` in core constants). Loaded by `loadRoleSprites()` → `roleSpritesLoaded` message → `setRoleSprites()`. `getCharacterSprites(palette, hueShift, role?)` prefers the role sheet (cache key `role|palette:hueShift`); missing sheets degrade to the base look. Assigned manually via the "No role ▾" picker in the selected character's overlay; persisted as `AgentSeatMeta.role` (flows through existing seat persistence in both hosts). `officeState.setAgentRole()` mutates the character; hue shift still applies on top.
+
+**Floating toolbar**: `BottomToolbar.tsx` renders right-edge vertical icon bubbles (order = usage frequency: Assistant, Board, + Workspace, Layout, Settings). Icons are 12×12 pixel grids in `toolbarIcons.ts` ('X' fg / 'A' accent), drawn by `PixelIcon.tsx` to a pixelated canvas. Hover shows a custom pixel tooltip (label + description) to the left. Settings still mounts the centered `SettingsModal`.
+
 **Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix. Same palette + hueShift as parent. Click focuses parent terminal. Not persisted. Spawn at closest free seat to parent (Manhattan distance); fallback: closest walkable tile. **Sub-agent permission detection**: when a sub-agent runs a non-exempt tool, `startPermissionTimer` fires on the parent agent; if 5s elapse with no data, permission bubbles appear on both parent and sub-agent characters. `activeSubagentToolNames` (parentToolId → subToolId → toolName) tracks which sub-tools are active for the exempt check. Cleared when data resumes or Task completes.
 
 **Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2s. Sprites in `spriteData.ts`.
+
+**Action suggestion buttons**: On `turn_duration`, core sends `agentSuggestions` derived from the turn's TurnStats (`actionSuggestions.ts` heuristics: edits → Review/Test, clean tests → Commit, ≥3 tool errors → Investigate). ToolOverlay renders them as buttons under the selected character's status pill (hidden while active). Clicking sends `runAgentAction` — Electron writes the command to the PTY (text, then `\r` after `PTY_ACTION_ENTER_DELAY_MS`) or `ChatSession.send()`; VS Code uses `terminalRef.sendText()`. Commands are plain-language prompts (not slash commands) so they work without any skills installed. Suggestions cleared on new user prompt (empty array), agent close, and optimistically on click.
 
 **Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` called on canvas mousedown to ensure context is resumed (webviews start suspended). Toggled via "Sound Notifications" checkbox in Settings modal. Enabled by default; persisted in extension `globalState` key `pixel-agents.soundEnabled`, sent to webview as `settingsLoaded` on init.
 

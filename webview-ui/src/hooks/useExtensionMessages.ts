@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   AchievementInfo,
+  AgentActionSuggestion,
   AgentTodo,
   HostToWebviewMessage,
   TodoItem,
@@ -13,7 +14,7 @@ import type { CampusState } from '../office/engine/campusState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
-import { setCharacterTemplates } from '../office/sprites/spriteData.js';
+import { setCharacterTemplates, setRoleSprites } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
@@ -72,15 +73,29 @@ export interface ExtensionMessageState {
   unlockQueue: AchievementInfo[];
   /** Dismiss the currently displayed unlock toast (drops unlockQueue[0]). */
   dismissUnlock: () => void;
+  /** End-of-turn action suggestions per agent id (absent = none). */
+  agentSuggestions: Record<number, AgentActionSuggestion[]>;
+  /** Optimistically drop an agent's suggestions (e.g., after clicking one). */
+  clearAgentSuggestions: (id: number) => void;
+  /** Available role skins (empty until roleSpritesLoaded). */
+  roles: Array<{ id: string; name: string }>;
 }
 
 /** Aggregate seat assignments across every office on the campus and persist. */
 export function saveAgentSeats(campus: CampusState): void {
-  const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
+  const seats: Record<
+    number,
+    { palette: number; hueShift: number; seatId: string | null; role: string | null }
+  > = {};
   for (const office of campus.getAllOffices()) {
     for (const ch of office.characters.values()) {
       if (ch.isSubagent) continue;
-      seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId: ch.seatId };
+      seats[ch.id] = {
+        palette: ch.palette,
+        hueShift: ch.hueShift,
+        seatId: ch.seatId,
+        role: ch.role ?? null,
+      };
     }
   }
   vscode.postMessage({ type: 'saveAgentSeats', seats });
@@ -110,9 +125,22 @@ export function useExtensionMessages(
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [achievements, setAchievements] = useState<AchievementInfo[]>([]);
   const [unlockQueue, setUnlockQueue] = useState<AchievementInfo[]>([]);
+  const [agentSuggestions, setAgentSuggestions] = useState<Record<number, AgentActionSuggestion[]>>(
+    {},
+  );
+  const [roles, setRoles] = useState<Array<{ id: string; name: string }>>([]);
 
   const dismissUnlock = useCallback(() => {
     setUnlockQueue((prev) => prev.slice(1));
+  }, []);
+
+  const clearAgentSuggestions = useCallback((id: number) => {
+    setAgentSuggestions((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }, []);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
@@ -135,6 +163,7 @@ export function useExtensionMessages(
       palette?: number;
       hueShift?: number;
       seatId?: string;
+      role?: string;
       folderName?: string;
       workspacePath?: string;
     }> = [];
@@ -144,7 +173,7 @@ export function useExtensionMessages(
       if (!layoutReadyRef.current || !workspacesLoaded || pendingAgents.length === 0) return;
       for (const p of pendingAgents) {
         const office = campus.routeOffice(p.workspacePath, p.folderName);
-        office.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName);
+        office.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.role);
       }
       pendingAgents = [];
       saveAgentSeats(campus);
@@ -223,6 +252,12 @@ export function useExtensionMessages(
           delete next[id];
           return next;
         });
+        setAgentSuggestions((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         pendingAgents = pendingAgents.filter((p) => p.id !== id);
         // Remove all sub-agent characters belonging to this agent
         const os = campus.getOfficeForAgent(id);
@@ -241,6 +276,7 @@ export function useExtensionMessages(
             palette: m?.palette,
             hueShift: m?.hueShift,
             seatId: m?.seatId ?? undefined,
+            role: m?.role ?? undefined,
             folderName: folderNames[id],
           });
         }
@@ -311,6 +347,18 @@ export function useExtensionMessages(
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
         os?.setAgentTool(id, null);
         os?.clearPermissionBubble(id);
+      } else if (msg.type === 'agentSuggestions') {
+        const id = msg.id;
+        const suggestions = msg.suggestions;
+        setAgentSuggestions((prev) => {
+          if (suggestions.length === 0) {
+            if (!(id in prev)) return prev;
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          }
+          return { ...prev, [id]: suggestions };
+        });
       } else if (msg.type === 'agentSelected') {
         setSelectedAgent(msg.id);
       } else if (msg.type === 'agentStatus') {
@@ -440,6 +488,15 @@ export function useExtensionMessages(
         }>;
         console.log(`[Webview] Received ${characters.length} pre-colored character sprites`);
         setCharacterTemplates(characters);
+      } else if (msg.type === 'roleSpritesLoaded') {
+        console.log(`[Webview] Received ${msg.roles.length} role skins`);
+        setRoleSprites(
+          msg.roles.map((r) => ({
+            id: r.id,
+            sprites: r.sprites as { down: string[][][]; up: string[][][]; right: string[][][] },
+          })),
+        );
+        setRoles(msg.roles.map((r) => ({ id: r.id, name: r.name })));
       } else if (msg.type === 'floorTilesLoaded') {
         const sprites = msg.sprites as string[][][];
         console.log(`[Webview] Received ${sprites.length} floor tile patterns`);
@@ -510,5 +567,8 @@ export function useExtensionMessages(
     achievements,
     unlockQueue,
     dismissUnlock,
+    agentSuggestions,
+    clearAgentSuggestions,
+    roles,
   };
 }
