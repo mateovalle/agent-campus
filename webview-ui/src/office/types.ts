@@ -195,4 +195,6 @@ export interface Character {
   matrixEffectSeeds: number[];
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Role skin id (e.g. 'qa'); undefined = base look */
+  role?: string;
 }

@@ -9,7 +9,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PNG } from 'pngjs';
 
-import type { CharacterDirectionSprites, FurnitureAsset } from '../../shared/protocol.js';
+import type {
+  CharacterDirectionSprites,
+  FurnitureAsset,
+  RoleSpriteSet,
+} from '../../shared/protocol.js';
 import {
   CHAR_COUNT,
   CHAR_FRAME_H,
@@ -19,6 +23,7 @@ import {
   FLOOR_PATTERN_COUNT,
   FLOOR_TILE_SIZE,
   PNG_ALPHA_THRESHOLD,
+  ROLE_SKIN_DEFS,
   WALL_BITMASK_COUNT,
   WALL_GRID_COLS,
   WALL_PIECE_HEIGHT,
@@ -308,6 +313,43 @@ export interface LoadedCharacterSprites {
   characters: CharacterDirectionSprites[];
 }
 
+/** Parse one 112×96 character sheet PNG (3 direction rows × 7 frames of 16×32). */
+function parseCharacterSheetPng(png: PNG): CharacterDirectionSprites {
+  const charData: CharacterDirectionSprites = { down: [], up: [], right: [] };
+
+  for (let dirIdx = 0; dirIdx < CHARACTER_DIRECTIONS.length; dirIdx++) {
+    const dir = CHARACTER_DIRECTIONS[dirIdx];
+    const rowOffsetY = dirIdx * CHAR_FRAME_H;
+    const frames: string[][][] = [];
+
+    for (let f = 0; f < CHAR_FRAMES_PER_ROW; f++) {
+      const sprite: string[][] = [];
+      const frameOffsetX = f * CHAR_FRAME_W;
+      for (let y = 0; y < CHAR_FRAME_H; y++) {
+        const row: string[] = [];
+        for (let x = 0; x < CHAR_FRAME_W; x++) {
+          const idx = ((rowOffsetY + y) * png.width + (frameOffsetX + x)) * 4;
+          const r = png.data[idx];
+          const g = png.data[idx + 1];
+          const b = png.data[idx + 2];
+          const a = png.data[idx + 3];
+          if (a < PNG_ALPHA_THRESHOLD) {
+            row.push('');
+          } else {
+            row.push(
+              `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase(),
+            );
+          }
+        }
+        sprite.push(row);
+      }
+      frames.push(sprite);
+    }
+    charData[dir] = frames;
+  }
+  return charData;
+}
+
 /**
  * Load pre-colored character sprites from assets/characters/ (6 PNGs, each 112×96).
  * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
@@ -326,43 +368,7 @@ export async function loadCharacterSprites(
         return null;
       }
 
-      const pngBuffer = fs.readFileSync(filePath);
-      const png = PNG.sync.read(pngBuffer);
-
-      const directions = CHARACTER_DIRECTIONS;
-      const charData: CharacterDirectionSprites = { down: [], up: [], right: [] };
-
-      for (let dirIdx = 0; dirIdx < directions.length; dirIdx++) {
-        const dir = directions[dirIdx];
-        const rowOffsetY = dirIdx * CHAR_FRAME_H;
-        const frames: string[][][] = [];
-
-        for (let f = 0; f < CHAR_FRAMES_PER_ROW; f++) {
-          const sprite: string[][] = [];
-          const frameOffsetX = f * CHAR_FRAME_W;
-          for (let y = 0; y < CHAR_FRAME_H; y++) {
-            const row: string[] = [];
-            for (let x = 0; x < CHAR_FRAME_W; x++) {
-              const idx = ((rowOffsetY + y) * png.width + (frameOffsetX + x)) * 4;
-              const r = png.data[idx];
-              const g = png.data[idx + 1];
-              const b = png.data[idx + 2];
-              const a = png.data[idx + 3];
-              if (a < PNG_ALPHA_THRESHOLD) {
-                row.push('');
-              } else {
-                row.push(
-                  `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase(),
-                );
-              }
-            }
-            sprite.push(row);
-          }
-          frames.push(sprite);
-        }
-        charData[dir] = frames;
-      }
-      characters.push(charData);
+      characters.push(parseCharacterSheetPng(PNG.sync.read(fs.readFileSync(filePath))));
     }
 
     console.log(
@@ -383,6 +389,40 @@ export async function loadCharacterSprites(
 export function sendCharacterSprites(send: Send, charSprites: LoadedCharacterSprites): void {
   send({ type: 'characterSpritesLoaded', characters: charSprites.characters });
   console.log(`📤 Sent ${charSprites.characters.length} character sprites to webview`);
+}
+
+/**
+ * Load role skin sheets from assets/characters/roles/ (same layout as the
+ * base character sheets). Missing files are skipped so a partial set works.
+ */
+export async function loadRoleSprites(assetsRoot: string): Promise<RoleSpriteSet[]> {
+  const roles: RoleSpriteSet[] = [];
+  try {
+    const rolesDir = path.join(assetsRoot, 'assets', 'characters', 'roles');
+    for (const def of ROLE_SKIN_DEFS) {
+      const filePath = path.join(rolesDir, `char_role_${def.id}.png`);
+      if (!fs.existsSync(filePath)) continue;
+      roles.push({
+        id: def.id,
+        name: def.name,
+        sprites: parseCharacterSheetPng(PNG.sync.read(fs.readFileSync(filePath))),
+      });
+    }
+    if (roles.length > 0) {
+      console.log(`[AssetLoader] ✅ Loaded ${roles.length} role skins`);
+    }
+  } catch (err) {
+    console.error(
+      `[AssetLoader] ❌ Error loading role skins: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+  return roles;
+}
+
+export function sendRoleSprites(send: Send, roles: RoleSpriteSet[]): void {
+  if (roles.length === 0) return;
+  send({ type: 'roleSpritesLoaded', roles });
+  console.log(`📤 Sent ${roles.length} role skins to webview`);
 }
 
 /**

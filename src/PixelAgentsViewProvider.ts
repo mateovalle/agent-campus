@@ -19,10 +19,12 @@ import {
   loadDefaultLayout,
   loadFloorTiles,
   loadFurnitureAssets,
+  loadRoleSprites,
   loadWallTiles,
   sendAssets,
   sendCharacterSprites,
   sendFloorTiles,
+  sendRoleSprites,
   sendWallTiles,
 } from './core/assetLoader.js';
 import { ensureProjectScan, stopAllProjectScans } from './fileWatcher.js';
@@ -138,6 +140,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       if (agent) {
         agent.terminalRef.dispose();
       }
+    } else if (message.type === 'runAgentAction') {
+      const agent = this.ctx.agents.get(message.id);
+      const command = message.command.trim();
+      if (agent && command) {
+        agent.terminalRef.show();
+        agent.terminalRef.sendText(command, true);
+      }
     } else if (message.type === 'saveAgentSeats') {
       // Store seat assignments in a separate key (never touched by persistAgents)
       console.log(`[Pixel Agents] saveAgentSeats:`, JSON.stringify(message.seats));
@@ -217,6 +226,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (charSprites) {
           sendCharacterSprites(this.ctx.send, charSprites);
         }
+        sendRoleSprites(this.ctx.send, await loadRoleSprites(assetsRoot));
         const floorTiles = await loadFloorTiles(assetsRoot);
         if (floorTiles) {
           sendFloorTiles(this.ctx.send, floorTiles);

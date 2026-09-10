@@ -995,10 +995,22 @@ interface LoadedCharacterData {
 
 let loadedCharacters: LoadedCharacterData[] | null = null
 
+/** Role skin sheets keyed by role id (same layout as the base characters). */
+const loadedRoles = new Map<string, LoadedCharacterData>()
+
 /** Set pre-colored character sprites loaded from PNG assets. Call this when characterSpritesLoaded message arrives. */
 export function setCharacterTemplates(data: LoadedCharacterData[]): void {
   loadedCharacters = data
   // Clear cache so sprites are rebuilt from loaded data
+  spriteCache.clear()
+}
+
+/** Set role skin sheets. Call this when roleSpritesLoaded message arrives. */
+export function setRoleSprites(roles: Array<{ id: string; sprites: LoadedCharacterData }>): void {
+  loadedRoles.clear()
+  for (const role of roles) {
+    loadedRoles.set(role.id, role.sprites)
+  }
   spriteCache.clear()
 }
 
@@ -1049,16 +1061,23 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
   }
 }
 
-export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {
-  const cacheKey = `${paletteIndex}:${hueShift}`
+export function getCharacterSprites(
+  paletteIndex: number,
+  hueShift = 0,
+  role?: string | null,
+): CharacterSprites {
+  // A role only takes effect once its sheet is loaded; otherwise fall back
+  // to the base look so stale persisted roles degrade gracefully.
+  const roleData = role ? loadedRoles.get(role) : undefined
+  const cacheKey = `${roleData ? role : ''}|${paletteIndex}:${hueShift}`
   const cached = spriteCache.get(cacheKey)
   if (cached) return cached
 
   let sprites: CharacterSprites
 
-  if (loadedCharacters) {
+  if (roleData || loadedCharacters) {
     // Use pre-colored character sprites directly (no palette swapping)
-    const char = loadedCharacters[paletteIndex % loadedCharacters.length]
+    const char = roleData ?? loadedCharacters![paletteIndex % loadedCharacters!.length]
     const d = char.down
     const u = char.up
     const rt = char.right

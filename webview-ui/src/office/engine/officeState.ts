@@ -209,6 +209,7 @@ export class OfficeState {
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
     folderName?: string,
+    role?: string,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -256,12 +257,23 @@ export class OfficeState {
     if (folderName) {
       ch.folderName = folderName;
     }
+    if (role) {
+      ch.role = role;
+    }
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn';
       ch.matrixEffectTimer = 0;
       ch.matrixEffectSeeds = matrixEffectSeeds();
     }
     this.characters.set(id, ch);
+  }
+
+  /** Assign or clear an agent's role skin. */
+  setAgentRole(id: number, role: string | null): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    if (role) ch.role = role;
+    else delete ch.role;
   }
 
   removeAgent(id: number): void {
