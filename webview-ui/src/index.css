@@ -51,6 +51,7 @@
   --pixel-overlay-z: 100;
   --pixel-overlay-selected-z: 110;
   --pixel-controls-z: 50;
+  --pixel-modal-z: 200;
 
   /* Chat UI */
   --pixel-chat-amber: #f9e2af;

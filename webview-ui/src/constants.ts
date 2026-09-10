@@ -195,6 +195,26 @@ export const TASKS_HEADER_FONT_SIZE_PX = 24;
 export const TASKS_ITEM_FONT_SIZE_PX = 20;
 export const TASKS_SECTION_FONT_SIZE_PX = 18;
 
+// Floating toolbar (right-edge icon bubbles)
+export const TOOLBAR_ICON_SCALE = 2; // device px per icon pixel (12×12 grid → 24px)
+export const TOOLBAR_BUBBLE_SIZE_PX = 42;
+export const TOOLBAR_BUBBLE_GAP_PX = 8;
+export const TOOLBAR_TOOLTIP_FONT_SIZE_PX = 20;
+export const TOOLBAR_ICON_FG = '#e0e0e8';
+export const TOOLBAR_ICON_ACCENT = '#5ac88c';
+
+// Board panel (campus-wide kanban overlay)
+export const BOARD_MAX_WIDTH_PX = 1080;
+export const BOARD_WIDTH_PCT = 92;
+export const BOARD_HEIGHT_PCT = 78;
+export const BOARD_COLUMN_MIN_WIDTH_PX = 200;
+export const BOARD_DONE_MAX_ITEMS = 20;
+/** Sent to the Assistant when the Board's Plan button is clicked. */
+export const BOARD_PLAN_KICKOFF_PROMPT =
+  "Let's plan new work. Run your planning procedure: ask me what we're building " +
+  '(and for which workspace), challenge the scope, then write the specified tasks ' +
+  'to the board for my review. Do not dispatch anything until I approve.';
+
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
 export const WAITING_BUBBLE_DURATION_SEC = 2.0;

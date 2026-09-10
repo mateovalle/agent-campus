@@ -1,12 +1,30 @@
 import { useState } from 'react';
 
 import type { AchievementInfo, UsageSummary } from '../../../shared/protocol.js';
+import {
+  TOOLBAR_BUBBLE_GAP_PX,
+  TOOLBAR_BUBBLE_SIZE_PX,
+  TOOLBAR_ICON_ACCENT,
+  TOOLBAR_ICON_FG,
+  TOOLBAR_TOOLTIP_FONT_SIZE_PX,
+} from '../constants.js';
 import { vscode } from '../vscodeApi.js';
+import { PixelIcon } from './PixelIcon.js';
 import { SettingsModal } from './SettingsModal.js';
+import {
+  ICON_ASSISTANT,
+  ICON_BOARD,
+  ICON_LAYOUT,
+  ICON_SETTINGS,
+  ICON_WORKSPACE,
+  type IconGrid,
+} from './toolbarIcons.js';
 
 interface BottomToolbarProps {
   isEditMode: boolean;
   onToggleEditMode: () => void;
+  isBoardOpen: boolean;
+  onToggleBoard: () => void;
   isDebugMode: boolean;
   onToggleDebugMode: () => void;
   /** Latest usage summary from the host (live-updated after each chat turn). */
@@ -15,113 +33,160 @@ interface BottomToolbarProps {
   achievements: AchievementInfo[];
 }
 
-const panelStyle: React.CSSProperties = {
-  position: 'absolute',
-  bottom: 10,
-  left: 10,
-  zIndex: 'var(--pixel-controls-z)',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 4,
-  background: 'var(--pixel-bg)',
-  border: '2px solid var(--pixel-border)',
-  borderRadius: 0,
-  padding: '4px 6px',
-  boxShadow: 'var(--pixel-shadow)',
-};
+interface BubbleProps {
+  icon: IconGrid;
+  label: string;
+  tooltip: string;
+  onClick: () => void;
+  /** Highlighted with the accent border (toggled panels/modes). */
+  active?: boolean;
+  /** Green "agent" theming (the Assistant bubble). */
+  agentTheme?: boolean;
+}
 
-const btnBase: React.CSSProperties = {
-  padding: '5px 10px',
-  fontSize: '24px',
-  color: 'var(--pixel-text)',
-  background: 'var(--pixel-btn-bg)',
-  border: '2px solid transparent',
-  borderRadius: 0,
-  cursor: 'pointer',
-};
+function ToolbarBubble({ icon, label, tooltip, onClick, active, agentTheme }: BubbleProps) {
+  const [hovered, setHovered] = useState(false);
 
-const btnActive: React.CSSProperties = {
-  ...btnBase,
-  background: 'var(--pixel-active-bg)',
-  border: '2px solid var(--pixel-accent)',
-};
+  const border = active
+    ? '2px solid var(--pixel-accent)'
+    : agentTheme
+      ? '2px solid var(--pixel-agent-border)'
+      : '2px solid var(--pixel-border)';
+  const background = active
+    ? 'var(--pixel-active-bg)'
+    : agentTheme
+      ? hovered
+        ? 'var(--pixel-agent-hover-bg)'
+        : 'var(--pixel-agent-bg)'
+      : hovered
+        ? 'var(--pixel-btn-hover-bg)'
+        : 'var(--pixel-bg)';
 
+  return (
+    // pointerEvents re-enabled per bubble — the full-height parent strip is
+    // pointerEvents:none so it doesn't eat canvas clicks.
+    <div style={{ position: 'relative', pointerEvents: 'auto' }}>
+      <button
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        aria-label={label}
+        style={{
+          width: TOOLBAR_BUBBLE_SIZE_PX,
+          height: TOOLBAR_BUBBLE_SIZE_PX,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+          background,
+          border,
+          borderRadius: 0,
+          boxShadow: 'var(--pixel-shadow)',
+          cursor: 'pointer',
+        }}
+      >
+        <PixelIcon grid={icon} fg={TOOLBAR_ICON_FG} accent={TOOLBAR_ICON_ACCENT} />
+      </button>
+      {hovered && (
+        <div
+          style={{
+            position: 'absolute',
+            right: '100%',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            marginRight: 8,
+            padding: '3px 8px',
+            background: 'var(--pixel-bg)',
+            border: '2px solid var(--pixel-border-light)',
+            boxShadow: 'var(--pixel-shadow)',
+            fontSize: TOOLBAR_TOOLTIP_FONT_SIZE_PX,
+            color: 'var(--pixel-text)',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+          }}
+        >
+          <div>{label}</div>
+          <div
+            style={{ fontSize: TOOLBAR_TOOLTIP_FONT_SIZE_PX - 4, color: 'var(--pixel-text-dim)' }}
+          >
+            {tooltip}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Floating icon bubbles on the right edge, ordered by usage frequency:
+ * Assistant, Board, + Workspace, Layout, Settings. Hover shows a pixel
+ * tooltip to the left.
+ */
 export function BottomToolbar({
   isEditMode,
   onToggleEditMode,
+  isBoardOpen,
+  onToggleBoard,
   isDebugMode,
   onToggleDebugMode,
   usageSummary,
   achievements,
 }: BottomToolbarProps) {
-  const [hovered, setHovered] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
-    <div style={panelStyle}>
-      <button
+    <div
+      // Full-height flex column (no transform!): a transformed ancestor would
+      // become the containing block for the fixed-position SettingsModal and
+      // pin it to this 42px strip instead of the viewport.
+      style={{
+        position: 'absolute',
+        right: 10,
+        top: 0,
+        bottom: 0,
+        zIndex: 'var(--pixel-controls-z)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: TOOLBAR_BUBBLE_GAP_PX,
+        pointerEvents: 'none',
+      }}
+    >
+      <ToolbarBubble
+        icon={ICON_ASSISTANT}
+        label="Assistant"
+        tooltip="Campus assistant: status, tasks, spending, dispatch"
         onClick={() => vscode.postMessage({ type: 'openAssistant' })}
-        onMouseEnter={() => setHovered('assistant')}
-        onMouseLeave={() => setHovered(null)}
-        style={{
-          ...btnBase,
-          background:
-            hovered === 'assistant' ? 'var(--pixel-agent-hover-bg)' : 'var(--pixel-agent-bg)',
-          border: '2px solid var(--pixel-agent-border)',
-          color: 'var(--pixel-agent-text)',
-        }}
-        title="Open the campus assistant — it can read project status, tasks and spending, and dispatch agents"
-      >
-        Assistant
-      </button>
-      <button
+        agentTheme
+      />
+      <ToolbarBubble
+        icon={ICON_BOARD}
+        label="Board"
+        tooltip="Open tasks, working agents, and what needs you"
+        onClick={onToggleBoard}
+        active={isBoardOpen}
+      />
+      <ToolbarBubble
+        icon={ICON_WORKSPACE}
+        label="+ Workspace"
+        tooltip="Register a project folder as a new office"
         onClick={() => vscode.postMessage({ type: 'addWorkspace' })}
-        onMouseEnter={() => setHovered('workspace')}
-        onMouseLeave={() => setHovered(null)}
-        style={{
-          ...btnBase,
-          background: hovered === 'workspace' ? 'var(--pixel-btn-hover-bg)' : btnBase.background,
-          border: '2px solid var(--pixel-border)',
-          color: 'var(--pixel-text-dim)',
-        }}
-        title="Register a project folder as a new office"
-      >
-        + Workspace
-      </button>
-      <button
+      />
+      <ToolbarBubble
+        icon={ICON_LAYOUT}
+        label="Layout"
+        tooltip="Edit the office: floors, walls, furniture"
         onClick={onToggleEditMode}
-        onMouseEnter={() => setHovered('edit')}
-        onMouseLeave={() => setHovered(null)}
-        style={
-          isEditMode
-            ? { ...btnActive }
-            : {
-                ...btnBase,
-                background: hovered === 'edit' ? 'var(--pixel-btn-hover-bg)' : btnBase.background,
-              }
-        }
-        title="Edit office layout"
-      >
-        Layout
-      </button>
-      <div style={{ position: 'relative' }}>
-        <button
+        active={isEditMode}
+      />
+      <div style={{ position: 'relative', pointerEvents: 'auto' }}>
+        <ToolbarBubble
+          icon={ICON_SETTINGS}
+          label="Settings"
+          tooltip="Sound, layout import/export, usage, debug"
           onClick={() => setIsSettingsOpen((v) => !v)}
-          onMouseEnter={() => setHovered('settings')}
-          onMouseLeave={() => setHovered(null)}
-          style={
-            isSettingsOpen
-              ? { ...btnActive }
-              : {
-                  ...btnBase,
-                  background:
-                    hovered === 'settings' ? 'var(--pixel-btn-hover-bg)' : btnBase.background,
-                }
-          }
-          title="Settings"
-        >
-          Settings
-        </button>
+          active={isSettingsOpen}
+        />
         <SettingsModal
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
