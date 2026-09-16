@@ -209,6 +209,17 @@ export const ROLE_SKINS: RoleSkin[] = [
     hat: { bottomRow: 9, outline: '#3c2a16', base: '#7d5c34', highlight: '#a3814e', brim: 'both' },
   },
   {
+    id: 'marketing',
+    name: 'Marketing',
+    description: 'char_2 tee gone magenta (stripes kept), sunglasses',
+    base: 2,
+    hair: HAIR_2,
+    // Same hue-predicate trick as QA: every orange/red shade of the striped
+    // tee shifts to magenta; stripes keep their lightness so the pattern survives.
+    recolors: [{ match: { hMin: -15, hMax: 45, sMin: 0.5, rows: [16, 28] }, h: 315, s: 0.68 }],
+    eyewear: { kind: 'sunglasses', color: '#1c1022' },
+  },
+  {
     id: 'writer',
     name: 'Tech Writer',
     description: 'char_3 silver hair, mustard shirt, glasses',
