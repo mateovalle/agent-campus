@@ -5,6 +5,7 @@ import type {
   AgentActionSuggestion,
   AgentTodo,
   HostToWebviewMessage,
+  ScheduleEntry,
   TodoItem,
   UsageSummary,
   WorkspaceInfo,
@@ -79,6 +80,10 @@ export interface ExtensionMessageState {
   clearAgentSuggestions: (id: number) => void;
   /** Available role skins (empty until roleSpritesLoaded). */
   roles: Array<{ id: string; name: string }>;
+  /** Recurring scheduled runs (Electron only; empty elsewhere). */
+  schedules: ScheduleEntry[];
+  /** Whether the app is registered to open at OS login (Electron only). */
+  launchAtLogin: boolean;
 }
 
 /** Aggregate seat assignments across every office on the campus and persist. */
@@ -129,6 +134,8 @@ export function useExtensionMessages(
     {},
   );
   const [roles, setRoles] = useState<Array<{ id: string; name: string }>>([]);
+  const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
 
   const dismissUnlock = useCallback(() => {
     setUnlockQueue((prev) => prev.slice(1));
@@ -517,6 +524,9 @@ export function useExtensionMessages(
         setAgentTodos((prev) => ({ ...prev, [agentId]: todos }));
       } else if (msg.type === 'settingsLoaded') {
         setSoundEnabled(msg.soundEnabled);
+        setLaunchAtLogin(msg.launchAtLogin ?? false);
+      } else if (msg.type === 'schedulesLoaded') {
+        setSchedules(msg.schedules);
       } else if (msg.type === 'usageSummary') {
         setUsageSummary(msg.summary);
         campus.setTodayUsage(msg.summary.todayByWorkspace ?? {});
@@ -570,5 +580,7 @@ export function useExtensionMessages(
     agentSuggestions,
     clearAgentSuggestions,
     roles,
+    schedules,
+    launchAtLogin,
   };
 }

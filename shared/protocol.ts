@@ -48,6 +48,25 @@ export interface AgentSeatMeta {
   role?: string | null;
 }
 
+/** A recurring agent dispatch (Electron scheduler, ~/.pixel-agents/schedules.json). */
+export interface ScheduleEntry {
+  id: string;
+  workspacePath: string;
+  /** Self-contained task prompt for the dispatched agent. */
+  prompt: string;
+  /** Dispatch role id (charter + tool policy + skin), if any. */
+  role?: string;
+  kind: 'daily' | 'weekly' | 'interval';
+  /** 'HH:MM' local time — daily and weekly kinds. */
+  time?: string;
+  /** Days of week (0=Sunday) — weekly kind. */
+  days?: number[];
+  /** Minutes between runs — interval kind. */
+  everyMinutes?: number;
+  enabled: boolean;
+  lastRunAtMs?: number;
+}
+
 /** A role skin: named character sprite set (same sheet layout as the base). */
 export interface RoleSpriteSet {
   id: string;
@@ -229,7 +248,8 @@ export type HostToWebviewMessage =
       sprites: Record<string, SpriteData>;
     }
   // Settings & workspace
-  | { type: 'settingsLoaded'; soundEnabled: boolean }
+  | { type: 'settingsLoaded'; soundEnabled: boolean; launchAtLogin?: boolean }
+  | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   | { type: 'pty-created'; ptyId: string; label: string }
@@ -305,6 +325,9 @@ export type WebviewToHostMessage =
   // workspacePath present = save as that office's own layout (Electron campus)
   | { type: 'saveLayout'; layout: unknown; workspacePath?: string }
   | { type: 'setSoundEnabled'; enabled: boolean }
+  | { type: 'setLaunchAtLogin'; enabled: boolean }
+  | { type: 'deleteSchedule'; id: string }
+  | { type: 'toggleSchedule'; id: string; enabled: boolean }
   | { type: 'openSessionsFolder' }
   | { type: 'exportLayout' }
   | { type: 'importLayout' }

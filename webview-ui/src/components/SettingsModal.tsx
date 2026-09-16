@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type {
   AchievementInfo,
   HostToWebviewMessage,
+  ScheduleEntry,
   UsageSummary,
 } from '../../../shared/protocol.js';
 import {
@@ -210,6 +211,103 @@ interface SettingsModalProps {
   usageSummary: UsageSummary | null;
   /** Full achievements list from useExtensionMessages (empty until loaded). */
   achievements: AchievementInfo[];
+  /** Recurring scheduled runs (Electron only; empty elsewhere). */
+  schedules: ScheduleEntry[];
+  launchAtLogin: boolean;
+  onSetLaunchAtLogin: (enabled: boolean) => void;
+}
+
+const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function describeCadence(s: ScheduleEntry): string {
+  if (s.kind === 'interval') return `Every ${s.everyMinutes}m`;
+  if (s.kind === 'weekly') {
+    const days = (s.days ?? []).map((d) => DAY_ABBREV[d] ?? '?').join('/');
+    return `${days} ${s.time ?? ''}`.trim();
+  }
+  return `Daily ${s.time ?? ''}`.trim();
+}
+
+function workspaceBasename(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? p;
+}
+
+/** Scheduled runs list: cadence + target, enable toggle, delete. */
+function SchedulesSection({ schedules }: { schedules: ScheduleEntry[] }) {
+  if (schedules.length === 0) return null;
+  return (
+    <div style={{ borderTop: '1px solid var(--pixel-border)', marginTop: 4, paddingTop: 4 }}>
+      <div style={{ padding: '2px 10px', fontSize: '20px', color: 'rgba(255,255,255,0.9)' }}>
+        Scheduled Runs
+      </div>
+      {schedules.map((s) => (
+        <div
+          key={s.id}
+          title={s.prompt}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '2px 10px',
+            fontSize: '18px',
+            color: 'rgba(255, 255, 255, 0.7)',
+          }}
+        >
+          <span
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              opacity: s.enabled ? 1 : 0.45,
+            }}
+          >
+            {describeCadence(s)} · {workspaceBasename(s.workspacePath)}
+            {s.role ? ` · ${s.role}` : ''}
+          </span>
+          <button
+            onClick={() =>
+              vscode.postMessage({ type: 'toggleSchedule', id: s.id, enabled: !s.enabled })
+            }
+            title={s.enabled ? 'Disable' : 'Enable'}
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255,255,255,0.5)',
+              borderRadius: 0,
+              background: s.enabled ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+              color: '#fff',
+              fontSize: '11px',
+              lineHeight: 1,
+            }}
+          >
+            {s.enabled ? 'X' : ''}
+          </button>
+          <button
+            onClick={() => vscode.postMessage({ type: 'deleteSchedule', id: s.id })}
+            title="Delete schedule"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 0,
+              color: 'rgba(255, 100, 100, 0.8)',
+              fontSize: '18px',
+              cursor: 'pointer',
+              padding: '0 2px',
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            X
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const menuItemBase: React.CSSProperties = {
@@ -234,6 +332,9 @@ export function SettingsModal({
   onToggleDebugMode,
   usageSummary,
   achievements,
+  schedules,
+  launchAtLogin,
+  onSetLaunchAtLogin,
 }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   // Bump to re-render after toggling sound (source of truth lives in notificationSound)
@@ -387,6 +488,35 @@ export function SettingsModal({
           </span>
         </button>
         <button
+          onClick={() => onSetLaunchAtLogin(!launchAtLogin)}
+          onMouseEnter={() => setHovered('login')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            ...menuItemBase,
+            background: hovered === 'login' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          <span>Launch at Login</span>
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: 0,
+              background: launchAtLogin ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              lineHeight: 1,
+              color: '#fff',
+            }}
+          >
+            {launchAtLogin ? 'X' : ''}
+          </span>
+        </button>
+        <button
           onClick={onToggleDebugMode}
           onMouseEnter={() => setHovered('debug')}
           onMouseLeave={() => setHovered(null)}
@@ -408,6 +538,7 @@ export function SettingsModal({
             />
           )}
         </button>
+        <SchedulesSection schedules={schedules} />
         <UsageSection liveSummary={usageSummary} />
         <AchievementsSection achievements={achievements} />
       </div>

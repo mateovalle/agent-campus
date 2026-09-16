@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { AchievementInfo, UsageSummary } from '../../../shared/protocol.js';
+import type { AchievementInfo, ScheduleEntry, UsageSummary } from '../../../shared/protocol.js';
 import {
   TOOLBAR_BUBBLE_GAP_PX,
   TOOLBAR_BUBBLE_SIZE_PX,
@@ -31,6 +31,9 @@ interface BottomToolbarProps {
   usageSummary: UsageSummary | null;
   /** Full achievements list from the host (empty until loaded). */
   achievements: AchievementInfo[];
+  /** Recurring scheduled runs (Electron only; empty elsewhere). */
+  schedules: ScheduleEntry[];
+  launchAtLogin: boolean;
 }
 
 interface BubbleProps {
@@ -131,6 +134,8 @@ export function BottomToolbar({
   onToggleDebugMode,
   usageSummary,
   achievements,
+  schedules,
+  launchAtLogin,
 }: BottomToolbarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -194,6 +199,11 @@ export function BottomToolbar({
           onToggleDebugMode={onToggleDebugMode}
           usageSummary={usageSummary}
           achievements={achievements}
+          schedules={schedules}
+          launchAtLogin={launchAtLogin}
+          onSetLaunchAtLogin={(enabled) =>
+            vscode.postMessage({ type: 'setLaunchAtLogin', enabled })
+          }
         />
       </div>
     </div>

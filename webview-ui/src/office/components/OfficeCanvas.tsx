@@ -40,6 +40,8 @@ interface OfficeCanvasProps {
   onClick: (agentId: number, office: OfficeState) => void;
   /** Floor click on an office with nothing else hit — open the workspace popup. */
   onOfficeClick: (workspace: WorkspaceInfo, cssX: number, cssY: number) => void;
+  /** Clicking a whiteboard opens the campus Board (physical shortcut to the kanban). */
+  onBoardFurnitureClick?: () => void;
   /** Click on empty canvas / a character — close any open popup. */
   onEmptyClick: () => void;
   isEditMode: boolean;
@@ -71,6 +73,7 @@ export function OfficeCanvas({
   officeState,
   onClick,
   onOfficeClick,
+  onBoardFurnitureClick,
   onEmptyClick,
   isEditMode,
   editorState,
@@ -800,6 +803,15 @@ export function OfficeCanvas({
         return;
       }
 
+      // Whiteboard furniture is a physical shortcut to the campus Board
+      const hitFurniture = findFurnitureAt(office.getLayout().furniture, hit.col, hit.row);
+      if (hitFurniture?.type.startsWith('whiteboard')) {
+        campus.clearSelectionsExcept(null);
+        onEmptyClick(); // close any open popup
+        onBoardFurnitureClick?.();
+        return;
+      }
+
       // No agent hit — check seat click while an agent in THIS office is selected
       if (office.selectedAgentId !== null) {
         const selectedCh = office.characters.get(office.selectedAgentId);
@@ -842,7 +854,16 @@ export function OfficeCanvas({
       // Nothing hit, nothing selected — open the workspace action popup
       onOfficeClick(hit.workspace, pos.screenX, pos.screenY);
     },
-    [campus, onClick, onOfficeClick, onEmptyClick, screenToWorld, campusHitTest, isEditMode],
+    [
+      campus,
+      onClick,
+      onOfficeClick,
+      onBoardFurnitureClick,
+      onEmptyClick,
+      screenToWorld,
+      campusHitTest,
+      isEditMode,
+    ],
   );
 
   const handleMouseLeave = useCallback(() => {

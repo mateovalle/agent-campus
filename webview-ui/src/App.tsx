@@ -169,6 +169,8 @@ function App() {
     agentSuggestions,
     clearAgentSuggestions,
     roles,
+    schedules,
+    launchAtLogin,
   } = useExtensionMessages(campus, editor.setLastSavedLayout, isEditDirty);
 
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -206,6 +208,7 @@ function App() {
   const [isBoardOpen, setIsBoardOpen] = useState(false);
   const handleToggleBoard = useCallback(() => setIsBoardOpen((v) => !v), []);
   const handleCloseBoard = useCallback(() => setIsBoardOpen(false), []);
+  const handleOpenBoard = useCallback(() => setIsBoardOpen(true), []);
 
   // Close the popup if its workspace was removed
   useEffect(() => {
@@ -417,6 +420,7 @@ function App() {
           onClick={handleClick}
           onOfficeClick={handleOfficeClick}
           onEmptyClick={handleCloseOfficePopup}
+          onBoardFurnitureClick={handleOpenBoard}
           isEditMode={editor.isEditMode}
           editorState={editorState}
           onEditorTileAction={editor.handleEditorTileAction}
@@ -452,6 +456,8 @@ function App() {
           onToggleDebugMode={handleToggleDebugMode}
           usageSummary={usageSummary}
           achievements={achievements}
+          schedules={schedules}
+          launchAtLogin={launchAtLogin}
         />
 
         {isBoardOpen && !editor.isEditMode && (

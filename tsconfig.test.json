@@ -8,5 +8,5 @@
 		"strict": true,
 		"noEmit": true
 	},
-	"include": ["src/core", "shared"]
+	"include": ["src/core", "shared", "electron/__tests__"]
 }

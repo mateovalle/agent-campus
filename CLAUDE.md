@@ -57,6 +57,14 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 own-write suppression) — external edits apply without restart
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger
+  schedules.ts                — Recurring agent dispatch: ~/.pixel-agents/schedules.json entries
+                                (daily/weekly at HH:MM, or interval everyMinutes) + pure isDue()
+                                (lastRunAtMs guards double-fires across ticks/restarts). Main ticks
+                                every 30s → due entries launchChatAgent(workspace, prompt, role);
+                                skips a schedule whose previous agent is still busy. Managed via
+                                Assistant MCP tools (list/add/remove_schedule) + Settings list
+                                (toggle/delete). Runs with the window closed on macOS (app stays
+                                alive); "Launch at Login" checkbox → app.setLoginItemSettings
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
                                 ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol,
                                 canUseTool → chat-permission-request/-response promise bridge, capped
@@ -79,7 +87,9 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 message accepts optional `prompt`). The Assistant's system prompt
                                 carries ASSISTANT_PLANNING_PROCEDURE (electron/main.ts): scope
                                 forcing-questions → role-tagged tasks ([build]/[qa]/…) via add_task
-                                → human review on the Board → budget-capped dispatch on approval
+                                → human review on the Board → budget-capped dispatch on approval.
+                                Clicking whiteboard furniture in the office also opens the Board
+                                (OfficeCanvas onBoardFurnitureClick)
   components/chat/            — Rich chat UI for SDK agents: ChatView (event reducer + message list +
                                 composer + permission cards), ToolCard (collapsible, Edit diffs),
                                 Markdown (dependency-free safe renderer)

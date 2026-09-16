@@ -45,6 +45,14 @@ import {
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
 import { type ChatSession, startChatSession } from './chatAgent.js';
+import {
+  addSchedule,
+  collectDueSchedules,
+  loadSchedules,
+  removeSchedule,
+  SCHEDULER_TICK_MS,
+  setScheduleEnabled,
+} from './schedules.js';
 import { addTodo, deleteTodo, getAllTodoPaths, getTodos, toggleTodo } from './todos.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
@@ -123,6 +131,10 @@ const ptyToAgent = new Map<string, number>(); // ptyId → agentId
 // Chat (Agent SDK) state
 const chatSessions = new Map<number, ChatSession>(); // agentId → session
 let assistantAgentId: number | null = null;
+
+// Scheduler state
+let schedulerTimer: ReturnType<typeof setInterval> | null = null;
+const scheduleLastAgent = new Map<string, number>(); // scheduleId → last dispatched agentId
 
 // ── Small JSON persistence helpers ───────────────────────────
 function loadJsonFile<T>(file: string): T | null {
@@ -376,7 +388,7 @@ function launchChatAgent(
   resumeSessionId?: string,
   initialPrompt?: string,
   roleId?: string,
-): void {
+): number {
   const sessionId = resumeSessionId ?? crypto.randomUUID();
   const agent = registerAgent('chat', cwd, sessionId, !!resumeSessionId);
   const label = `Agent ${nextTerminalIndex++}`;
@@ -437,6 +449,7 @@ function launchChatAgent(
   if (initialPrompt) {
     session.send(initialPrompt);
   }
+  return agent.id;
 }
 
 /** Poll until the agent's JSONL file appears, then start watching it. */
@@ -649,8 +662,10 @@ function openAssistant(): void {
       'developer runs multiple Claude Code agents across project workspaces (offices). ' +
       'Your job is orchestration: keep an overview of workspaces, agents, tasks and ' +
       'spending via your campus tools, help the user prioritize, and dispatch work by ' +
-      'creating agents with clear, self-contained task prompts. Prefer checking real ' +
-      'state with tools over assuming. Be concise.' +
+      'creating agents with clear, self-contained task prompts. You can also set up ' +
+      'recurring scheduled runs (list/add/remove_schedule) when the user wants work done ' +
+      'on a cadence — confirm workspace, cadence and prompt before creating one. Prefer ' +
+      'checking real state with tools over assuming. Be concise.' +
       ASSISTANT_PLANNING_PROCEDURE,
     toolsFactory: (sdk, z) => ({
       mcpServers: {
@@ -740,6 +755,69 @@ function openAssistant(): void {
                 };
               },
             ),
+            sdk.tool(
+              'list_schedules',
+              'List recurring scheduled agent runs (id, workspace, prompt, cadence, enabled).',
+              {},
+              async () => ({
+                content: [{ type: 'text', text: JSON.stringify(loadSchedules(), null, 2) }],
+              }),
+            ),
+            sdk.tool(
+              'add_schedule',
+              'Create a recurring scheduled agent run. The prompt must be fully ' +
+                'self-contained (the run is unattended). kind daily needs time; weekly ' +
+                'needs time + days (0=Sunday); interval needs everyMinutes. Confirm ' +
+                'workspace, cadence and prompt with the user before creating.',
+              {
+                workspacePath: z.string(),
+                prompt: z.string(),
+                role: z.enum(DISPATCH_ROLE_IDS as [string, ...string[]]).optional(),
+                kind: z.enum(['daily', 'weekly', 'interval']),
+                time: z
+                  .string()
+                  .regex(/^\d{1,2}:\d{2}$/)
+                  .optional(),
+                days: z.array(z.number().min(0).max(6)).optional(),
+                everyMinutes: z.number().min(1).optional(),
+              },
+              async (args) => {
+                if ((args.kind === 'daily' || args.kind === 'weekly') && !args.time) {
+                  return { content: [{ type: 'text', text: 'Error: this kind needs time.' }] };
+                }
+                if (args.kind === 'weekly' && !args.days?.length) {
+                  return { content: [{ type: 'text', text: 'Error: weekly needs days.' }] };
+                }
+                if (args.kind === 'interval' && !args.everyMinutes) {
+                  return {
+                    content: [{ type: 'text', text: 'Error: interval needs everyMinutes.' }],
+                  };
+                }
+                addSchedule({
+                  workspacePath: args.workspacePath,
+                  prompt: args.prompt,
+                  role: args.role,
+                  kind: args.kind,
+                  time: args.time,
+                  days: args.days,
+                  everyMinutes: args.everyMinutes,
+                  enabled: true,
+                });
+                sendSchedules();
+                return { content: [{ type: 'text', text: 'Schedule created and enabled.' }] };
+              },
+            ),
+            sdk.tool(
+              'remove_schedule',
+              'Delete a scheduled run by id (from list_schedules).',
+              { id: z.string() },
+              async (args) => {
+                removeSchedule(args.id);
+                scheduleLastAgent.delete(args.id);
+                sendSchedules();
+                return { content: [{ type: 'text', text: 'Schedule removed.' }] };
+              },
+            ),
           ],
         }),
       },
@@ -750,6 +828,9 @@ function openAssistant(): void {
         'mcp__campus__add_task',
         'mcp__campus__usage_summary',
         'mcp__campus__create_agent',
+        'mcp__campus__list_schedules',
+        'mcp__campus__add_schedule',
+        'mcp__campus__remove_schedule',
       ],
     }),
     onTurnComplete: (costUsd, durationMs) => {
@@ -763,6 +844,38 @@ function openAssistant(): void {
   });
   chatSessions.set(id, session);
   ctx.send({ type: 'chat-created', agentId: id, label: 'Assistant' });
+}
+
+// ── Scheduler ────────────────────────────────────────────────
+// Recurring dispatch: due schedules launch a chat agent with their prompt
+// and role. On macOS this keeps working with the window closed (the app
+// stays alive); unattended runs that hit permissions land in "Needs You".
+function sendSchedules(): void {
+  ctx.send({ type: 'schedulesLoaded', schedules: loadSchedules() });
+}
+
+function schedulerTick(): void {
+  for (const s of collectDueSchedules()) {
+    // Skip if this schedule's previous agent is still working — the next
+    // tick after it frees up will fire (lastRunAtMs was already stamped,
+    // so time-of-day kinds skip to the next occurrence instead of piling up).
+    const lastAgentId = scheduleLastAgent.get(s.id);
+    const lastSession = lastAgentId !== undefined ? chatSessions.get(lastAgentId) : undefined;
+    if (lastSession && !lastSession.ended && lastSession.busy) {
+      console.log(`[Pixel Agents] Schedule ${s.id}: previous agent still busy — skipping run`);
+      continue;
+    }
+    console.log(`[Pixel Agents] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
+    const agentId = launchChatAgent(
+      s.workspacePath,
+      undefined,
+      `Scheduled run. ${s.prompt}\n\nThis run is unattended: work autonomously, and if you ` +
+        `finish or get blocked, leave a clear report as your final message.`,
+      s.role,
+    );
+    scheduleLastAgent.set(s.id, agentId);
+    sendSchedules();
+  }
 }
 
 // ── Session resume ───────────────────────────────────────────
@@ -995,6 +1108,21 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     saveAgentSeats(msg.seats);
   } else if (msg.type === 'setSoundEnabled') {
     saveJsonFile(SETTINGS_FILE, { soundEnabled: !!msg.enabled });
+  } else if (msg.type === 'setLaunchAtLogin') {
+    app.setLoginItemSettings({ openAtLogin: !!msg.enabled });
+    // Echo back so the checkbox reflects what the OS actually accepted
+    ctx.send({
+      type: 'settingsLoaded',
+      soundEnabled: loadSettings().soundEnabled,
+      launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    });
+  } else if (msg.type === 'deleteSchedule') {
+    removeSchedule(msg.id);
+    scheduleLastAgent.delete(msg.id);
+    sendSchedules();
+  } else if (msg.type === 'toggleSchedule') {
+    setScheduleEnabled(msg.id, msg.enabled);
+    sendSchedules();
   } else if (msg.type === 'closeAgent') {
     const id = msg.id;
     const chat = chatSessions.get(id);
@@ -1114,7 +1242,12 @@ function onWebviewReady(): void {
   })();
 
   // Send settings
-  ctx.send({ type: 'settingsLoaded', soundEnabled: loadSettings().soundEnabled });
+  ctx.send({
+    type: 'settingsLoaded',
+    soundEnabled: loadSettings().soundEnabled,
+    launchAtLogin: app.getLoginItemSettings().openAtLogin,
+  });
+  sendSchedules();
 
   // Send registered workspaces (offices)
   ctx.send({ type: 'workspacesLoaded', workspaces: loadWorkspaces() });
@@ -1239,6 +1372,10 @@ function createWindow(): void {
 
 // ── App Lifecycle ────────────────────────────────────────────
 function cleanupAndQuit(): void {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
   layoutWatcher?.dispose();
   layoutWatcher = null;
   layoutsDirWatcher?.close();
@@ -1265,6 +1402,8 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
