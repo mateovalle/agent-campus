@@ -678,6 +678,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: DESK_STANDING,
+    groupId: 'desk_standing',
+    orientation: 'front',
   },
   {
     id: 'desk_double',
@@ -688,6 +690,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 3,
     footprintH: 2,
     sprite: DESK_DOUBLE,
+    groupId: 'desk_double',
+    orientation: 'front',
   },
   {
     id: 'chair_office',
@@ -742,6 +746,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: BOOKSHELF_TALL,
+    groupId: 'bookshelf_tall',
+    orientation: 'front',
   },
   {
     id: 'filing_cabinet',
@@ -752,6 +758,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: FILING_CABINET,
+    groupId: 'filing_cabinet',
+    orientation: 'front',
   },
   {
     id: 'water_dispenser',
@@ -822,6 +830,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: ARCADE_MACHINE,
+    groupId: 'arcade_machine',
+    orientation: 'front',
   },
 ];
 

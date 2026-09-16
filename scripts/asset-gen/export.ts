@@ -25,6 +25,7 @@ import { SPRITES } from './sprites.ts';
 import { SPRITES2 } from './sprites2.ts';
 import { SPRITES3 } from './sprites3.ts';
 import { SPRITES4 } from './sprites4.ts';
+import { SPRITES5 } from './sprites5.ts';
 
 const { PNG } = pngjs;
 
@@ -102,6 +103,19 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   couch_back: { category: 'chairs' },
   monitor_dual_back: { category: 'electronics', canPlaceOnSurfaces: true },
   desk_l_right: { category: 'desks', isDesk: true },
+  // ── rotation variants (batch 5) — same meta as their front sprite ──
+  desk_double_back: { category: 'desks', isDesk: true },
+  desk_standing_back: { category: 'desks', isDesk: true },
+  bookshelf_tall_back: { category: 'storage' },
+  tv_dashboard_back: { category: 'wall', canPlaceOnWalls: true },
+  server_rack_back: { category: 'electronics' },
+  vending_machine_right: { category: 'storage' },
+  vending_machine_left: { category: 'storage' },
+  arcade_machine_right: { category: 'electronics' },
+  arcade_machine_left: { category: 'electronics' },
+  filing_cabinet_right: { category: 'storage' },
+  filing_cabinet_left: { category: 'storage' },
+  pingpong_table_right: { category: 'decor' },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -177,7 +191,7 @@ function exportFloors(): void {
 function exportFurniture(): void {
   fs.mkdirSync(FURNITURE_DIR, { recursive: true });
 
-  const all: GeneratedSprite[] = [...SPRITES, ...SPRITES2, ...SPRITES3, ...SPRITES4];
+  const all: GeneratedSprite[] = [...SPRITES, ...SPRITES2, ...SPRITES3, ...SPRITES4, ...SPRITES5];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
   const spriteIds = new Set(all.map((s) => s.id));

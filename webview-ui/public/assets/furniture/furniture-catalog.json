@@ -57,7 +57,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "server_rack",
+      "orientation": "front"
     },
     {
       "id": "plant_monstera",
@@ -151,7 +153,9 @@
       "footprintW": 2,
       "footprintH": 1,
       "isDesk": true,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "desk_standing",
+      "orientation": "front"
     },
     {
       "id": "desk_double",
@@ -164,7 +168,9 @@
       "footprintW": 3,
       "footprintH": 2,
       "isDesk": true,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "desk_double",
+      "orientation": "front"
     },
     {
       "id": "chair_office",
@@ -233,7 +239,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "bookshelf_tall",
+      "orientation": "front"
     },
     {
       "id": "filing_cabinet",
@@ -246,7 +254,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "filing_cabinet",
+      "orientation": "front"
     },
     {
       "id": "water_dispenser",
@@ -338,7 +348,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "arcade_machine",
+      "orientation": "front"
     },
     {
       "id": "window",
@@ -364,7 +376,9 @@
       "footprintW": 2,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": true
+      "canPlaceOnWalls": true,
+      "groupId": "tv_dashboard",
+      "orientation": "front"
     },
     {
       "id": "desk_lamp",
@@ -418,7 +432,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "vending_machine",
+      "orientation": "front"
     },
     {
       "id": "microwave",
@@ -458,7 +474,9 @@
       "footprintW": 3,
       "footprintH": 2,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "pingpong_table",
+      "orientation": "front"
     },
     {
       "id": "medals_wall",
@@ -648,6 +666,186 @@
       "isDesk": true,
       "canPlaceOnWalls": false,
       "groupId": "desk_l",
+      "orientation": "right"
+    },
+    {
+      "id": "desk_double_back",
+      "name": "DESK_DOUBLE_BACK",
+      "label": "Double Desk (Back)",
+      "category": "desks",
+      "file": "furniture/desk_double_back.png",
+      "width": 48,
+      "height": 32,
+      "footprintW": 3,
+      "footprintH": 2,
+      "isDesk": true,
+      "canPlaceOnWalls": false,
+      "groupId": "desk_double",
+      "orientation": "back"
+    },
+    {
+      "id": "desk_standing_back",
+      "name": "DESK_STANDING_BACK",
+      "label": "Standing Desk (Back)",
+      "category": "desks",
+      "file": "furniture/desk_standing_back.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": true,
+      "canPlaceOnWalls": false,
+      "groupId": "desk_standing",
+      "orientation": "back"
+    },
+    {
+      "id": "bookshelf_tall_back",
+      "name": "BOOKSHELF_TALL_BACK",
+      "label": "Tall Bookshelf (Back)",
+      "category": "storage",
+      "file": "furniture/bookshelf_tall_back.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "bookshelf_tall",
+      "orientation": "back"
+    },
+    {
+      "id": "tv_dashboard_back",
+      "name": "TV_DASHBOARD_BACK",
+      "label": "Dashboard TV (Back)",
+      "category": "wall",
+      "file": "furniture/tv_dashboard_back.png",
+      "width": 32,
+      "height": 16,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": true,
+      "groupId": "tv_dashboard",
+      "orientation": "back"
+    },
+    {
+      "id": "server_rack_back",
+      "name": "SERVER_RACK_BACK",
+      "label": "Server Rack (Back)",
+      "category": "electronics",
+      "file": "furniture/server_rack_back.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "server_rack",
+      "orientation": "back"
+    },
+    {
+      "id": "vending_machine_right",
+      "name": "VENDING_MACHINE_RIGHT",
+      "label": "Vending Machine (Right)",
+      "category": "storage",
+      "file": "furniture/vending_machine_right.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "vending_machine",
+      "orientation": "right"
+    },
+    {
+      "id": "vending_machine_left",
+      "name": "VENDING_MACHINE_LEFT",
+      "label": "Vending Machine (Left)",
+      "category": "storage",
+      "file": "furniture/vending_machine_left.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "vending_machine",
+      "orientation": "left"
+    },
+    {
+      "id": "arcade_machine_right",
+      "name": "ARCADE_MACHINE_RIGHT",
+      "label": "Arcade Machine (Right)",
+      "category": "electronics",
+      "file": "furniture/arcade_machine_right.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "arcade_machine",
+      "orientation": "right"
+    },
+    {
+      "id": "arcade_machine_left",
+      "name": "ARCADE_MACHINE_LEFT",
+      "label": "Arcade Machine (Left)",
+      "category": "electronics",
+      "file": "furniture/arcade_machine_left.png",
+      "width": 16,
+      "height": 48,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "arcade_machine",
+      "orientation": "left"
+    },
+    {
+      "id": "filing_cabinet_right",
+      "name": "FILING_CABINET_RIGHT",
+      "label": "Filing Cabinet (Right)",
+      "category": "storage",
+      "file": "furniture/filing_cabinet_right.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "filing_cabinet",
+      "orientation": "right"
+    },
+    {
+      "id": "filing_cabinet_left",
+      "name": "FILING_CABINET_LEFT",
+      "label": "Filing Cabinet (Left)",
+      "category": "storage",
+      "file": "furniture/filing_cabinet_left.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "filing_cabinet",
+      "orientation": "left"
+    },
+    {
+      "id": "pingpong_table_right",
+      "name": "PINGPONG_TABLE_RIGHT",
+      "label": "Ping-Pong Table (Rotated)",
+      "category": "decor",
+      "file": "furniture/pingpong_table_right.png",
+      "width": 32,
+      "height": 48,
+      "footprintW": 2,
+      "footprintH": 3,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "pingpong_table",
       "orientation": "right"
     }
   ]

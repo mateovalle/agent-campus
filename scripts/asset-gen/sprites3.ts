@@ -721,6 +721,8 @@ export const SPRITES3: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: TV_DASHBOARD,
+    groupId: 'tv_dashboard',
+    orientation: 'front',
   },
   {
     id: 'desk_lamp',
@@ -761,6 +763,8 @@ export const SPRITES3: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: VENDING_MACHINE,
+    groupId: 'vending_machine',
+    orientation: 'front',
   },
   {
     id: 'microwave',
@@ -791,6 +795,8 @@ export const SPRITES3: GeneratedSprite[] = [
     footprintW: 3,
     footprintH: 2,
     sprite: PINGPONG_TABLE,
+    groupId: 'pingpong_table',
+    orientation: 'front',
   },
   {
     id: 'medals_wall',

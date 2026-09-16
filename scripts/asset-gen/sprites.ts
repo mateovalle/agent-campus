@@ -654,6 +654,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: SERVER_RACK,
+    groupId: 'server_rack',
+    orientation: 'front',
   },
   {
     id: 'plant_monstera',
