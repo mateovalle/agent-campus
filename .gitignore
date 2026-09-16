@@ -6,7 +6,7 @@ node_modules
 .DS_Store
 .vscode-test/
 *.vsix
-.claude/
+/.claude/
 /logs
 /sprites-export
 .env
