@@ -190,6 +190,8 @@ export type HostToWebviewMessage =
       agentKind?: 'terminal' | 'chat';
       /** Absolute project folder this agent works in (its workspace/office). */
       workspacePath?: string;
+      /** Dispatch role id (charter + tool policy + skin), when the agent was created with one. */
+      role?: string;
     }
   | { type: 'agentClosed'; id: number }
   | { type: 'agentSelected'; id: number }
@@ -200,7 +202,8 @@ export type HostToWebviewMessage =
       folderNames: Record<number, string>;
     }
   // Tool activity
-  | { type: 'agentToolStart'; id: number; toolId: string; status: string }
+  // subagentRole: role skin for the Task's typed sub-agent character (from subagent_type)
+  | { type: 'agentToolStart'; id: number; toolId: string; status: string; subagentRole?: string }
   | { type: 'agentToolDone'; id: number; toolId: string }
   | { type: 'agentToolsClear'; id: number }
   | { type: 'agentToolPermission'; id: number }

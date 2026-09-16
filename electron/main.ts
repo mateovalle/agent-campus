@@ -32,6 +32,7 @@ import {
   watchLayoutFile,
   writeLayoutToFile,
 } from '../src/core/layoutPersistence.js';
+import { AGENT_ROLE_DEFS, DISPATCH_ROLE_IDS, roleForTaskText } from '../src/core/roles.js';
 import {
   cancelPermissionTimer,
   cancelWaitingTimer,
@@ -370,10 +371,16 @@ function launchAgent(cwd: string): void {
   ensureProjectScan(agent.projectDir);
 }
 
-function launchChatAgent(cwd: string, resumeSessionId?: string, initialPrompt?: string): void {
+function launchChatAgent(
+  cwd: string,
+  resumeSessionId?: string,
+  initialPrompt?: string,
+  roleId?: string,
+): void {
   const sessionId = resumeSessionId ?? crypto.randomUUID();
   const agent = registerAgent('chat', cwd, sessionId, !!resumeSessionId);
   const label = `Agent ${nextTerminalIndex++}`;
+  const role = roleId ? AGENT_ROLE_DEFS[roleId] : undefined;
 
   const session = startChatSession({
     agentId: agent.id,
@@ -382,6 +389,7 @@ function launchChatAgent(cwd: string, resumeSessionId?: string, initialPrompt?: 
     label,
     resume: !!resumeSessionId,
     send: ctx.send,
+    ...(role ? { systemPromptAppend: role.charter, disallowedTools: role.disallowedTools } : {}),
     taskHandlers: {
       list: () => getTodos(cwd),
       add: (text) => {
@@ -422,6 +430,7 @@ function launchChatAgent(cwd: string, resumeSessionId?: string, initialPrompt?: 
     agentKind: 'chat',
     folderName: path.basename(cwd),
     workspacePath: cwd,
+    ...(role ? { role: role.id } : {}),
   });
   ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(cwd) });
   trackAchievement('agentSpawned', { concurrentAgents: chatSessions.size });
@@ -611,7 +620,7 @@ const ASSISTANT_PLANNING_PROCEDURE =
   'explicitly OUT of scope? how do we verify it worked? ' +
   '(2) SPECIFY: decompose into 2-7 self-contained tasks, written via add_task in ' +
   'priority order. Each task text must start with a role tag in brackets — [build], ' +
-  '[review], [qa], [security], [docs], [release] — followed by what to do and ' +
+  '[review], [qa], [security], [docs], [release], [marketing] — followed by what to do and ' +
   'acceptance criteria ("Done when: ..."). A task must be executable by an agent with ' +
   'no other context than its text. ' +
   '(3) CONFIRM, do not dispatch: after writing the tasks, tell the user to review ' +
@@ -619,7 +628,9 @@ const ASSISTANT_PLANNING_PROCEDURE =
   'once the user approves dispatch. ' +
   '(4) DISPATCH with a budget: check agents_status first and keep at most 3 agents ' +
   'busy at once unless the user says otherwise; prefer assigning to an idle agent in ' +
-  'that workspace before creating a new one.';
+  "that workspace before creating a new one. Pass create_agent's role matching the " +
+  "task's tag (review/qa→qa, security→security, docs→writer, release→release) so the " +
+  'agent gets the right charter and tool policy.';
 
 function openAssistant(): void {
   // Tab-only by design: the assistant has no office or character on the
@@ -709,10 +720,21 @@ function openAssistant(): void {
             ),
             sdk.tool(
               'create_agent',
-              'Dispatch a new agent to a workspace with a self-contained task prompt.',
-              { workspacePath: z.string(), task: z.string() },
+              'Dispatch a new agent to a workspace with a self-contained task prompt. ' +
+                'Pass role for specialist work: it gives the agent a charter and tool ' +
+                'policy (qa/security are read-only reviewers). Omit for build tasks.',
+              {
+                workspacePath: z.string(),
+                task: z.string(),
+                role: z.enum(DISPATCH_ROLE_IDS as [string, ...string[]]).optional(),
+              },
               async (args) => {
-                launchChatAgent(args.workspacePath, undefined, args.task);
+                launchChatAgent(
+                  args.workspacePath,
+                  undefined,
+                  args.task,
+                  args.role ?? roleForTaskText(args.task),
+                );
                 return {
                   content: [{ type: 'text', text: `Agent dispatched to ${args.workspacePath}.` }],
                 };
@@ -951,6 +973,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
           `(mcp__tasks__list_tasks / add_task / complete_task). When you have completed ` +
           `and verified this task, call complete_task with the task id above. If you ` +
           `discover follow-up work worth tracking, record it with add_task.`,
+        roleForTaskText(todo.text),
       );
     }
   } else if (msg.type === 'removeWorkspace') {
@@ -1111,7 +1134,14 @@ function onWebviewReady(): void {
   // Re-send current agent statuses
   for (const [agentId, agent] of ctx.agents) {
     for (const [toolId, status] of agent.activeToolStatuses) {
-      ctx.send({ type: 'agentToolStart', id: agentId, toolId, status });
+      const subagentRole = agent.activeTaskSubagentRoles.get(toolId);
+      ctx.send({
+        type: 'agentToolStart',
+        id: agentId,
+        toolId,
+        status,
+        ...(subagentRole ? { subagentRole } : {}),
+      });
     }
     if (agent.isWaiting) {
       ctx.send({ type: 'agentStatus', id: agentId, status: 'waiting' });

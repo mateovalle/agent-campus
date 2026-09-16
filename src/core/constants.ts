@@ -43,6 +43,7 @@ export const ROLE_SKIN_DEFS = [
   { id: 'release', name: 'Release Engineer' },
   { id: 'debugger', name: 'Debugger' },
   { id: 'writer', name: 'Tech Writer' },
+  { id: 'marketing', name: 'Marketing' },
 ] as const;
 
 // ── User-Level Layout Persistence ─────────────────────────────

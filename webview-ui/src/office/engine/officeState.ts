@@ -387,7 +387,7 @@ export class OfficeState {
   }
 
   /** Create a sub-agent character with the parent's palette. Returns the sub-agent ID. */
-  addSubagent(parentAgentId: number, parentToolId: string): number {
+  addSubagent(parentAgentId: number, parentToolId: string, role?: string): number {
     const key = `${parentAgentId}:${parentToolId}`;
     if (this.subagentIdMap.has(key)) return this.subagentIdMap.get(key)!;
 
@@ -441,6 +441,7 @@ export class OfficeState {
     }
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
+    if (role) ch.role = role; // typed sub-agent skin; missing sheets degrade to the base look
     ch.matrixEffect = 'spawn';
     ch.matrixEffectTimer = 0;
     ch.matrixEffectSeeds = matrixEffectSeeds();

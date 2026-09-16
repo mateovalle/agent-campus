@@ -7,6 +7,7 @@ import {
   TEXT_IDLE_DELAY_MS,
   TOOL_DONE_DELAY_MS,
 } from './constants.js';
+import { roleForSubagentType } from './roles.js';
 import {
   cancelPermissionTimer,
   cancelWaitingTimer,
@@ -103,11 +104,17 @@ export function processTranscriptLine(
           if (!PERMISSION_EXEMPT_TOOLS.has(toolName)) {
             hasNonExemptTool = true;
           }
+          let subagentRole: string | undefined;
+          if (toolName === 'Task' && typeof block.input?.subagent_type === 'string') {
+            subagentRole = roleForSubagentType(block.input.subagent_type);
+            if (subagentRole) agent.activeTaskSubagentRoles.set(block.id, subagentRole);
+          }
           ctx.send({
             type: 'agentToolStart',
             id: agentId,
             toolId: block.id,
             status,
+            ...(subagentRole ? { subagentRole } : {}),
           });
         }
       }
@@ -139,6 +146,7 @@ export function processTranscriptLine(
             if (agent.activeToolNames.get(completedToolId) === 'Task') {
               agent.activeSubagentToolIds.delete(completedToolId);
               agent.activeSubagentToolNames.delete(completedToolId);
+              agent.activeTaskSubagentRoles.delete(completedToolId);
               ctx.send({
                 type: 'subagentClear',
                 id: agentId,

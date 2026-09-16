@@ -192,6 +192,8 @@ export function startChatSession(opts: {
   ) => { mcpServers: NonNullable<Options['mcpServers']>; allowedTools: string[] };
   /** Appended to the claude_code system prompt preset (assistant role, etc.). */
   systemPromptAppend?: string;
+  /** Tools removed from the session entirely (role policy — e.g. read-only reviewers). */
+  disallowedTools?: readonly string[];
   /** Called once per completed turn with the SDK's exact cost/duration. */
   onTurnComplete?: (costUsd: number, durationMs: number) => void;
 }): ChatSession {
@@ -437,6 +439,9 @@ export function startChatSession(opts: {
     try {
       const sdk = await loadSdk();
       const { z } = await import('zod/v4');
+      if (opts.disallowedTools && opts.disallowedTools.length > 0) {
+        sdkOptions.disallowedTools = [...opts.disallowedTools];
+      }
       if (opts.systemPromptAppend) {
         sdkOptions.systemPrompt = {
           type: 'preset',

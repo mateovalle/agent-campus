@@ -37,6 +37,7 @@ export interface CoreAgentState {
   activeToolNames: Map<string, string>;
   activeSubagentToolIds: Map<string, Set<string>>; // parentToolId → active sub-tool IDs
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
+  activeTaskSubagentRoles: Map<string, string>; // Task toolId → role skin id (for replay on reload)
   isWaiting: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
@@ -63,6 +64,7 @@ export function createCoreAgentState(
     activeToolNames: new Map(),
     activeSubagentToolIds: new Map(),
     activeSubagentToolNames: new Map(),
+    activeTaskSubagentRoles: new Map(),
     isWaiting: false,
     permissionSent: false,
     hadToolsInTurn: false,

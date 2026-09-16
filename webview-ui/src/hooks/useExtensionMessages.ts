@@ -218,10 +218,10 @@ export function useExtensionMessages(
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         setSelectedAgent(id);
         if (!layoutReadyRef.current || !workspacesLoaded) {
-          pendingAgents.push({ id, folderName, workspacePath: msg.workspacePath });
+          pendingAgents.push({ id, folderName, workspacePath: msg.workspacePath, role: msg.role });
         } else {
           const office = campus.routeOffice(msg.workspacePath, folderName);
-          office.addAgent(id, undefined, undefined, undefined, undefined, folderName);
+          office.addAgent(id, undefined, undefined, undefined, undefined, folderName, msg.role);
           saveAgentSeats(campus);
         }
       } else if (msg.type === 'agentClosed') {
@@ -309,7 +309,7 @@ export function useExtensionMessages(
           // Create sub-agent character for Task tool subtasks
           if (status.startsWith('Subtask:')) {
             const label = status.slice('Subtask:'.length).trim();
-            const subId = os.addSubagent(id, toolId);
+            const subId = os.addSubagent(id, toolId, msg.subagentRole);
             setSubagentCharacters((prev) => {
               if (prev.some((s) => s.id === subId)) return prev;
               return [...prev, { id: subId, parentAgentId: id, parentToolId: toolId, label }];
