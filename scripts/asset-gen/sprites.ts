@@ -56,6 +56,10 @@ export interface GeneratedSprite {
   footprintW: number;
   footprintH: number;
   sprite: string[][];
+  /** Rotation group — variants sharing a groupId cycle with the editor's R key. */
+  groupId?: string;
+  /** 'front' | 'back' | 'left' | 'right' (with groupId). */
+  orientation?: string;
 }
 
 type Legend = Record<string, string>;
@@ -614,6 +618,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 3,
     footprintH: 2,
     sprite: DESK_L,
+    groupId: 'desk_l',
+    orientation: 'front',
   },
   {
     id: 'chair_gamer',
@@ -624,6 +630,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: CHAIR_GAMER,
+    groupId: 'chair_gamer',
+    orientation: 'front',
   },
   {
     id: 'monitor_dual',
@@ -634,6 +642,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: MONITOR_DUAL,
+    groupId: 'monitor_dual',
+    orientation: 'front',
   },
   {
     id: 'server_rack',

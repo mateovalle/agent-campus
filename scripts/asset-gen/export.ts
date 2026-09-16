@@ -24,6 +24,7 @@ import type { GeneratedSprite } from './sprites.ts';
 import { SPRITES } from './sprites.ts';
 import { SPRITES2 } from './sprites2.ts';
 import { SPRITES3 } from './sprites3.ts';
+import { SPRITES4 } from './sprites4.ts';
 
 const { PNG } = pngjs;
 
@@ -91,6 +92,16 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   cat_sleeping: { category: 'decor', backgroundTiles: 1 },
   rubber_duck: { category: 'decor', canPlaceOnSurfaces: true },
   trophy_gold: { category: 'decor', canPlaceOnSurfaces: true },
+  // ── rotation variants (batch 4) — same meta as their front sprite ──
+  chair_office_back: { category: 'chairs' },
+  chair_office_left: { category: 'chairs' },
+  chair_office_right: { category: 'chairs' },
+  chair_gamer_back: { category: 'chairs' },
+  chair_gamer_left: { category: 'chairs' },
+  chair_gamer_right: { category: 'chairs' },
+  couch_back: { category: 'chairs' },
+  monitor_dual_back: { category: 'electronics', canPlaceOnSurfaces: true },
+  desk_l_right: { category: 'desks', isDesk: true },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -109,6 +120,8 @@ interface CatalogAsset {
   canPlaceOnWalls: boolean;
   canPlaceOnSurfaces?: boolean;
   backgroundTiles?: number;
+  groupId?: string;
+  orientation?: string;
 }
 
 // ── PNG helpers ─────────────────────────────────────────────────
@@ -164,7 +177,7 @@ function exportFloors(): void {
 function exportFurniture(): void {
   fs.mkdirSync(FURNITURE_DIR, { recursive: true });
 
-  const all: GeneratedSprite[] = [...SPRITES, ...SPRITES2, ...SPRITES3];
+  const all: GeneratedSprite[] = [...SPRITES, ...SPRITES2, ...SPRITES3, ...SPRITES4];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
   const spriteIds = new Set(all.map((s) => s.id));
@@ -208,6 +221,8 @@ function exportFurniture(): void {
     };
     if (meta.canPlaceOnSurfaces) entry.canPlaceOnSurfaces = true;
     if (meta.backgroundTiles !== undefined) entry.backgroundTiles = meta.backgroundTiles;
+    if (s.groupId) entry.groupId = s.groupId;
+    if (s.orientation) entry.orientation = s.orientation;
     assets.push(entry);
   }
 

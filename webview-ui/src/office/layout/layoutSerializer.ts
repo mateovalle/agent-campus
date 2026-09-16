@@ -206,7 +206,10 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
         // 2) Adjacent desk direction
         // 3) Default forward (DOWN)
         let facingDir: Direction = Direction.DOWN;
-        if (entry.orientation) {
+        // 'front' is the default orientation every rotatable chair now carries;
+        // treating it as explicit would override the adjacent-desk heuristic
+        // and silently re-face chairs in layouts saved before rotation existed.
+        if (entry.orientation && entry.orientation !== 'front') {
           facingDir = orientationToFacing(entry.orientation);
         } else {
           for (const d of dirs) {

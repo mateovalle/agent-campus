@@ -11,7 +11,9 @@
       "footprintW": 3,
       "footprintH": 2,
       "isDesk": true,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "desk_l",
+      "orientation": "front"
     },
     {
       "id": "chair_gamer",
@@ -24,7 +26,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "chair_gamer",
+      "orientation": "front"
     },
     {
       "id": "monitor_dual",
@@ -38,7 +42,9 @@
       "footprintH": 1,
       "isDesk": false,
       "canPlaceOnWalls": false,
-      "canPlaceOnSurfaces": true
+      "canPlaceOnSurfaces": true,
+      "groupId": "monitor_dual",
+      "orientation": "front"
     },
     {
       "id": "server_rack",
@@ -171,7 +177,9 @@
       "footprintW": 1,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "chair_office",
+      "orientation": "front"
     },
     {
       "id": "stool",
@@ -197,7 +205,9 @@
       "footprintW": 2,
       "footprintH": 1,
       "isDesk": false,
-      "canPlaceOnWalls": false
+      "canPlaceOnWalls": false,
+      "groupId": "couch",
+      "orientation": "front"
     },
     {
       "id": "coffee_table",
@@ -503,6 +513,142 @@
       "isDesk": false,
       "canPlaceOnWalls": false,
       "canPlaceOnSurfaces": true
+    },
+    {
+      "id": "chair_office_back",
+      "name": "CHAIR_OFFICE_BACK",
+      "label": "Office Chair (Back)",
+      "category": "chairs",
+      "file": "furniture/chair_office_back.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_office",
+      "orientation": "back"
+    },
+    {
+      "id": "chair_office_right",
+      "name": "CHAIR_OFFICE_RIGHT",
+      "label": "Office Chair (Right)",
+      "category": "chairs",
+      "file": "furniture/chair_office_right.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_office",
+      "orientation": "right"
+    },
+    {
+      "id": "chair_office_left",
+      "name": "CHAIR_OFFICE_LEFT",
+      "label": "Office Chair (Left)",
+      "category": "chairs",
+      "file": "furniture/chair_office_left.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_office",
+      "orientation": "left"
+    },
+    {
+      "id": "chair_gamer_back",
+      "name": "CHAIR_GAMER_BACK",
+      "label": "Gamer Chair (Back)",
+      "category": "chairs",
+      "file": "furniture/chair_gamer_back.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_gamer",
+      "orientation": "back"
+    },
+    {
+      "id": "chair_gamer_right",
+      "name": "CHAIR_GAMER_RIGHT",
+      "label": "Gamer Chair (Right)",
+      "category": "chairs",
+      "file": "furniture/chair_gamer_right.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_gamer",
+      "orientation": "right"
+    },
+    {
+      "id": "chair_gamer_left",
+      "name": "CHAIR_GAMER_LEFT",
+      "label": "Gamer Chair (Left)",
+      "category": "chairs",
+      "file": "furniture/chair_gamer_left.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "chair_gamer",
+      "orientation": "left"
+    },
+    {
+      "id": "couch_back",
+      "name": "COUCH_BACK",
+      "label": "Couch (Back)",
+      "category": "chairs",
+      "file": "furniture/couch_back.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "groupId": "couch",
+      "orientation": "back"
+    },
+    {
+      "id": "monitor_dual_back",
+      "name": "MONITOR_DUAL_BACK",
+      "label": "Dual Monitors (Back)",
+      "category": "electronics",
+      "file": "furniture/monitor_dual_back.png",
+      "width": 32,
+      "height": 16,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "canPlaceOnSurfaces": true,
+      "groupId": "monitor_dual",
+      "orientation": "back"
+    },
+    {
+      "id": "desk_l_right",
+      "name": "DESK_L_RIGHT",
+      "label": "L-Desk (Right)",
+      "category": "desks",
+      "file": "furniture/desk_l_right.png",
+      "width": 48,
+      "height": 32,
+      "footprintW": 3,
+      "footprintH": 2,
+      "isDesk": true,
+      "canPlaceOnWalls": false,
+      "groupId": "desk_l",
+      "orientation": "right"
     }
   ]
 }

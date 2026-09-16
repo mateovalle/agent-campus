@@ -698,6 +698,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 1,
     footprintH: 1,
     sprite: CHAIR_OFFICE,
+    groupId: 'chair_office',
+    orientation: 'front',
   },
   {
     id: 'stool',
@@ -718,6 +720,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: COUCH,
+    groupId: 'couch',
+    orientation: 'front',
   },
   {
     id: 'coffee_table',

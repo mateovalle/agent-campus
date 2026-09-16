@@ -24,6 +24,7 @@ import type { GeneratedSprite } from './sprites.ts';
 import { SPRITES } from './sprites.ts';
 import { SPRITES2 } from './sprites2.ts';
 import { SPRITES3 } from './sprites3.ts';
+import { SPRITES4 } from './sprites4.ts';
 
 const { PNG } = pngjs;
 
@@ -88,6 +89,7 @@ function main(): void {
     { name: 'b1', sprites: SPRITES },
     { name: 'b2', sprites: SPRITES2 },
     { name: 'b3', sprites: SPRITES3 },
+    { name: 'b4', sprites: SPRITES4 },
     // each floor pattern rendered as a 3x3 tiled block for seam review
     { name: 'floors', sprites: FLOOR_SHEET },
   ]);
