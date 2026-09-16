@@ -65,6 +65,14 @@ export interface ScheduleEntry {
   everyMinutes?: number;
   enabled: boolean;
   lastRunAtMs?: number;
+  createdAtMs?: number;
+}
+
+/** A daily/weekly occurrence that was scheduled while the app was closed. */
+export interface MissedScheduleRun {
+  schedule: ScheduleEntry;
+  missedCount: number;
+  lastMissedAtMs: number;
 }
 
 /** A role skin: named character sprite set (same sheet layout as the base). */
@@ -250,6 +258,9 @@ export type HostToWebviewMessage =
   // Settings & workspace
   | { type: 'settingsLoaded'; soundEnabled: boolean; launchAtLogin?: boolean }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
+  // Sent on webview ready when daily/weekly occurrences were missed while the
+  // app was closed; the user picks which to run via resolveMissedSchedules.
+  | { type: 'missedSchedules'; missed: MissedScheduleRun[] }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   | { type: 'pty-created'; ptyId: string; label: string }
@@ -328,6 +339,9 @@ export type WebviewToHostMessage =
   | { type: 'setLaunchAtLogin'; enabled: boolean }
   | { type: 'deleteSchedule'; id: string }
   | { type: 'toggleSchedule'; id: string; enabled: boolean }
+  // Resolves a missedSchedules prompt: dispatch runIds now, mark ALL listed
+  // ids as handled so the same occurrences aren't re-offered next launch.
+  | { type: 'resolveMissedSchedules'; runIds: string[]; skipIds: string[] }
   | { type: 'openSessionsFolder' }
   | { type: 'exportLayout' }
   | { type: 'importLayout' }

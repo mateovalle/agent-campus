@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import type { ScheduleEntry } from '../shared/protocol.js';
+import type { MissedScheduleRun, ScheduleEntry } from '../shared/protocol.js';
 import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
 
 const SCHEDULES_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'schedules.json');
@@ -48,6 +48,7 @@ export function addSchedule(entry: Omit<ScheduleEntry, 'id' | 'lastRunAtMs'>): S
   const full: ScheduleEntry = {
     ...entry,
     id: crypto.randomUUID(),
+    createdAtMs: Date.now(),
     // Interval schedules count from creation — never fire the moment they're added
     ...(entry.kind === 'interval' ? { lastRunAtMs: Date.now() } : {}),
   };
@@ -120,4 +121,63 @@ export function collectDueSchedules(now = new Date()): ScheduleEntry[] {
     save();
   }
   return due;
+}
+
+// ── Missed occurrences (app was closed) ──────────────────────
+// Daily/weekly only: intervals self-catch-up on the first tick. Occurrences
+// are counted between the schedule's anchor (last run, else creation — legacy
+// entries with neither are skipped) and now, capped to a recent window so a
+// long-dormant machine doesn't offer weeks of stale runs.
+export const MISSED_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Pure missed-occurrence count for one entry (exported for tests). */
+export function missedOccurrences(
+  entry: ScheduleEntry,
+  now: Date,
+): { count: number; lastAtMs: number } | null {
+  if (!entry.enabled || entry.kind === 'interval' || !entry.time) return null;
+  const t = parseTime(entry.time);
+  if (!t) return null;
+  const anchor = entry.lastRunAtMs ?? entry.createdAtMs;
+  if (anchor === undefined) return null;
+  const floor = Math.max(anchor, now.getTime() - MISSED_LOOKBACK_MS);
+
+  let count = 0;
+  let lastAtMs = 0;
+  const day = new Date(floor);
+  day.setHours(0, 0, 0, 0);
+  for (; day.getTime() <= now.getTime(); day.setDate(day.getDate() + 1)) {
+    if (entry.kind === 'weekly' && !entry.days?.includes(day.getDay())) continue;
+    const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.h, t.m, 0, 0).getTime();
+    // Strictly after the anchor, and past its whole minute (the current
+    // minute belongs to the live tick, not the missed list).
+    if (at > floor && at + 60_000 <= now.getTime()) {
+      count++;
+      lastAtMs = at;
+    }
+  }
+  return count > 0 ? { count, lastAtMs } : null;
+}
+
+/** Missed runs across all schedules, for the pick-and-run prompt on launch. */
+export function collectMissedSchedules(now = new Date()): MissedScheduleRun[] {
+  const missed: MissedScheduleRun[] = [];
+  for (const s of loadSchedules()) {
+    const m = missedOccurrences(s, now);
+    if (m) missed.push({ schedule: s, missedCount: m.count, lastMissedAtMs: m.lastAtMs });
+  }
+  return missed;
+}
+
+/** Stamps lastRunAtMs so the offered occurrences aren't re-offered next launch. */
+export function markSchedulesHandled(ids: string[], nowMs: number): void {
+  const list = loadSchedules();
+  let changed = false;
+  for (const s of list) {
+    if (ids.includes(s.id)) {
+      s.lastRunAtMs = nowMs;
+      changed = true;
+    }
+  }
+  if (changed) save();
 }

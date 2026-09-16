@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ScheduleEntry } from '../../shared/protocol.js';
-import { isDue } from '../schedules.js';
+import { isDue, missedOccurrences } from '../schedules.js';
 
 function entry(partial: Partial<ScheduleEntry>): ScheduleEntry {
   return {
@@ -42,6 +42,58 @@ describe('isDue', () => {
     const now = WED_0900.getTime();
     expect(isDue({ ...s, lastRunAtMs: now - 31 * 60_000 }, WED_0900)).toBe(true);
     expect(isDue({ ...s, lastRunAtMs: now - 10 * 60_000 }, WED_0900)).toBe(false);
+  });
+
+  it('counts daily occurrences missed since the last run', () => {
+    // Last ran Monday 09:00:10; now Wednesday 10:30 → missed Tue 9:00 and Wed 9:00
+    const s = entry({
+      kind: 'daily',
+      time: '9:00',
+      lastRunAtMs: new Date(2026, 8, 14, 9, 0, 10).getTime(),
+    });
+    const m = missedOccurrences(s, new Date(2026, 8, 16, 10, 30));
+    expect(m).toEqual({
+      count: 2,
+      lastAtMs: new Date(2026, 8, 16, 9, 0, 0).getTime(),
+    });
+  });
+
+  it('missed excludes the current live minute and already-run occurrences', () => {
+    const s = entry({
+      kind: 'daily',
+      time: '9:00',
+      lastRunAtMs: new Date(2026, 8, 15, 9, 0, 5).getTime(),
+    });
+    // 09:00:15 same day as next occurrence — inside the live minute, not "missed"
+    expect(missedOccurrences(s, WED_0900)).toBeNull();
+  });
+
+  it('missed is capped to the lookback window and needs an anchor', () => {
+    const now = new Date(2026, 8, 16, 12, 0);
+    const monthAgo = entry({
+      kind: 'daily',
+      time: '9:00',
+      lastRunAtMs: new Date(2026, 7, 10).getTime(),
+    });
+    // 7-day window → at most 7 occurrences reported, not ~37
+    expect(missedOccurrences(monthAgo, now)?.count).toBe(7);
+    // Legacy entry: no lastRunAtMs, no createdAtMs → never offered
+    expect(missedOccurrences(entry({ kind: 'daily', time: '9:00' }), now)).toBeNull();
+    // Intervals self-catch-up — excluded from the missed list
+    expect(
+      missedOccurrences(entry({ kind: 'interval', everyMinutes: 30, lastRunAtMs: 1 }), now),
+    ).toBeNull();
+  });
+
+  it('weekly missed respects the day filter', () => {
+    const s = entry({
+      kind: 'weekly',
+      time: '9:00',
+      days: [1], // Mondays
+      lastRunAtMs: new Date(2026, 8, 13, 12, 0).getTime(), // Sunday noon
+    });
+    const m = missedOccurrences(s, new Date(2026, 8, 16, 12, 0)); // Wednesday
+    expect(m).toEqual({ count: 1, lastAtMs: new Date(2026, 8, 14, 9, 0).getTime() });
   });
 
   it('disabled and malformed entries never fire', () => {

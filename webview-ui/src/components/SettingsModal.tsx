@@ -20,6 +20,7 @@ import {
 } from '../constants.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { formatUsd } from '../office/toolUtils.js';
+import { describeCadence, workspaceBasename } from '../scheduleUtils.js';
 import { vscode } from '../vscodeApi.js';
 
 const usageRowStyle: React.CSSProperties = {
@@ -215,22 +216,6 @@ interface SettingsModalProps {
   schedules: ScheduleEntry[];
   launchAtLogin: boolean;
   onSetLaunchAtLogin: (enabled: boolean) => void;
-}
-
-const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function describeCadence(s: ScheduleEntry): string {
-  if (s.kind === 'interval') return `Every ${s.everyMinutes}m`;
-  if (s.kind === 'weekly') {
-    const days = (s.days ?? []).map((d) => DAY_ABBREV[d] ?? '?').join('/');
-    return `${days} ${s.time ?? ''}`.trim();
-  }
-  return `Daily ${s.time ?? ''}`.trim();
-}
-
-function workspaceBasename(p: string): string {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? p;
 }
 
 /** Scheduled runs list: cadence + target, enable toggle, delete. */

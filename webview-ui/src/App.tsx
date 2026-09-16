@@ -11,6 +11,7 @@ import { BoardPanel } from './components/BoardPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
+import { MissedRunsModal } from './components/MissedRunsModal.js';
 import { OfficePopup } from './components/OfficePopup.js';
 import type { AgentTaskGroup } from './components/TasksDrawer.js';
 import { TasksDrawer } from './components/TasksDrawer.js';
@@ -171,6 +172,8 @@ function App() {
     roles,
     schedules,
     launchAtLogin,
+    missedRuns,
+    clearMissedRuns,
   } = useExtensionMessages(campus, editor.setLastSavedLayout, isEditDirty);
 
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -472,6 +475,8 @@ function App() {
         )}
 
         <AchievementToast queue={unlockQueue} onDismiss={dismissUnlock} />
+
+        <MissedRunsModal missed={missedRuns} onResolved={clearMissedRuns} />
 
         {editor.isEditMode && editor.isDirty && (
           <EditActionBar editor={editor} editorState={editorState} />

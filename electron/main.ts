@@ -5,7 +5,12 @@ import * as pty from 'node-pty';
 import * as os from 'os';
 import * as path from 'path';
 
-import type { AgentSeatMeta, ResumableSession, WebviewToHostMessage } from '../shared/protocol.js';
+import type {
+  AgentSeatMeta,
+  ResumableSession,
+  ScheduleEntry,
+  WebviewToHostMessage,
+} from '../shared/protocol.js';
 import {
   loadCharacterSprites,
   loadDefaultLayout,
@@ -48,7 +53,9 @@ import { type ChatSession, startChatSession } from './chatAgent.js';
 import {
   addSchedule,
   collectDueSchedules,
+  collectMissedSchedules,
   loadSchedules,
+  markSchedulesHandled,
   removeSchedule,
   SCHEDULER_TICK_MS,
   setScheduleEnabled,
@@ -854,6 +861,18 @@ function sendSchedules(): void {
   ctx.send({ type: 'schedulesLoaded', schedules: loadSchedules() });
 }
 
+function dispatchSchedule(s: ScheduleEntry): void {
+  console.log(`[Pixel Agents] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
+  const agentId = launchChatAgent(
+    s.workspacePath,
+    undefined,
+    `Scheduled run. ${s.prompt}\n\nThis run is unattended: work autonomously, and if you ` +
+      `finish or get blocked, leave a clear report as your final message.`,
+    s.role,
+  );
+  scheduleLastAgent.set(s.id, agentId);
+}
+
 function schedulerTick(): void {
   for (const s of collectDueSchedules()) {
     // Skip if this schedule's previous agent is still working — the next
@@ -865,15 +884,7 @@ function schedulerTick(): void {
       console.log(`[Pixel Agents] Schedule ${s.id}: previous agent still busy — skipping run`);
       continue;
     }
-    console.log(`[Pixel Agents] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
-    const agentId = launchChatAgent(
-      s.workspacePath,
-      undefined,
-      `Scheduled run. ${s.prompt}\n\nThis run is unattended: work autonomously, and if you ` +
-        `finish or get blocked, leave a clear report as your final message.`,
-      s.role,
-    );
-    scheduleLastAgent.set(s.id, agentId);
+    dispatchSchedule(s);
     sendSchedules();
   }
 }
@@ -1123,6 +1134,16 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'toggleSchedule') {
     setScheduleEnabled(msg.id, msg.enabled);
     sendSchedules();
+  } else if (msg.type === 'resolveMissedSchedules') {
+    // Mark everything offered as handled first (run or skip) so the same
+    // occurrences aren't re-offered on the next launch, then dispatch picks.
+    markSchedulesHandled([...msg.runIds, ...msg.skipIds], Date.now());
+    const byId = new Map(loadSchedules().map((s) => [s.id, s]));
+    for (const id of msg.runIds) {
+      const s = byId.get(id);
+      if (s) dispatchSchedule(s);
+    }
+    sendSchedules();
   } else if (msg.type === 'closeAgent') {
     const id = msg.id;
     const chat = chatSessions.get(id);
@@ -1248,6 +1269,13 @@ function onWebviewReady(): void {
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
   });
   sendSchedules();
+  // Offer daily/weekly occurrences missed while the app was closed. Computed
+  // per webview ready (not once per launch): once resolved they're stamped
+  // handled, so a reload with nothing pending sends nothing.
+  const missed = collectMissedSchedules();
+  if (missed.length > 0) {
+    ctx.send({ type: 'missedSchedules', missed });
+  }
 
   // Send registered workspaces (offices)
   ctx.send({ type: 'workspacesLoaded', workspaces: loadWorkspaces() });

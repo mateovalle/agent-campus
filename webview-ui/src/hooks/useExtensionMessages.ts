@@ -5,6 +5,7 @@ import type {
   AgentActionSuggestion,
   AgentTodo,
   HostToWebviewMessage,
+  MissedScheduleRun,
   ScheduleEntry,
   TodoItem,
   UsageSummary,
@@ -84,6 +85,10 @@ export interface ExtensionMessageState {
   schedules: ScheduleEntry[];
   /** Whether the app is registered to open at OS login (Electron only). */
   launchAtLogin: boolean;
+  /** Daily/weekly runs missed while the app was closed (pick-and-run prompt). */
+  missedRuns: MissedScheduleRun[];
+  /** Clears the missed-runs prompt after it's resolved. */
+  clearMissedRuns: () => void;
 }
 
 /** Aggregate seat assignments across every office on the campus and persist. */
@@ -136,6 +141,8 @@ export function useExtensionMessages(
   const [roles, setRoles] = useState<Array<{ id: string; name: string }>>([]);
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
+  const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
 
   const dismissUnlock = useCallback(() => {
     setUnlockQueue((prev) => prev.slice(1));
@@ -527,6 +534,8 @@ export function useExtensionMessages(
         setLaunchAtLogin(msg.launchAtLogin ?? false);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
+      } else if (msg.type === 'missedSchedules') {
+        setMissedRuns(msg.missed);
       } else if (msg.type === 'usageSummary') {
         setUsageSummary(msg.summary);
         campus.setTodayUsage(msg.summary.todayByWorkspace ?? {});
@@ -582,5 +591,7 @@ export function useExtensionMessages(
     roles,
     schedules,
     launchAtLogin,
+    missedRuns,
+    clearMissedRuns,
   };
 }

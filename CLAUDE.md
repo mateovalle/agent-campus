@@ -64,7 +64,13 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 skips a schedule whose previous agent is still busy. Managed via
                                 Assistant MCP tools (list/add/remove_schedule) + Settings list
                                 (toggle/delete). Runs with the window closed on macOS (app stays
-                                alive); "Launch at Login" checkbox → app.setLoginItemSettings
+                                alive); "Launch at Login" checkbox → app.setLoginItemSettings.
+                                MISSED RUNS: on webviewReady, missedOccurrences() (pure, tested)
+                                counts daily/weekly occurrences skipped while the app was CLOSED
+                                (anchor = lastRunAtMs ?? createdAtMs, 7-day lookback; intervals
+                                self-catch-up) → missedSchedules message → MissedRunsModal
+                                (pick-and-run checkboxes) → resolveMissedSchedules dispatches
+                                picks and stamps ALL offered ids handled (skip = don't re-offer)
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
                                 ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol,
                                 canUseTool → chat-permission-request/-response promise bridge, capped
