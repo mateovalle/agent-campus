@@ -28,6 +28,7 @@ import { SPRITES4 } from './sprites4.ts';
 import { SPRITES5 } from './sprites5.ts';
 import { SPRITES6 } from './sprites6.ts';
 import { SPRITES7 } from './sprites7.ts';
+import { SPRITES8 } from './sprites8.ts';
 
 const { PNG } = pngjs;
 
@@ -166,6 +167,20 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   wall_shelf: { category: 'wall', canPlaceOnWalls: true },
   neon_sign: { category: 'wall', canPlaceOnWalls: true },
   calendar: { category: 'wall', canPlaceOnWalls: true },
+  // ── batch 8: campus exterior ──
+  tree: { category: 'decor' },
+  bush: { category: 'decor' },
+  // bench is a 'chairs' item: every footprint tile becomes a seat
+  bench: { category: 'chairs' },
+  bench_right: { category: 'chairs' },
+  bench_back: { category: 'chairs' },
+  bench_left: { category: 'chairs' },
+  fountain: { category: 'decor' },
+  lamp_post: { category: 'decor' },
+  picnic_table: { category: 'decor' },
+  picnic_table_right: { category: 'decor' },
+  flower_bed: { category: 'decor' },
+  flower_bed_right: { category: 'decor' },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -249,6 +264,7 @@ function exportFurniture(): void {
     ...SPRITES5,
     ...SPRITES6,
     ...SPRITES7,
+    ...SPRITES8,
   ];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
