@@ -20,14 +20,23 @@ import {
   CHAT_MODE_MENU_MIN_WIDTH_PX,
   CHAT_MS_PER_SEC,
   CHAT_NEAR_BOTTOM_PX,
+  CHAT_TOOL_GROUP_MIN,
 } from '../../constants.js';
 import { getElectronAPI, vscode } from '../../vscodeApi.js';
 import type { ChatItem, ChatModel } from './chatModel.js';
-import { applyChatEvent, applyChatEvents, emptyChatModel } from './chatModel.js';
+import {
+  applyChatEvent,
+  applyChatEvents,
+  emptyChatModel,
+  parseAskUserQuestions,
+} from './chatModel.js';
 import { Markdown } from './Markdown.js';
 import type { PermissionRequestInfo } from './PermissionCard.js';
 import { PermissionCard } from './PermissionCard.js';
+import { QuestionCard } from './QuestionCard.js';
 import { ToolCard } from './ToolCard.js';
+import { ToolGroup } from './ToolGroup.js';
+import { buildRenderNodes } from './toolMeta.js';
 
 interface ChatViewProps {
   agentId: number;
@@ -458,7 +467,21 @@ function TurnSeparator({ costUsd, durationMs }: { costUsd: number; durationMs: n
   );
 }
 
-function ChatItemView({ item }: { item: ChatItem }) {
+function ChatItemView({
+  item,
+  askRequest,
+  onPermissionRespond,
+}: {
+  item: ChatItem;
+  /** Pending AskUserQuestion permission matching this tool item, if any. */
+  askRequest?: PermissionRequestInfo;
+  onPermissionRespond?: (
+    requestId: string,
+    allow: boolean,
+    message?: string,
+    updatedInput?: Record<string, unknown>,
+  ) => void;
+}) {
   switch (item.kind) {
     case 'user': {
       const imageCount = item.imageCount ?? 0;
@@ -486,7 +509,23 @@ function ChatItemView({ item }: { item: ChatItem }) {
       );
     case 'thinking':
       return <ThinkingItem text={item.text} />;
-    case 'tool':
+    case 'tool': {
+      // AskUserQuestion gets a dedicated card: interactive while its
+      // permission request is pending, a readable Q&A record afterwards.
+      if (item.name === 'AskUserQuestion') {
+        const questions = parseAskUserQuestions(item.input);
+        if (questions) {
+          return (
+            <QuestionCard
+              questions={questions}
+              status={item.status}
+              resultSummary={item.resultSummary}
+              request={askRequest}
+              onRespond={onPermissionRespond}
+            />
+          );
+        }
+      }
       return (
         <ToolCard
           name={item.name}
@@ -495,6 +534,7 @@ function ChatItemView({ item }: { item: ChatItem }) {
           resultSummary={item.resultSummary}
         />
       );
+    }
     case 'turn':
       return <TurnSeparator costUsd={item.costUsd} durationMs={item.durationMs} />;
     case 'status':
@@ -566,6 +606,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
         const request: PermissionRequestInfo = {
           requestId: msg.requestId,
           toolName: msg.toolName,
+          toolUseId: msg.toolUseId,
           title: msg.title,
           description: msg.description,
           input: msg.input,
@@ -590,13 +631,14 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   }, [agentId]);
 
   // Auto-scroll to bottom on new content when the user is already near it
+  // (permissions included — inline question cards grow the list)
   useEffect(() => {
     const el = listRef.current;
     if (!el || !visible) return;
     if (nearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [model, visible]);
+  }, [model, permissions, visible]);
 
   // Focus the composer when the tab becomes visible
   useEffect(() => {
@@ -789,13 +831,19 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   );
 
   const handlePermissionResponse = useCallback(
-    (requestId: string, allow: boolean, message?: string) => {
+    (
+      requestId: string,
+      allow: boolean,
+      message?: string,
+      updatedInput?: Record<string, unknown>,
+    ) => {
       vscode.postMessage({
         type: 'chatPermissionResponse',
         id: agentId,
         requestId,
         allow,
         message,
+        updatedInput,
       });
       setPermissions((prev) => prev.filter((p) => p.requestId !== requestId));
     },
@@ -804,6 +852,24 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
 
   const ended = model.ended;
   const sendDisabled = ended || (draft.trim() === '' && attachments.length === 0);
+
+  // AskUserQuestion requests anchor to their tool card and render inline in
+  // the message list; everything else (and unmatched asks) uses the bottom
+  // strip. Matched request ids are excluded from the strip to avoid doubles.
+  const askByToolId = new Map<string, PermissionRequestInfo>();
+  for (const p of permissions) {
+    if (p.toolName === 'AskUserQuestion' && p.toolUseId) {
+      askByToolId.set(p.toolUseId, p);
+    }
+  }
+  const inlineRequestIds = new Set<string>();
+  for (const item of model.items) {
+    if (item.kind === 'tool') {
+      const match = askByToolId.get(item.toolId);
+      if (match) inlineRequestIds.add(match.requestId);
+    }
+  }
+  const stripPermissions = permissions.filter((p) => !inlineRequestIds.has(p.requestId));
 
   return (
     <div
@@ -835,9 +901,20 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             gap: 4,
           }}
         >
-          {model.items.map((item) => (
-            <ChatItemView key={item.key} item={item} />
-          ))}
+          {buildRenderNodes(model.items, CHAT_TOOL_GROUP_MIN).map((node) =>
+            node.type === 'group' ? (
+              <ToolGroup key={node.items[0].key} items={node.items} />
+            ) : (
+              <ChatItemView
+                key={node.item.key}
+                item={node.item}
+                askRequest={
+                  node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
+                }
+                onPermissionRespond={handlePermissionResponse}
+              />
+            ),
+          )}
         </div>
         {hasNew && (
           <button style={newMessagesBtnStyle} onClick={scrollToBottom}>
@@ -846,15 +923,34 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
         )}
       </div>
 
-      {permissions.length > 0 && (
+      {stripPermissions.length > 0 && (
         <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto' }}>
-          {permissions.map((request) => (
-            <PermissionCard
-              key={request.requestId}
-              request={request}
-              onRespond={handlePermissionResponse}
-            />
-          ))}
+          {stripPermissions.map((request) => {
+            // AskUserQuestion is not a yes/no permission: the host UI must
+            // collect answers and return them via updatedInput (a plain
+            // Allow executes the tool without answers and errors the turn).
+            // Normally it renders inline on its tool card; this is the
+            // fallback for requests without a matching tool item.
+            const questions =
+              request.toolName === 'AskUserQuestion' ? parseAskUserQuestions(request.input) : null;
+            return questions ? (
+              <div key={request.requestId} style={{ margin: '0 8px' }}>
+                <QuestionCard
+                  questions={questions}
+                  status="running"
+                  resultSummary={null}
+                  request={request}
+                  onRespond={handlePermissionResponse}
+                />
+              </div>
+            ) : (
+              <PermissionCard
+                key={request.requestId}
+                request={request}
+                onRespond={handlePermissionResponse}
+              />
+            );
+          })}
         </div>
       )}
 

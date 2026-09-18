@@ -4,6 +4,7 @@ export * from './core/constants.js';
 
 // ── Settings Persistence ────────────────────────────────────
 export const GLOBAL_KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
+export const GLOBAL_KEY_BYPASS_PERMISSIONS = 'pixel-agents.bypassPermissions';
 
 // ── VS Code Identifiers ─────────────────────────────────────
 export const VIEW_ID = 'pixel-agents.panelView';

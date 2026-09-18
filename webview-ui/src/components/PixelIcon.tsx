@@ -9,12 +9,14 @@ interface PixelIconProps {
   fg: string;
   /** Color for 'A' cells. */
   accent: string;
+  /** Device px per icon pixel (defaults to the toolbar scale). */
+  scale?: number;
 }
 
 /** Renders a 12×12 icon grid to a crisp, pixelated canvas. */
-export function PixelIcon({ grid, fg, accent }: PixelIconProps) {
+export function PixelIcon({ grid, fg, accent, scale = TOOLBAR_ICON_SCALE }: PixelIconProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const size = grid.length * TOOLBAR_ICON_SCALE;
+  const size = grid.length * scale;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -27,15 +29,10 @@ export function PixelIcon({ grid, fg, accent }: PixelIconProps) {
         const ch = row[x];
         if (ch === '.') continue;
         ctx.fillStyle = ch === 'A' ? accent : fg;
-        ctx.fillRect(
-          x * TOOLBAR_ICON_SCALE,
-          y * TOOLBAR_ICON_SCALE,
-          TOOLBAR_ICON_SCALE,
-          TOOLBAR_ICON_SCALE,
-        );
+        ctx.fillRect(x * scale, y * scale, scale, scale);
       }
     }
-  }, [grid, fg, accent]);
+  }, [grid, fg, accent, scale]);
 
   return (
     <canvas

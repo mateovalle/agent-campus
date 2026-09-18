@@ -85,4 +85,6 @@ export interface TrackerContext<A extends CoreAgentState = CoreAgentState> {
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>;
   send: Send;
   persistAgents: () => void;
+  /** Called when a new user text prompt starts a turn (hosts use it e.g. to auto-name agents). */
+  onUserPrompt?: (agentId: number, text: string) => void;
 }

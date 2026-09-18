@@ -1,6 +1,6 @@
 import type { ScheduleEntry } from '../../shared/protocol.js';
 
-const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function describeCadence(s: ScheduleEntry): string {
   if (s.kind === 'interval') return `Every ${s.everyMinutes}m`;

@@ -26,7 +26,11 @@ export function getProjectDirPath(cwd?: string): string | null {
   return projectDir;
 }
 
-export async function launchNewTerminal(ctx: HostContext, folderPath?: string): Promise<void> {
+export async function launchNewTerminal(
+  ctx: HostContext,
+  folderPath?: string,
+  bypassPermissions?: boolean,
+): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
   const cwd = folderPath || folders?.[0]?.uri.fsPath;
   const isMultiRoot = !!(folders && folders.length > 1);
@@ -47,7 +51,9 @@ export async function launchNewTerminal(ctx: HostContext, folderPath?: string): 
   terminal.show();
 
   const sessionId = crypto.randomUUID();
-  terminal.sendText(`claude --session-id ${sessionId}`);
+  terminal.sendText(
+    `claude --session-id ${sessionId}${bypassPermissions ? ' --dangerously-skip-permissions' : ''}`,
+  );
 
   // Pre-register expected JSONL file so project scan won't treat it as a /clear file
   const expectedFile = path.join(projectDir, `${sessionId}.jsonl`);

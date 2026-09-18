@@ -61,6 +61,7 @@ import {
   setScheduleEnabled,
 } from './schedules.js';
 import { addTodo, deleteTodo, getAllTodoPaths, getTodos, toggleTodo } from './todos.js';
+import { isSyntheticUserText, loadTranscriptHistory } from './transcriptHistory.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
   loadWorkspaces,
@@ -79,6 +80,11 @@ const WORKSPACE_LAYOUT_OWN_WRITE_MS = 1000;
 const WINDOW_WIDTH = 900;
 const WINDOW_HEIGHT = 700;
 const WINDOW_BACKGROUND = '#1e1e2e';
+// Auto-naming: tab labels derived from the agent's first real prompt
+const AGENT_NAME_MAX_CHARS = 28;
+const RESUMED_SESSION_STATUS = 'Resumed session — previous conversation shown above';
+// Appended to terminal launches when the "Bypass Permissions" setting is on
+const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
 
 const DATA_DIR = path.join(os.homedir(), LAYOUT_FILE_DIR);
 const AGENT_SEATS_FILE = path.join(DATA_DIR, 'agent-seats.json');
@@ -95,6 +101,10 @@ interface AgentState extends CoreAgentState {
   ptyId?: string;
   sessionId: string;
   cwd: string;
+  /** Tab display name; starts as "Agent N" / role id, auto-derived from the first prompt. */
+  label: string;
+  /** True once the label was auto-derived (or restored) — stops further renames. */
+  autoNamed: boolean;
 }
 
 interface PtyRecord {
@@ -102,6 +112,8 @@ interface PtyRecord {
   label: string;
   scrollback: string;
   sessionId?: string;
+  /** Working directory — lets tab replays keep their workspace grouping. */
+  cwd?: string;
   /** Last time the user typed into this terminal — used for /clear attribution */
   lastInputAt: number;
 }
@@ -127,6 +139,8 @@ const ctx: TrackerContext<AgentState> = {
   },
   // Sessions live only as long as their PTYs — nothing to persist
   persistAgents: () => {},
+  // First real prompt in a session names its tab
+  onUserPrompt: (agentId, text) => autoNameAgent(agentId, text),
 };
 
 // PTY state
@@ -172,8 +186,16 @@ function loadSeatMetaBySession(): Record<string, AgentSeatMeta> {
   );
 }
 
-function loadSettings(): { soundEnabled: boolean } {
-  return { soundEnabled: true, ...loadJsonFile<{ soundEnabled?: boolean }>(SETTINGS_FILE) };
+function loadSettings(): { soundEnabled: boolean; bypassPermissions: boolean } {
+  return {
+    soundEnabled: true,
+    bypassPermissions: false,
+    ...loadJsonFile<{ soundEnabled?: boolean; bypassPermissions?: boolean }>(SETTINGS_FILE),
+  };
+}
+
+function saveSettings(patch: Partial<ReturnType<typeof loadSettings>>): void {
+  saveJsonFile(SETTINGS_FILE, { ...loadSettings(), ...patch });
 }
 
 /** Per-workspace office layout file (~/.pixel-agents/layouts/<sanitized>.json). */
@@ -290,6 +312,7 @@ function spawnPty(opts: {
     label: opts.label,
     scrollback: '',
     sessionId: opts.sessionId,
+    cwd: opts.cwd,
     lastInputAt: Date.now(),
   };
   ptys.set(ptyId, record);
@@ -342,6 +365,7 @@ function registerAgent(
   kind: 'terminal' | 'chat',
   cwd: string,
   sessionId: string,
+  label: string,
   skipToEnd = false,
 ): AgentState {
   const projectDir = getProjectDirPath(cwd);
@@ -349,35 +373,89 @@ function registerAgent(
   // Pre-register so the /clear scan won't treat this session's own file as new
   knownJsonlFiles.add(expectedFile);
 
+  // A resumed session keeps the name it earned in a previous life
+  const storedName = loadSeatMetaBySession()[sessionId]?.name;
+
   const id = nextAgentId++;
   const agent: AgentState = {
     ...createCoreAgentState(id, projectDir, expectedFile),
     kind,
     sessionId,
     cwd,
+    label: storedName ?? label,
+    autoNamed: !!storedName,
   };
   ctx.agents.set(id, agent);
   pollForJsonlFile(id, skipToEnd);
   return agent;
 }
 
+/**
+ * Derives a short tab name from the agent's first real prompt. Returns null
+ * for non-prompts (slash/local commands, interruption markers) so the next
+ * genuine prompt gets to name the agent instead.
+ */
+function deriveAgentName(text: string): string | null {
+  // Role-tagged Board dispatches ("[qa] fix login") name the agent by the task itself
+  const collapsed = text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\[[\w-]+\] +/, '');
+  // '<' = command wrappers (<command-name>…), '/' = slash commands,
+  // '[' = interruption markers ([Request interrupted…) after tag stripping
+  if (!collapsed || /^[</[]/.test(collapsed) || collapsed.startsWith('Caveat:')) return null;
+  if (collapsed.length <= AGENT_NAME_MAX_CHARS) return collapsed;
+  const cut = collapsed.slice(0, AGENT_NAME_MAX_CHARS);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > AGENT_NAME_MAX_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/** Renames an agent once from its first prompt: state + tab replays + persistence. */
+function autoNameAgent(agentId: number, promptText: string): void {
+  const agent = ctx.agents.get(agentId);
+  if (!agent || agent.autoNamed) return;
+  const name = deriveAgentName(promptText);
+  if (!name) return;
+
+  agent.label = name;
+  agent.autoNamed = true;
+  // Keep the tab-replay sources in sync so reloads show the same name
+  if (agent.ptyId) {
+    const record = ptys.get(agent.ptyId);
+    if (record) record.label = name;
+  }
+  const session = chatSessions.get(agentId);
+  if (session) session.label = name;
+  // Persist by session id so resuming this session restores the name
+  const bySession = loadSeatMetaBySession();
+  bySession[agent.sessionId] = { ...bySession[agent.sessionId], name };
+  saveJsonFile(AGENT_SEATS_FILE, { bySession });
+
+  ctx.send({ type: 'agentLabel', id: agentId, label: name });
+}
+
 function launchAgent(cwd: string): void {
   const sessionId = crypto.randomUUID();
-  const label = `Agent ${nextTerminalIndex++}`;
+  const agent = registerAgent('terminal', cwd, sessionId, `Agent ${nextTerminalIndex++}`);
   const ptyId = spawnPty({
     cwd,
-    command: `claude --session-id ${sessionId}`,
+    command: `claude --session-id ${sessionId}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
     sessionId,
-    label,
+    label: agent.label,
   });
-
-  const agent = registerAgent('terminal', cwd, sessionId);
   agent.ptyId = ptyId;
   agentToPty.set(agent.id, ptyId);
   ptyToAgent.set(ptyId, agent.id);
 
   console.log(`Agent ${agent.id}: launched terminal session ${sessionId} in ${cwd}`);
-  ctx.send({ type: 'pty-created', ptyId, label });
+  ctx.send({
+    type: 'pty-created',
+    ptyId,
+    label: agent.label,
+    agentId: agent.id,
+    workspacePath: cwd,
+    folderName: path.basename(cwd),
+  });
   ctx.send({
     type: 'agentCreated',
     id: agent.id,
@@ -397,17 +475,26 @@ function launchChatAgent(
   roleId?: string,
 ): number {
   const sessionId = resumeSessionId ?? crypto.randomUUID();
-  const agent = registerAgent('chat', cwd, sessionId, !!resumeSessionId);
-  const label = `Agent ${nextTerminalIndex++}`;
   const role = roleId ? AGENT_ROLE_DEFS[roleId] : undefined;
+  // Placeholder until the first prompt names the tab; roles make a better one
+  const defaultLabel = role ? role.id : `Agent ${nextTerminalIndex++}`;
+  const agent = registerAgent('chat', cwd, sessionId, defaultLabel, !!resumeSessionId);
+
+  // The chat equivalent of terminal scrollback replay: rebuild the previous
+  // conversation from the transcript so a resumed tab doesn't start blank.
+  const resumedHistory = resumeSessionId ? loadTranscriptHistory(agent.jsonlFile) : [];
 
   const session = startChatSession({
     agentId: agent.id,
     sessionId,
     cwd,
-    label,
+    label: agent.label,
     resume: !!resumeSessionId,
+    ...(resumedHistory.length > 0
+      ? { initialHistory: [...resumedHistory, { kind: 'status', text: RESUMED_SESSION_STATUS }] }
+      : {}),
     send: ctx.send,
+    bypassPermissions: loadSettings().bypassPermissions,
     ...(role ? { systemPromptAppend: role.charter, disallowedTools: role.disallowedTools } : {}),
     taskHandlers: {
       list: () => getTodos(cwd),
@@ -442,7 +529,13 @@ function launchChatAgent(
   });
   chatSessions.set(agent.id, session);
 
-  ctx.send({ type: 'chat-created', agentId: agent.id, label });
+  ctx.send({
+    type: 'chat-created',
+    agentId: agent.id,
+    label: agent.label,
+    workspacePath: cwd,
+    folderName: path.basename(cwd),
+  });
   ctx.send({
     type: 'agentCreated',
     id: agent.id,
@@ -894,16 +987,6 @@ const RESUME_LIST_MAX = 20;
 const PREVIEW_READ_BYTES = 65536;
 const PREVIEW_MAX_CHARS = 120;
 
-/**
- * True for synthetic user records Claude Code writes into transcripts:
- * slash-command bookkeeping (<command-name>…), local command output
- * (<local-command-stdout>…), the local-command caveat, system reminders,
- * and interrupt markers. None of these are what the human actually asked.
- */
-function isSyntheticUserText(text: string): boolean {
-  return text.startsWith('<') || text.startsWith('[Request interrupted');
-}
-
 /** Reads the first real user prompt from a transcript for the resume picker. */
 function readSessionPreview(jsonlFile: string): string {
   try {
@@ -1029,6 +1112,28 @@ async function resolveAgentCwd(folderPath: string | undefined): Promise<string |
   return result.filePaths[0] ?? null;
 }
 
+/**
+ * Focuses a chat tab, re-sending chat-created first. The renderer dedupes
+ * chat-created by tab key, so for a live tab this is a no-op — but if the
+ * tab was somehow lost (renderer hiccup, missed message), clicking the
+ * character recreates it and its ChatView replays history via chatReady.
+ */
+function focusChatTab(agentId: number): void {
+  const session = chatSessions.get(agentId);
+  if (session) {
+    ctx.send({
+      type: 'chat-created',
+      agentId,
+      label: session.label,
+      // The Assistant is not a registered agent and stays ungrouped
+      ...(ctx.agents.has(agentId)
+        ? { workspacePath: session.cwd, folderName: path.basename(session.cwd) }
+        : {}),
+    });
+  }
+  ctx.send({ type: 'chat-focus', agentId });
+}
+
 function handleWebviewMessage(msg: WebviewToHostMessage): void {
   if (msg.type === 'webviewReady') {
     onWebviewReady();
@@ -1038,7 +1143,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     });
   } else if (msg.type === 'openAssistant') {
     if (assistantAgentId !== null && chatSessions.has(assistantAgentId)) {
-      ctx.send({ type: 'chat-focus', agentId: assistantAgentId });
+      focusChatTab(assistantAgentId);
     } else {
       openAssistant();
     }
@@ -1058,9 +1163,17 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     if (session) {
       ctx.send({ type: 'chat-replay', agentId: msg.id, events: session.history });
       ctx.send({ type: 'chat-busy', agentId: msg.id, busy: session.busy });
+      // The one-shot 'chat-mode' at SDK init is lost if the ChatView mounts
+      // later (closed panel, recreated tab, webview reload) — re-send the
+      // authoritative mode so the selector doesn't stay stuck on 'default'
+      ctx.send({ type: 'chat-mode', agentId: msg.id, mode: session.mode });
+      // A question/permission may still be parked from before the reload
+      session.replayPendingPermissions();
     }
   } else if (msg.type === 'chatPermissionResponse') {
-    chatSessions.get(msg.id)?.respondPermission(msg.requestId, msg.allow, msg.message);
+    chatSessions
+      .get(msg.id)
+      ?.respondPermission(msg.requestId, msg.allow, msg.message, msg.updatedInput);
   } else if (msg.type === 'chatSetPermissionMode') {
     chatSessions.get(msg.id)?.setMode(msg.mode);
   } else if (msg.type === 'listResumableSessions') {
@@ -1118,13 +1231,21 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'saveAgentSeats') {
     saveAgentSeats(msg.seats);
   } else if (msg.type === 'setSoundEnabled') {
-    saveJsonFile(SETTINGS_FILE, { soundEnabled: !!msg.enabled });
+    saveSettings({ soundEnabled: !!msg.enabled });
+  } else if (msg.type === 'setBypassPermissions') {
+    saveSettings({ bypassPermissions: !!msg.enabled });
+    // Echo back so the Settings checkbox reflects the persisted value
+    ctx.send({
+      type: 'settingsLoaded',
+      ...loadSettings(),
+      launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    });
   } else if (msg.type === 'setLaunchAtLogin') {
     app.setLoginItemSettings({ openAtLogin: !!msg.enabled });
     // Echo back so the checkbox reflects what the OS actually accepted
     ctx.send({
       type: 'settingsLoaded',
-      soundEnabled: loadSettings().soundEnabled,
+      ...loadSettings(),
       launchAtLogin: app.getLoginItemSettings().openAtLogin,
     });
   } else if (msg.type === 'deleteSchedule') {
@@ -1134,6 +1255,29 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'toggleSchedule') {
     setScheduleEnabled(msg.id, msg.enabled);
     sendSchedules();
+  } else if (msg.type === 'addSchedule') {
+    // Manual creation from the Settings form; same validation the
+    // Assistant's add_schedule tool applies.
+    const timeOk = /^\d{1,2}:\d{2}$/.test(msg.time ?? '');
+    const valid =
+      msg.workspacePath.length > 0 &&
+      msg.prompt.trim().length > 0 &&
+      (msg.kind === 'interval'
+        ? (msg.everyMinutes ?? 0) >= 1
+        : timeOk && (msg.kind !== 'weekly' || (msg.days?.length ?? 0) > 0));
+    if (valid) {
+      addSchedule({
+        workspacePath: msg.workspacePath,
+        prompt: msg.prompt.trim(),
+        role: msg.role,
+        kind: msg.kind,
+        time: msg.time,
+        days: msg.days,
+        everyMinutes: msg.everyMinutes,
+        enabled: true,
+      });
+      sendSchedules();
+    }
   } else if (msg.type === 'resolveMissedSchedules') {
     // Mark everything offered as handled first (run or skip) so the same
     // occurrences aren't re-offered on the next launch, then dispatch picks.
@@ -1166,7 +1310,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'focusAgent') {
     const agent = ctx.agents.get(msg.id);
     if (agent?.kind === 'chat') {
-      ctx.send({ type: 'chat-focus', agentId: msg.id });
+      focusChatTab(msg.id);
     } else if (agent?.ptyId) {
       ctx.send({ type: 'pty-focus', ptyId: agent.ptyId, agentId: msg.id });
     }
@@ -1176,7 +1320,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     if (!agent || !command) return;
     if (agent.kind === 'chat') {
       chatSessions.get(msg.id)?.send(command);
-      ctx.send({ type: 'chat-focus', agentId: msg.id });
+      focusChatTab(msg.id);
     } else if (agent.ptyId) {
       const rec = ptys.get(agent.ptyId);
       if (rec) {
@@ -1212,11 +1356,25 @@ function onWebviewReady(): void {
   // Rebuild terminal tabs for PTYs that survived a renderer reload; each
   // tab's TerminalInstance requests a scrollback replay via 'pty-ready'.
   for (const [ptyId, record] of ptys) {
-    ctx.send({ type: 'pty-created', ptyId, label: record.label });
+    ctx.send({
+      type: 'pty-created',
+      ptyId,
+      label: record.label,
+      ...(ptyToAgent.has(ptyId) ? { agentId: ptyToAgent.get(ptyId) } : {}),
+      ...(record.cwd ? { workspacePath: record.cwd, folderName: path.basename(record.cwd) } : {}),
+    });
   }
   // Same for chat tabs — each ChatView requests its history via 'chatReady'.
+  // The Assistant is not a registered agent and stays workspace-less (ungrouped).
   for (const [agentId, session] of chatSessions) {
-    ctx.send({ type: 'chat-created', agentId, label: session.label });
+    ctx.send({
+      type: 'chat-created',
+      agentId,
+      label: session.label,
+      ...(ctx.agents.has(agentId)
+        ? { workspacePath: session.cwd, folderName: path.basename(session.cwd) }
+        : {}),
+    });
   }
 
   // Send existing agents with session-keyed seat/palette metadata
@@ -1265,7 +1423,7 @@ function onWebviewReady(): void {
   // Send settings
   ctx.send({
     type: 'settingsLoaded',
-    soundEnabled: loadSettings().soundEnabled,
+    ...loadSettings(),
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
   });
   sendSchedules();
@@ -1317,7 +1475,9 @@ function saveAgentSeats(seatsById: Record<string, AgentSeatMeta> | undefined): v
   for (const [idStr, meta] of Object.entries(seatsById)) {
     const agent = ctx.agents.get(Number(idStr));
     if (agent) {
-      bySession[agent.sessionId] = meta;
+      // The webview doesn't track names — preserve the host-written one
+      const name = meta.name ?? bySession[agent.sessionId]?.name;
+      bySession[agent.sessionId] = { ...meta, ...(name ? { name } : {}) };
     }
   }
   saveJsonFile(AGENT_SEATS_FILE, { bySession });

@@ -13,7 +13,11 @@ import {
   sendExistingAgents,
   sendLayout,
 } from './agentManager.js';
-import { GLOBAL_KEY_SOUND_ENABLED, WORKSPACE_KEY_AGENT_SEATS } from './constants.js';
+import {
+  GLOBAL_KEY_BYPASS_PERMISSIONS,
+  GLOBAL_KEY_SOUND_ENABLED,
+  WORKSPACE_KEY_AGENT_SEATS,
+} from './constants.js';
 import {
   loadCharacterSprites,
   loadDefaultLayout,
@@ -129,7 +133,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
   private async handleMessage(message: WebviewToHostMessage): Promise<void> {
     if (message.type === 'openClaude') {
-      await launchNewTerminal(this.ctx, message.folderPath);
+      await launchNewTerminal(
+        this.ctx,
+        message.folderPath,
+        this.context.globalState.get<boolean>(GLOBAL_KEY_BYPASS_PERMISSIONS, false),
+      );
     } else if (message.type === 'focusAgent') {
       const agent = this.ctx.agents.get(message.id);
       if (agent) {
@@ -158,6 +166,14 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       }
     } else if (message.type === 'setSoundEnabled') {
       this.context.globalState.update(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
+    } else if (message.type === 'setBypassPermissions') {
+      this.context.globalState.update(GLOBAL_KEY_BYPASS_PERMISSIONS, message.enabled);
+      // Echo back so the Settings checkbox reflects the persisted value
+      this.ctx.send({
+        type: 'settingsLoaded',
+        soundEnabled: this.context.globalState.get<boolean>(GLOBAL_KEY_SOUND_ENABLED, true),
+        bypassPermissions: message.enabled,
+      });
     } else if (message.type === 'webviewReady') {
       this.onWebviewReady();
     } else if (message.type === 'openSessionsFolder') {
@@ -178,7 +194,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
     // Send persisted settings to webview
     const soundEnabled = this.context.globalState.get<boolean>(GLOBAL_KEY_SOUND_ENABLED, true);
-    this.ctx.send({ type: 'settingsLoaded', soundEnabled });
+    const bypassPermissions = this.context.globalState.get<boolean>(
+      GLOBAL_KEY_BYPASS_PERMISSIONS,
+      false,
+    );
+    this.ctx.send({ type: 'settingsLoaded', soundEnabled, bypassPermissions });
 
     // Send workspace folders to webview (only when multi-root)
     const wsFolders = vscode.workspace.workspaceFolders;

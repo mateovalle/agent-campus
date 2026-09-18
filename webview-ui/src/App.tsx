@@ -172,6 +172,7 @@ function App() {
     roles,
     schedules,
     launchAtLogin,
+    bypassPermissions,
     missedRuns,
     clearMissedRuns,
   } = useExtensionMessages(campus, editor.setLastSavedLayout, isEditDirty);
@@ -460,7 +461,10 @@ function App() {
           usageSummary={usageSummary}
           achievements={achievements}
           schedules={schedules}
+          workspaces={workspaces}
+          roles={roles}
           launchAtLogin={launchAtLogin}
+          bypassPermissions={bypassPermissions}
         />
 
         {isBoardOpen && !editor.isEditMode && (

@@ -46,6 +46,8 @@ export interface AgentSeatMeta {
   hueShift?: number;
   /** Role skin id (e.g. 'qa'), or null/absent for the base look. */
   role?: string | null;
+  /** Display name (auto-derived from the first prompt); survives resume via session-keyed persistence. */
+  name?: string;
 }
 
 /** A recurring agent dispatch (Electron scheduler, ~/.pixel-agents/schedules.json). */
@@ -222,6 +224,8 @@ export type HostToWebviewMessage =
     }
   | { type: 'agentClosed'; id: number }
   | { type: 'agentSelected'; id: number }
+  /** Display-name update for an agent (auto-derived from its first prompt). */
+  | { type: 'agentLabel'; id: number; label: string }
   | {
       type: 'existingAgents';
       agents: number[];
@@ -256,21 +260,41 @@ export type HostToWebviewMessage =
       sprites: Record<string, SpriteData>;
     }
   // Settings & workspace
-  | { type: 'settingsLoaded'; soundEnabled: boolean; launchAtLogin?: boolean }
+  | {
+      type: 'settingsLoaded';
+      soundEnabled: boolean;
+      launchAtLogin?: boolean;
+      bypassPermissions?: boolean;
+    }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
   // Sent on webview ready when daily/weekly occurrences were missed while the
   // app was closed; the user picks which to run via resolveMissedSchedules.
   | { type: 'missedSchedules'; missed: MissedScheduleRun[] }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
-  | { type: 'pty-created'; ptyId: string; label: string }
+  // agentId/workspacePath/folderName let the tab bar group tabs per workspace
+  // and track the owning agent's activity without a separate lookup message.
+  | {
+      type: 'pty-created';
+      ptyId: string;
+      label: string;
+      agentId?: number;
+      workspacePath?: string;
+      folderName?: string;
+    }
   | { type: 'pty-focus'; ptyId: string; agentId: number }
   | { type: 'pty-close-tab'; ptyId: string }
   | { type: 'pty-output'; ptyId: string; data: string }
   | { type: 'pty-replay'; ptyId: string; data: string }
   | { type: 'pty-exit'; ptyId: string; exitCode: number }
   // Chat tabs (Electron only, SDK-driven sessions)
-  | { type: 'chat-created'; agentId: number; label: string }
+  | {
+      type: 'chat-created';
+      agentId: number;
+      label: string;
+      workspacePath?: string;
+      folderName?: string;
+    }
   | { type: 'chat-focus'; agentId: number }
   | { type: 'chat-close-tab'; agentId: number }
   | { type: 'chat-event'; agentId: number; event: ChatEvent }
@@ -282,6 +306,8 @@ export type HostToWebviewMessage =
       agentId: number;
       requestId: string;
       toolName: string;
+      /** tool_use block id of the pending call — lets the UI render the request inline on its tool card. */
+      toolUseId?: string;
       /** Full prompt sentence, e.g. "Claude wants to read foo.txt". */
       title?: string;
       /** Human-readable subtitle with extra context. */
@@ -325,6 +351,13 @@ export type WebviewToHostMessage =
       allow: boolean;
       /** Optional feedback delivered to Claude on deny. */
       message?: string;
+      /**
+       * Replacement tool input delivered on allow. Used by AskUserQuestion:
+       * the host UI collects the user's answers and returns them here
+       * (original input + `answers` map) — the tool has no executor of its
+       * own, so allowing without answers breaks the turn.
+       */
+      updatedInput?: Record<string, unknown>;
     }
   | { type: 'focusAgent'; id: number }
   /** Send an action's command text to an agent's session (terminal or chat). */
@@ -337,8 +370,21 @@ export type WebviewToHostMessage =
   | { type: 'saveLayout'; layout: unknown; workspacePath?: string }
   | { type: 'setSoundEnabled'; enabled: boolean }
   | { type: 'setLaunchAtLogin'; enabled: boolean }
+  // New agents (terminal + chat) start with permissions bypassed when enabled
+  | { type: 'setBypassPermissions'; enabled: boolean }
   | { type: 'deleteSchedule'; id: string }
   | { type: 'toggleSchedule'; id: string; enabled: boolean }
+  // Manual schedule creation from the Settings form (id/timestamps host-assigned)
+  | {
+      type: 'addSchedule';
+      workspacePath: string;
+      prompt: string;
+      role?: string;
+      kind: 'daily' | 'weekly' | 'interval';
+      time?: string;
+      days?: number[];
+      everyMinutes?: number;
+    }
   // Resolves a missedSchedules prompt: dispatch runIds now, mark ALL listed
   // ids as handled so the same occurrences aren't re-offered next launch.
   | { type: 'resolveMissedSchedules'; runIds: string[]; skipIds: string[] }

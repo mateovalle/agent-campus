@@ -63,6 +63,13 @@
   --pixel-chat-permission-bg: rgba(249, 226, 175, 0.08);
   --pixel-chat-diff-old-bg: rgba(243, 139, 168, 0.15);
   --pixel-chat-diff-new-bg: rgba(166, 227, 161, 0.15);
+
+  /* Tool card categories (read/write/exec/web/agent/mcp) */
+  --pixel-chat-blue: #89b4fa;
+  --pixel-chat-cyan: #89dceb;
+  --pixel-chat-purple: #cba6f7;
+  --pixel-chat-teal: #94e2d5;
+  --pixel-chat-terminal-bg: #0d0d14;
 }
 
 html,
@@ -109,4 +116,15 @@ body,
 
 .pixel-chat-dot {
   animation: pixel-chat-dot-blink 1.2s ease-in-out infinite;
+}
+
+/* Terminal tab status dot: hard on/off blink (pixel aesthetic, no easing) */
+@keyframes pixel-tab-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
 }

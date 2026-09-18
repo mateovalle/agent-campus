@@ -74,7 +74,14 @@ electron/                     — Electron desktop host (imports src/core; tscon
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
                                 ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol,
                                 canUseTool → chat-permission-request/-response promise bridge, capped
-                                history buffer replayed on chatReady, interrupt, dispose
+                                history buffer replayed on chatReady (seedable via initialHistory for
+                                resume), interrupt, dispose
+  transcriptHistory.ts        — loadTranscriptHistory(): rebuilds ChatEvent[] from a session's JSONL
+                                tail (2MB cap) so RESUMED chat tabs show the previous conversation
+                                (chat analog of PTY scrollback replay); skips sidechain/meta/synthetic
+                                records; exports isSyntheticUserText. main.ts focusChatTab() re-sends
+                                chat-created (renderer dedupes by key) before chat-focus, so clicking
+                                a character always recovers a lost chat tab
   preload.ts                  — Minimal contextBridge: postMessage/onMessage + ptyInput/Resize/Kill/Ready
 
 webview-ui/src/               — React + TypeScript (Vite)
@@ -98,6 +105,11 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 (OfficeCanvas onBoardFurnitureClick)
   components/chat/            — Rich chat UI for SDK agents: ChatView (event reducer + message list +
                                 composer + permission cards), ToolCard (collapsible, Edit diffs),
+                                QuestionCard (AskUserQuestion: interactive option picker rendered
+                                INLINE on its tool card — matched by toolUseId on the permission
+                                request; single-question single-select answers on click, answers
+                                returned via updatedInput.answers; settles into a Q&A record parsed
+                                from the tool result; pending question = blinking "?" tab status),
                                 Markdown (dependency-free safe renderer)
   constants.ts                — All webview magic numbers/strings (grid, animation, rendering, camera, zoom, editor, game logic, notification sound)
   notificationSound.ts        — Web Audio API chime on agent turn completion, with enable/disable

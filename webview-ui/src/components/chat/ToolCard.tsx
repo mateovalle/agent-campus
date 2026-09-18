@@ -1,15 +1,31 @@
 import { useState } from 'react';
 
+import type { AgentTodo } from '../../../../shared/protocol.js';
 import {
   CHAT_BODY_FONT_SIZE_PX,
   CHAT_CODE_FONT_SIZE_PX,
   CHAT_DOT_STAGGER_SEC,
+  CHAT_EDIT_STAT_CAP,
   CHAT_JSON_PREVIEW_MAX_CHARS,
   CHAT_RESULT_MAX_HEIGHT_PX,
+  CHAT_TOOL_CARD_BORDER_PX,
+  CHAT_TOOL_ICON_ACCENT,
+  CHAT_TOOL_ICON_SCALE,
   CHAT_WRITE_PREVIEW_MAX_CHARS,
 } from '../../constants.js';
+import { PixelIcon } from '../PixelIcon.js';
 import type { ToolCallStatus } from './chatModel.js';
 import { summarizeToolInput, truncateChars } from './chatModel.js';
+import { Markdown } from './Markdown.js';
+import type { ToolMeta } from './toolMeta.js';
+import {
+  categoryColor,
+  categoryIconColor,
+  editDiffStats,
+  parseTodoInput,
+  planText,
+  resolveToolMeta,
+} from './toolMeta.js';
 
 interface ToolCardProps {
   name: string;
@@ -17,13 +33,6 @@ interface ToolCardProps {
   status: ToolCallStatus;
   resultSummary: string | null;
 }
-
-const cardStyle: React.CSSProperties = {
-  border: '2px solid var(--pixel-border)',
-  background: 'var(--pixel-chat-card-bg)',
-  borderRadius: 0,
-  margin: '4px 0',
-};
 
 const headerStyle: React.CSSProperties = {
   display: 'flex',
@@ -42,6 +51,16 @@ const nameStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+const badgeStyle = (color: string): React.CSSProperties => ({
+  fontSize: CHAT_CODE_FONT_SIZE_PX - 2,
+  fontWeight: 700,
+  color,
+  border: `1px solid ${color}`,
+  padding: '0 4px',
+  flexShrink: 0,
+  textTransform: 'lowercase',
+});
+
 const summaryStyle: React.CSSProperties = {
   fontSize: CHAT_BODY_FONT_SIZE_PX,
   color: 'var(--pixel-text-dim)',
@@ -50,6 +69,12 @@ const summaryStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   flex: 1,
   minWidth: 0,
+};
+
+const statChipStyle: React.CSSProperties = {
+  fontSize: CHAT_CODE_FONT_SIZE_PX,
+  fontWeight: 700,
+  flexShrink: 0,
 };
 
 const glyphStyle: React.CSSProperties = {
@@ -81,6 +106,28 @@ const preStyle: React.CSSProperties = {
   color: 'var(--pixel-text)',
 };
 
+// ── Bash: terminal-styled blocks ─────────────────────────────
+
+const terminalPreStyle: React.CSSProperties = {
+  ...preStyle,
+  background: 'var(--pixel-chat-terminal-bg)',
+  color: 'var(--pixel-chat-green)',
+};
+
+const terminalOutputStyle: React.CSSProperties = {
+  ...preStyle,
+  background: 'var(--pixel-chat-terminal-bg)',
+  color: 'var(--pixel-text-dim)',
+};
+
+const terminalErrorStyle: React.CSSProperties = {
+  ...terminalOutputStyle,
+  color: 'var(--pixel-chat-red)',
+  border: '1px solid var(--pixel-chat-red)',
+};
+
+// ── Edit: diff blocks ────────────────────────────────────────
+
 const diffContainerStyle: React.CSSProperties = {
   margin: '3px 8px 8px',
   border: '1px solid var(--pixel-border)',
@@ -107,6 +154,35 @@ const diffNewStyle: React.CSSProperties = {
   ...diffLineStyle,
   background: 'var(--pixel-chat-diff-new-bg)',
   color: 'var(--pixel-chat-green)',
+};
+
+// ── TodoWrite: checklist ─────────────────────────────────────
+
+const todoListStyle: React.CSSProperties = {
+  margin: '3px 8px 8px',
+  padding: '4px 8px',
+  border: '1px solid var(--pixel-border)',
+  background: 'var(--pixel-chat-code-bg)',
+  maxHeight: CHAT_RESULT_MAX_HEIGHT_PX,
+  overflowY: 'auto',
+};
+
+const todoLineStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  fontSize: CHAT_BODY_FONT_SIZE_PX - 1,
+  lineHeight: 1.6,
+  wordBreak: 'break-word',
+};
+
+const planBodyStyle: React.CSSProperties = {
+  margin: '3px 8px 8px',
+  padding: '2px 10px',
+  border: '1px solid var(--pixel-border)',
+  background: 'var(--pixel-chat-code-bg)',
+  maxHeight: CHAT_RESULT_MAX_HEIGHT_PX,
+  overflowY: 'auto',
+  fontSize: CHAT_BODY_FONT_SIZE_PX - 1,
 };
 
 function RunningDots() {
@@ -157,6 +233,36 @@ function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
   );
 }
 
+function TodoChecklist({ todos }: { todos: AgentTodo[] }) {
+  return (
+    <div style={todoListStyle}>
+      {todos.map((todo, i) => {
+        const glyph = todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '▶' : '☐';
+        const color =
+          todo.status === 'completed'
+            ? 'var(--pixel-chat-green)'
+            : todo.status === 'in_progress'
+              ? 'var(--pixel-chat-amber)'
+              : 'var(--pixel-text-dim)';
+        return (
+          <div key={i} style={{ ...todoLineStyle, color }}>
+            <span style={{ flexShrink: 0 }}>{glyph}</span>
+            <span
+              style={
+                todo.status === 'completed'
+                  ? { textDecoration: 'line-through', opacity: 0.7 }
+                  : undefined
+              }
+            >
+              {todo.content}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function stringField(input: Record<string, unknown>, key: string): string | null {
   const value = input[key];
   return typeof value === 'string' ? value : null;
@@ -170,13 +276,28 @@ function prettyJson(input: Record<string, unknown>): string {
   }
 }
 
-function ExpandedBody({ name, input, resultSummary }: Omit<ToolCardProps, 'status'>) {
+/** Cap large diff-stat counts so the chip stays compact. */
+function capStat(n: number): string {
+  return n > CHAT_EDIT_STAT_CAP ? `${CHAT_EDIT_STAT_CAP}+` : String(n);
+}
+
+function ExpandedBody({ name, input, status, resultSummary }: ToolCardProps) {
+  const isBash = name === 'Bash';
+  const todos = name === 'TodoWrite' ? parseTodoInput(input) : null;
+  const plan = name === 'ExitPlanMode' ? planText(input) : null;
   const oldString = stringField(input, 'old_string');
   const newString = stringField(input, 'new_string');
-  const isEditDiff = oldString !== null && newString !== null;
 
   let inputSection: React.ReactNode;
-  if (isEditDiff) {
+  if (todos) {
+    inputSection = <TodoChecklist todos={todos} />;
+  } else if (plan !== null) {
+    inputSection = (
+      <div style={planBodyStyle}>
+        <Markdown text={plan} />
+      </div>
+    );
+  } else if (oldString !== null && newString !== null) {
     inputSection = <DiffBlock oldText={oldString} newText={newString} />;
   } else if (name === 'Write' && stringField(input, 'content') !== null) {
     inputSection = (
@@ -184,10 +305,16 @@ function ExpandedBody({ name, input, resultSummary }: Omit<ToolCardProps, 'statu
         {truncateChars(stringField(input, 'content') ?? '', CHAT_WRITE_PREVIEW_MAX_CHARS)}
       </pre>
     );
-  } else if (name === 'Bash' && stringField(input, 'command') !== null) {
+  } else if (isBash && stringField(input, 'command') !== null) {
+    inputSection = (
+      <pre className="pixel-chat-mono" style={terminalPreStyle}>
+        $ {stringField(input, 'command')}
+      </pre>
+    );
+  } else if (name === 'Task' && stringField(input, 'prompt') !== null) {
     inputSection = (
       <pre className="pixel-chat-mono" style={preStyle}>
-        {stringField(input, 'command')}
+        {truncateChars(stringField(input, 'prompt') ?? '', CHAT_WRITE_PREVIEW_MAX_CHARS)}
       </pre>
     );
   } else {
@@ -198,13 +325,19 @@ function ExpandedBody({ name, input, resultSummary }: Omit<ToolCardProps, 'statu
     );
   }
 
+  const resultStyle = isBash
+    ? status === 'error'
+      ? terminalErrorStyle
+      : terminalOutputStyle
+    : preStyle;
+
   return (
     <div style={{ borderTop: '1px solid var(--pixel-border)' }}>
       {inputSection}
-      {resultSummary !== null && (
+      {resultSummary !== null && !todos && (
         <>
-          <div style={sectionLabelStyle}>Result</div>
-          <pre className="pixel-chat-mono" style={preStyle}>
+          <div style={sectionLabelStyle}>{isBash ? 'Output' : 'Result'}</div>
+          <pre className="pixel-chat-mono" style={resultStyle}>
             {resultSummary}
           </pre>
         </>
@@ -213,23 +346,82 @@ function ExpandedBody({ name, input, resultSummary }: Omit<ToolCardProps, 'statu
   );
 }
 
+/** Header chip: "+12 −4" for edits, "3/7" progress for TodoWrite. */
+function StatChip({ name, input }: { name: string; input: Record<string, unknown> }) {
+  const stats = name === 'Edit' || name === 'MultiEdit' ? editDiffStats(input) : null;
+  if (stats) {
+    return (
+      <span className="pixel-chat-mono" style={statChipStyle}>
+        <span style={{ color: 'var(--pixel-chat-green)' }}>+{capStat(stats.added)}</span>{' '}
+        <span style={{ color: 'var(--pixel-chat-red)' }}>−{capStat(stats.removed)}</span>
+      </span>
+    );
+  }
+  if (name === 'TodoWrite') {
+    const todos = parseTodoInput(input);
+    if (todos) {
+      const done = todos.filter((t) => t.status === 'completed').length;
+      return (
+        <span
+          className="pixel-chat-mono"
+          style={{ ...statChipStyle, color: 'var(--pixel-text-dim)' }}
+        >
+          {done}/{todos.length}
+        </span>
+      );
+    }
+  }
+  return null;
+}
+
+/** Tools whose body is the content itself — open by default. */
+function opensExpanded(name: string): boolean {
+  return name === 'TodoWrite' || name === 'ExitPlanMode';
+}
+
 export function ToolCard({ name, input, status, resultSummary }: ToolCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => opensExpanded(name));
+  const meta: ToolMeta = resolveToolMeta(name, input);
+  const color = categoryColor(meta.category);
   const summary = summarizeToolInput(name, input);
+
+  const cardStyle: React.CSSProperties = {
+    border: '2px solid var(--pixel-border)',
+    borderLeft: `${CHAT_TOOL_CARD_BORDER_PX}px solid ${color}`,
+    background: 'var(--pixel-chat-card-bg)',
+    borderRadius: 0,
+    margin: '4px 0',
+  };
 
   return (
     <div style={cardStyle} className="pixel-chat-body">
       <div style={headerStyle} onClick={() => setExpanded((v) => !v)}>
-        <StatusGlyph status={status} />
-        <span className="pixel-chat-mono" style={nameStyle}>
-          {name}
+        <span style={{ flexShrink: 0, display: 'flex' }}>
+          <PixelIcon
+            grid={meta.icon}
+            fg={categoryIconColor(meta.category)}
+            accent={CHAT_TOOL_ICON_ACCENT}
+            scale={CHAT_TOOL_ICON_SCALE}
+          />
         </span>
-        {summary !== '' && <span style={summaryStyle}>{summary}</span>}
+        <span className="pixel-chat-mono" style={nameStyle}>
+          {meta.displayName}
+        </span>
+        {meta.badge && (
+          <span className="pixel-chat-mono" style={badgeStyle(color)}>
+            {meta.badge}
+          </span>
+        )}
+        <span style={summaryStyle}>{summary}</span>
+        <StatChip name={name} input={input} />
+        <StatusGlyph status={status} />
         <span style={{ color: 'var(--pixel-text-dim)', fontSize: 10, flexShrink: 0 }}>
           {expanded ? '▲' : '▼'}
         </span>
       </div>
-      {expanded && <ExpandedBody name={name} input={input} resultSummary={resultSummary} />}
+      {expanded && (
+        <ExpandedBody name={name} input={input} status={status} resultSummary={resultSummary} />
+      )}
     </div>
   );
 }

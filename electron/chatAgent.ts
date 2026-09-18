@@ -25,6 +25,7 @@ import type {
   ChatEvent,
   ChatImageAttachment,
   ChatPermissionMode,
+  HostToWebviewMessage,
 } from '../shared/protocol.js';
 import type { TodoItem } from '../shared/protocol.js';
 import type { Send } from '../src/core/types.js';
@@ -36,7 +37,7 @@ export interface TaskToolHandlers {
   complete(id: string): boolean;
 }
 
-const CHAT_HISTORY_MAX_EVENTS = 2000;
+export const CHAT_HISTORY_MAX_EVENTS = 2000;
 const TOOL_SUMMARY_MAX_CHARS = 1500;
 const SUPPORTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
@@ -100,6 +101,23 @@ function resolveClaudeExecutable(): string | undefined {
     /* not on PATH — leave undefined so the SDK uses its own resolution */
   }
   return undefined;
+}
+
+/** Human-readable (capped) rendering of a tool input/result value. */
+export function summarizeToolValue(value: unknown): string {
+  let text: string;
+  if (typeof value === 'string') {
+    text = value;
+  } else {
+    try {
+      text = JSON.stringify(value, null, 2) ?? '';
+    } catch {
+      text = String(value);
+    }
+  }
+  return text.length > TOOL_SUMMARY_MAX_CHARS
+    ? text.slice(0, TOOL_SUMMARY_MAX_CHARS) + '\n… (truncated)'
+    : text;
 }
 
 type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk', {
@@ -170,7 +188,14 @@ export interface ChatSession {
   send(text: string, images?: ChatImageAttachment[]): void;
   interrupt(): void;
   setMode(mode: ChatPermissionMode): void;
-  respondPermission(requestId: string, allow: boolean, message?: string): void;
+  respondPermission(
+    requestId: string,
+    allow: boolean,
+    message?: string,
+    updatedInput?: Record<string, unknown>,
+  ): void;
+  /** Re-sends still-pending permission requests (chatReady after a webview reload). */
+  replayPendingPermissions(): void;
   dispose(): void;
 }
 
@@ -182,6 +207,11 @@ export function startChatSession(opts: {
   send: Send;
   /** When set, continue this existing session instead of starting fresh. */
   resume?: boolean;
+  /**
+   * Events replayed into the tab before any live ones — used on resume to
+   * show the previous conversation (rebuilt from the session's transcript).
+   */
+  initialHistory?: ChatEvent[];
   onExit: () => void;
   /** Backing store for the workspace-scoped tasks tools. */
   taskHandlers?: TaskToolHandlers;
@@ -194,12 +224,19 @@ export function startChatSession(opts: {
   systemPromptAppend?: string;
   /** Tools removed from the session entirely (role policy — e.g. read-only reviewers). */
   disallowedTools?: readonly string[];
+  /** Start the session in bypassPermissions mode (Settings toggle). */
+  bypassPermissions?: boolean;
   /** Called once per completed turn with the SDK's exact cost/duration. */
   onTurnComplete?: (costUsd: number, durationMs: number) => void;
 }): ChatSession {
   const { agentId, sessionId, cwd, send } = opts;
   const input = createInputStream();
   const pendingPermissions = new Map<string, (r: PermissionResult) => void>();
+  /** Request messages still awaiting a response — replayed on chatReady. */
+  const pendingPermissionMsgs = new Map<
+    string,
+    Extract<HostToWebviewMessage, { type: 'chat-permission-request' }>
+  >();
   let query: Query | null = null;
   let disposed = false;
   /** True once the SDK reported `system init` — the CLI process launched. */
@@ -210,11 +247,11 @@ export function startChatSession(opts: {
     sessionId,
     cwd,
     label: opts.label,
-    history: [],
+    history: (opts.initialHistory ?? []).slice(-CHAT_HISTORY_MAX_EVENTS),
     busy: false,
     ended: false,
     lastInputAt: Date.now(),
-    mode: 'default',
+    mode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
     latestTodos: [],
 
     send(text: string, images?: ChatImageAttachment[]): void {
@@ -269,16 +306,28 @@ export function startChatSession(opts: {
       })();
     },
 
-    respondPermission(requestId: string, allow: boolean, message?: string): void {
+    respondPermission(
+      requestId: string,
+      allow: boolean,
+      message?: string,
+      updatedInput?: Record<string, unknown>,
+    ): void {
       const resolve = pendingPermissions.get(requestId);
       if (!resolve) return;
       pendingPermissions.delete(requestId);
+      pendingPermissionMsgs.delete(requestId);
       send({ type: 'chat-permission-resolved', agentId, requestId });
       resolve(
         allow
-          ? { behavior: 'allow' }
+          ? { behavior: 'allow', ...(updatedInput ? { updatedInput } : {}) }
           : { behavior: 'deny', message: message || 'The user declined this action.' },
       );
+    },
+
+    replayPendingPermissions(): void {
+      for (const msg of pendingPermissionMsgs.values()) {
+        send(msg);
+      }
     },
 
     dispose(): void {
@@ -291,6 +340,7 @@ export function startChatSession(opts: {
         resolve({ behavior: 'deny', message: 'Session closed.' });
       }
       pendingPermissions.clear();
+      pendingPermissionMsgs.clear();
       input.end();
       try {
         query?.close();
@@ -312,22 +362,6 @@ export function startChatSession(opts: {
     if (session.busy === busy) return;
     session.busy = busy;
     send({ type: 'chat-busy', agentId, busy });
-  }
-
-  function summarize(value: unknown): string {
-    let text: string;
-    if (typeof value === 'string') {
-      text = value;
-    } else {
-      try {
-        text = JSON.stringify(value, null, 2) ?? '';
-      } catch {
-        text = String(value);
-      }
-    }
-    return text.length > TOOL_SUMMARY_MAX_CHARS
-      ? text.slice(0, TOOL_SUMMARY_MAX_CHARS) + '\n… (truncated)'
-      : text;
   }
 
   function handleMessage(msg: SDKMessage): void {
@@ -373,7 +407,7 @@ export function startChatSession(opts: {
             kind: 'tool-result',
             toolId: block.tool_use_id,
             isError: !!block.is_error,
-            summary: summarize(block.content),
+            summary: summarizeToolValue(block.content),
           });
         }
       }
@@ -405,11 +439,34 @@ export function startChatSession(opts: {
     // Resuming continues the same session id (no fork), so the transcript
     // watcher registered on this id keeps working in both cases.
     ...(opts.resume ? { resume: sessionId } : { sessionId }),
-    permissionMode: 'default',
-    // Required for the Bypass option in the mode selector to be accepted;
-    // sessions still START in 'default' — this only unlocks the switch.
+    permissionMode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
+    // Required for the Bypass option (initial mode or mode selector) to be
+    // accepted; without the setting, sessions START in 'default'.
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    // AskUserQuestion is answered THROUGH the permission bridge (the
+    // QuestionCard returns answers via updatedInput). Auto-allow rules and
+    // bypassPermissions would skip canUseTool entirely — the question would
+    // execute unanswered and error the turn. This hook forces a permission
+    // prompt for AskUserQuestion in every mode, so the card is always
+    // interactive.
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'AskUserQuestion',
+          hooks: [
+            async () => ({
+              continue: true,
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'ask' as const,
+                permissionDecisionReason: 'The user must pick an answer in the chat UI.',
+              },
+            }),
+          ],
+        },
+      ],
+    },
     canUseTool: (toolName, toolInput, callOpts) =>
       new Promise<PermissionResult>((resolve) => {
         if (disposed) {
@@ -417,17 +474,21 @@ export function startChatSession(opts: {
           return;
         }
         pendingPermissions.set(callOpts.requestId, resolve);
-        send({
-          type: 'chat-permission-request',
+        const requestMsg = {
+          type: 'chat-permission-request' as const,
           agentId,
           requestId: callOpts.requestId,
           toolName,
+          toolUseId: callOpts.toolUseID,
           title: callOpts.title,
           description: callOpts.description,
           input: toolInput,
-        });
+        };
+        pendingPermissionMsgs.set(callOpts.requestId, requestMsg);
+        send(requestMsg);
         callOpts.signal.addEventListener('abort', () => {
           if (pendingPermissions.delete(callOpts.requestId)) {
+            pendingPermissionMsgs.delete(callOpts.requestId);
             send({ type: 'chat-permission-resolved', agentId, requestId: callOpts.requestId });
             resolve({ behavior: 'deny', message: 'Cancelled.' });
           }

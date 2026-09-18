@@ -1,6 +1,11 @@
 import { useState } from 'react';
 
-import type { AchievementInfo, ScheduleEntry, UsageSummary } from '../../../shared/protocol.js';
+import type {
+  AchievementInfo,
+  ScheduleEntry,
+  UsageSummary,
+  WorkspaceInfo,
+} from '../../../shared/protocol.js';
 import {
   TOOLBAR_BUBBLE_GAP_PX,
   TOOLBAR_BUBBLE_SIZE_PX,
@@ -33,7 +38,12 @@ interface BottomToolbarProps {
   achievements: AchievementInfo[];
   /** Recurring scheduled runs (Electron only; empty elsewhere). */
   schedules: ScheduleEntry[];
+  /** Registered workspaces (targets for the new-schedule form). */
+  workspaces: WorkspaceInfo[];
+  /** Available dispatch roles (for the new-schedule form). */
+  roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
+  bypassPermissions: boolean;
 }
 
 interface BubbleProps {
@@ -135,7 +145,10 @@ export function BottomToolbar({
   usageSummary,
   achievements,
   schedules,
+  workspaces,
+  roles,
   launchAtLogin,
+  bypassPermissions,
 }: BottomToolbarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -200,9 +213,15 @@ export function BottomToolbar({
           usageSummary={usageSummary}
           achievements={achievements}
           schedules={schedules}
+          workspaces={workspaces}
+          roles={roles}
           launchAtLogin={launchAtLogin}
           onSetLaunchAtLogin={(enabled) =>
             vscode.postMessage({ type: 'setLaunchAtLogin', enabled })
+          }
+          bypassPermissions={bypassPermissions}
+          onSetBypassPermissions={(enabled) =>
+            vscode.postMessage({ type: 'setBypassPermissions', enabled })
           }
         />
       </div>

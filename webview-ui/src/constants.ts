@@ -127,6 +127,30 @@ export const CHAT_SESSION_ENDED_TEXT = 'Session ended';
 export const CHAT_COMPOSER_PLACEHOLDER = 'Message Claude… (Enter to send, Shift+Enter for newline)';
 export const CHAT_COMPOSER_ENDED_PLACEHOLDER =
   'Session ended — close this tab or start a new agent';
+/** Device px per icon pixel for the 12×12 tool-card icons (12px total). */
+export const CHAT_TOOL_ICON_SCALE = 1;
+/**
+ * Tool-category colors as hex for the canvas-drawn PixelIcons — canvas
+ * fillStyle cannot resolve CSS variables. Keep in sync with the
+ * --pixel-chat-* variables in index.css.
+ */
+export const CHAT_CATEGORY_ICON_COLORS = {
+  read: '#89b4fa',
+  write: '#f9e2af',
+  exec: '#a6e3a1',
+  web: '#89dceb',
+  agent: '#cba6f7',
+  mcp: '#94e2d5',
+  other: '#9a9ab8',
+} as const;
+/** 'A' (accent) cells of tool icons — near-white for contrast on dark cards. */
+export const CHAT_TOOL_ICON_ACCENT = 'rgba(255, 255, 255, 0.9)';
+/** Width of the category-colored left border on tool cards. */
+export const CHAT_TOOL_CARD_BORDER_PX = 4;
+/** Consecutive finished read-category tool calls needed to collapse into a group. */
+export const CHAT_TOOL_GROUP_MIN = 3;
+/** Max diff-stat count shown on a collapsed Edit card before capping ("99+"). */
+export const CHAT_EDIT_STAT_CAP = 99;
 export const SECONDS_PER_MINUTE = 60;
 export const MINUTES_PER_HOUR = 60;
 export const HOURS_PER_DAY = 24;
@@ -171,6 +195,10 @@ export const USAGE_CHART_LABEL_FONT_PX = 14;
 export const USAGE_CHART_BAR_DIM_COLOR = 'rgba(255, 255, 255, 0.28)';
 export const USAGE_CHART_ZERO_BAR_COLOR = 'rgba(255, 255, 255, 0.1)';
 export const USAGE_CHART_LABEL_COLOR = 'rgba(255, 255, 255, 0.4)';
+
+// ── Settings modal ───────────────────────────────────────────
+/** Fixed modal width — content-driven sizing made the modal reflow when sections toggled */
+export const SETTINGS_MODAL_WIDTH_PX = 340;
 
 // ── Achievements ─────────────────────────────────────────────
 /** How long an unlock toast stays visible before auto-dismissing */

@@ -85,6 +85,8 @@ export interface ExtensionMessageState {
   schedules: ScheduleEntry[];
   /** Whether the app is registered to open at OS login (Electron only). */
   launchAtLogin: boolean;
+  /** New agents start with permissions bypassed (Settings toggle). */
+  bypassPermissions: boolean;
   /** Daily/weekly runs missed while the app was closed (pick-and-run prompt). */
   missedRuns: MissedScheduleRun[];
   /** Clears the missed-runs prompt after it's resolved. */
@@ -141,6 +143,7 @@ export function useExtensionMessages(
   const [roles, setRoles] = useState<Array<{ id: string; name: string }>>([]);
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [bypassPermissions, setBypassPermissions] = useState(false);
   const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
   const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
 
@@ -532,6 +535,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'settingsLoaded') {
         setSoundEnabled(msg.soundEnabled);
         setLaunchAtLogin(msg.launchAtLogin ?? false);
+        setBypassPermissions(msg.bypassPermissions ?? false);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
       } else if (msg.type === 'missedSchedules') {
@@ -591,6 +595,7 @@ export function useExtensionMessages(
     roles,
     schedules,
     launchAtLogin,
+    bypassPermissions,
     missedRuns,
     clearMissedRuns,
   };

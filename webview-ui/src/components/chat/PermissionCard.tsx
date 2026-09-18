@@ -7,6 +7,8 @@ import { summarizeToolInput } from './chatModel.js';
 export interface PermissionRequestInfo {
   requestId: string;
   toolName: string;
+  /** tool_use block id — anchors the request to its inline tool card (AskUserQuestion). */
+  toolUseId?: string;
   title?: string;
   description?: string;
   input: Record<string, unknown>;

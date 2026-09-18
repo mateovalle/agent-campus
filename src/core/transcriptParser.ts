@@ -175,6 +175,12 @@ export function processTranscriptLine(
         agent.hadToolsInTurn = false;
         agent.turnStats = createTurnStats();
         ctx.send({ type: 'agentSuggestions', id: agentId, suggestions: [] });
+        const text = (content as Array<{ type: string; text?: string }>)
+          .filter((b) => b.type === 'text' && typeof b.text === 'string')
+          .map((b) => b.text)
+          .join(' ')
+          .trim();
+        if (text) ctx.onUserPrompt?.(agentId, text);
       }
     } else if (typeof content === 'string' && content.trim()) {
       // New user text prompt — new turn starting
@@ -183,6 +189,7 @@ export function processTranscriptLine(
       agent.hadToolsInTurn = false;
       agent.turnStats = createTurnStats();
       ctx.send({ type: 'agentSuggestions', id: agentId, suggestions: [] });
+      ctx.onUserPrompt?.(agentId, content.trim());
     }
   } else if (record.type === 'system' && record.subtype === 'turn_duration') {
     cancelWaitingTimer(ctx, agentId);

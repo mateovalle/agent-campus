@@ -5,11 +5,13 @@ import type {
   HostToWebviewMessage,
   ScheduleEntry,
   UsageSummary,
+  WorkspaceInfo,
 } from '../../../shared/protocol.js';
 import {
   ACHIEVEMENT_LIST_MAX_HEIGHT_PX,
   ACHIEVEMENT_LOCKED_DESCRIPTION,
   ACHIEVEMENT_LOCKED_OPACITY,
+  SETTINGS_MODAL_WIDTH_PX,
   USAGE_CHART_BAR_DIM_COLOR,
   USAGE_CHART_BAR_GAP_PX,
   USAGE_CHART_BAR_MIN_HEIGHT_PX,
@@ -20,7 +22,7 @@ import {
 } from '../constants.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { formatUsd } from '../office/toolUtils.js';
-import { describeCadence, workspaceBasename } from '../scheduleUtils.js';
+import { DAY_ABBREV, describeCadence, workspaceBasename } from '../scheduleUtils.js';
 import { vscode } from '../vscodeApi.js';
 
 const usageRowStyle: React.CSSProperties = {
@@ -214,18 +216,224 @@ interface SettingsModalProps {
   achievements: AchievementInfo[];
   /** Recurring scheduled runs (Electron only; empty elsewhere). */
   schedules: ScheduleEntry[];
+  /** Registered workspaces — targets for the new-schedule form. */
+  workspaces: WorkspaceInfo[];
+  /** Available dispatch roles for the new-schedule form. */
+  roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
   onSetLaunchAtLogin: (enabled: boolean) => void;
+  /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
+  bypassPermissions: boolean;
+  onSetBypassPermissions: (enabled: boolean) => void;
 }
 
-/** Scheduled runs list: cadence + target, enable toggle, delete. */
-function SchedulesSection({ schedules }: { schedules: ScheduleEntry[] }) {
-  if (schedules.length === 0) return null;
+const formFieldStyle: React.CSSProperties = {
+  background: 'var(--pixel-bg)',
+  color: 'rgba(255,255,255,0.85)',
+  border: '2px solid var(--pixel-border)',
+  borderRadius: 0,
+  fontSize: '16px',
+  fontFamily: 'inherit',
+  padding: '2px 4px',
+};
+
+/** Inline creation form: workspace + cadence + prompt → addSchedule message. */
+function ScheduleForm({
+  workspaces,
+  roles,
+  onDone,
+}: {
+  workspaces: WorkspaceInfo[];
+  roles: Array<{ id: string; name: string }>;
+  onDone: () => void;
+}) {
+  const [workspacePath, setWorkspacePath] = useState(workspaces[0]?.path ?? '');
+  const [kind, setKind] = useState<ScheduleEntry['kind']>('daily');
+  const [time, setTime] = useState('09:00');
+  const [days, setDays] = useState<number[]>([1]);
+  const [everyMinutes, setEveryMinutes] = useState(60);
+  const [role, setRole] = useState('');
+  const [prompt, setPrompt] = useState('');
+
+  const valid =
+    workspacePath.length > 0 &&
+    prompt.trim().length > 0 &&
+    (kind === 'interval' ? everyMinutes >= 1 : /^\d{1,2}:\d{2}$/.test(time)) &&
+    (kind !== 'weekly' || days.length > 0);
+
+  const create = () => {
+    vscode.postMessage({
+      type: 'addSchedule',
+      workspacePath,
+      prompt: prompt.trim(),
+      ...(role ? { role } : {}),
+      kind,
+      ...(kind !== 'interval' ? { time } : {}),
+      ...(kind === 'weekly' ? { days } : {}),
+      ...(kind === 'interval' ? { everyMinutes } : {}),
+    });
+    onDone();
+  };
+
+  return (
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 10px 6px' }}
+      // Keep clicks inside the form from bubbling to modal-level handlers
+      onClick={(e) => e.stopPropagation()}
+    >
+      <select
+        value={workspacePath}
+        onChange={(e) => setWorkspacePath(e.target.value)}
+        style={formFieldStyle}
+      >
+        {workspaces.map((w) => (
+          <option key={w.path} value={w.path}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as ScheduleEntry['kind'])}
+          style={{ ...formFieldStyle, flex: 1 }}
+        >
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="interval">Every N min</option>
+        </select>
+        {kind === 'interval' ? (
+          <input
+            type="number"
+            min={1}
+            value={everyMinutes}
+            onChange={(e) => setEveryMinutes(Number(e.target.value))}
+            style={{ ...formFieldStyle, width: 64 }}
+            title="Minutes between runs"
+          />
+        ) : (
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            style={formFieldStyle}
+          />
+        )}
+      </div>
+      {kind === 'weekly' && (
+        <div style={{ display: 'flex', gap: 2 }}>
+          {DAY_ABBREV.map((label, d) => {
+            const on = days.includes(d);
+            return (
+              <button
+                key={label}
+                onClick={() => setDays((prev) => (on ? prev.filter((x) => x !== d) : [...prev, d]))}
+                style={{
+                  ...formFieldStyle,
+                  flex: 1,
+                  padding: '2px 0',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  background: on ? 'rgba(90, 140, 255, 0.8)' : 'var(--pixel-bg)',
+                  color: on ? '#fff' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <select value={role} onChange={(e) => setRole(e.target.value)} style={formFieldStyle}>
+        <option value="">No role</option>
+        {roles.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder="Self-contained task prompt (the run is unattended)…"
+        rows={3}
+        style={{ ...formFieldStyle, resize: 'vertical' }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+        <button
+          onClick={onDone}
+          style={{ ...formFieldStyle, cursor: 'pointer', color: 'rgba(255,255,255,0.6)' }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={valid ? create : undefined}
+          disabled={!valid}
+          style={{
+            ...formFieldStyle,
+            cursor: valid ? 'pointer' : 'default',
+            background: valid ? 'var(--pixel-accent)' : 'var(--pixel-bg)',
+            color: valid ? '#fff' : 'rgba(255,255,255,0.35)',
+            border: '2px solid var(--pixel-accent)',
+          }}
+        >
+          Create
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Scheduled runs: always-visible section — list + inline creation form. */
+function SchedulesSection({
+  schedules,
+  workspaces,
+  roles,
+}: {
+  schedules: ScheduleEntry[];
+  workspaces: WorkspaceInfo[];
+  roles: Array<{ id: string; name: string }>;
+}) {
+  const [showForm, setShowForm] = useState(false);
   return (
     <div style={{ borderTop: '1px solid var(--pixel-border)', marginTop: 4, paddingTop: 4 }}>
-      <div style={{ padding: '2px 10px', fontSize: '20px', color: 'rgba(255,255,255,0.9)' }}>
-        Scheduled Runs
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '2px 10px',
+          fontSize: '20px',
+          color: 'rgba(255,255,255,0.9)',
+        }}
+      >
+        <span>Scheduled Runs</span>
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          title="Create a scheduled run"
+          style={{
+            background: 'transparent',
+            border: '2px solid var(--pixel-border)',
+            borderRadius: 0,
+            color: 'rgba(255,255,255,0.8)',
+            fontSize: '16px',
+            cursor: 'pointer',
+            padding: '0 6px',
+            lineHeight: 1.4,
+            fontFamily: 'inherit',
+          }}
+        >
+          {showForm ? '−' : '+ New'}
+        </button>
       </div>
+      {showForm && (
+        <ScheduleForm workspaces={workspaces} roles={roles} onDone={() => setShowForm(false)} />
+      )}
+      {schedules.length === 0 && !showForm && (
+        <div style={{ padding: '0 10px 4px', fontSize: '16px', color: 'rgba(255,255,255,0.45)' }}>
+          None yet — create one here or ask the Assistant.
+        </div>
+      )}
       {schedules.map((s) => (
         <div
           key={s.id}
@@ -318,8 +526,12 @@ export function SettingsModal({
   usageSummary,
   achievements,
   schedules,
+  workspaces,
+  roles,
   launchAtLogin,
   onSetLaunchAtLogin,
+  bypassPermissions,
+  onSetBypassPermissions,
 }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   // Bump to re-render after toggling sound (source of truth lives in notificationSound)
@@ -359,8 +571,8 @@ export function SettingsModal({
           borderRadius: 0,
           padding: '4px',
           boxShadow: 'var(--pixel-shadow)',
-          minWidth: 200,
-          maxWidth: 340,
+          width: SETTINGS_MODAL_WIDTH_PX,
+          maxWidth: '90vw',
           maxHeight: '82vh',
           overflowY: 'auto',
         }}
@@ -409,34 +621,6 @@ export function SettingsModal({
           }}
         >
           Open Sessions Folder
-        </button>
-        <button
-          onClick={() => {
-            vscode.postMessage({ type: 'exportLayout' });
-            onClose();
-          }}
-          onMouseEnter={() => setHovered('export')}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            ...menuItemBase,
-            background: hovered === 'export' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          Export Layout
-        </button>
-        <button
-          onClick={() => {
-            vscode.postMessage({ type: 'importLayout' });
-            onClose();
-          }}
-          onMouseEnter={() => setHovered('import')}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            ...menuItemBase,
-            background: hovered === 'import' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          Import Layout
         </button>
         <button
           onClick={() => {
@@ -502,6 +686,36 @@ export function SettingsModal({
           </span>
         </button>
         <button
+          onClick={() => onSetBypassPermissions(!bypassPermissions)}
+          onMouseEnter={() => setHovered('bypass')}
+          onMouseLeave={() => setHovered(null)}
+          title="New agents start with all permission prompts skipped (--dangerously-skip-permissions)"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'bypass' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          <span>Bypass Permissions</span>
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: 0,
+              background: bypassPermissions ? 'rgba(255, 170, 60, 0.9)' : 'transparent',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              lineHeight: 1,
+              color: '#fff',
+            }}
+          >
+            {bypassPermissions ? 'X' : ''}
+          </span>
+        </button>
+        <button
           onClick={onToggleDebugMode}
           onMouseEnter={() => setHovered('debug')}
           onMouseLeave={() => setHovered(null)}
@@ -523,7 +737,7 @@ export function SettingsModal({
             />
           )}
         </button>
-        <SchedulesSection schedules={schedules} />
+        <SchedulesSection schedules={schedules} workspaces={workspaces} roles={roles} />
         <UsageSection liveSummary={usageSummary} />
         <AchievementsSection achievements={achievements} />
       </div>

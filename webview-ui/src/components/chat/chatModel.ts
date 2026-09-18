@@ -216,10 +216,21 @@ export function summarizeToolInput(name: string, input: Record<string, unknown>)
     case 'Read':
     case 'Write':
     case 'Edit':
+    case 'MultiEdit':
       summary = basename(stringField(input, 'file_path'));
+      break;
+    case 'NotebookRead':
+    case 'NotebookEdit':
+      summary = basename(stringField(input, 'notebook_path'));
       break;
     case 'Bash':
       summary = stringField(input, 'command').replace(/\s+/g, ' ').trim();
+      break;
+    case 'Skill':
+      summary = stringField(input, 'skill');
+      break;
+    case 'SlashCommand':
+      summary = stringField(input, 'command');
       break;
     case 'Grep':
     case 'Glob':
@@ -241,4 +252,67 @@ export function summarizeToolInput(name: string, input: Record<string, unknown>)
       summary = '';
   }
   return truncateChars(summary, CHAT_TOOL_SUMMARY_MAX_CHARS);
+}
+
+// ── AskUserQuestion parsing ──────────────────────────────────
+// AskUserQuestion has no executor of its own — the host must collect the
+// user's answers in the permission UI and return them via updatedInput.
+
+export interface AskQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: AskQuestionOption[];
+}
+
+/** Runtime guard: returns the parsed questions or null if malformed. */
+export function parseAskUserQuestions(input: Record<string, unknown>): AskQuestion[] | null {
+  const raw = input.questions;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const questions: AskQuestion[] = [];
+  for (const q of raw) {
+    if (typeof q !== 'object' || q === null) return null;
+    const rec = q as Record<string, unknown>;
+    if (typeof rec.question !== 'string' || !Array.isArray(rec.options)) return null;
+    const options: AskQuestionOption[] = [];
+    for (const o of rec.options) {
+      if (typeof o !== 'object' || o === null) return null;
+      const opt = o as Record<string, unknown>;
+      if (typeof opt.label !== 'string') return null;
+      options.push({
+        label: opt.label,
+        description: typeof opt.description === 'string' ? opt.description : undefined,
+      });
+    }
+    if (options.length === 0) return null;
+    questions.push({
+      question: rec.question,
+      header: typeof rec.header === 'string' ? rec.header : undefined,
+      multiSelect: rec.multiSelect === true,
+      options,
+    });
+  }
+  return questions;
+}
+
+/**
+ * Extract the chosen answers from an AskUserQuestion tool_result summary.
+ * The executor reports them as: `Your questions have been answered:
+ * "Q"="A", "Q2"="A2". You can now continue…` — returns a question→answer
+ * map (empty when the text doesn't match, e.g. dismissed/error results).
+ */
+export function parseAskAnswers(summary: string | null): Map<string, string> {
+  const answers = new Map<string, string>();
+  if (!summary) return answers;
+  const re = /"([^"]+)"="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(summary)) !== null) {
+    answers.set(match[1], match[2]);
+  }
+  return answers;
 }
