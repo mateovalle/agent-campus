@@ -24,6 +24,24 @@ const activeBtnStyle: React.CSSProperties = {
   border: '2px solid #5a8cff',
 };
 
+/** Keycap-style badge inside a button ("Rotate [R]"). */
+const keyHintStyle: React.CSSProperties = {
+  marginLeft: 4,
+  padding: '0 5px',
+  fontSize: '18px',
+  background: 'rgba(255, 255, 255, 0.15)',
+  border: '2px solid rgba(255, 255, 255, 0.35)',
+  borderRadius: 0,
+};
+
+/** Dim keyboard legend shown next to the selected-furniture buttons. */
+const shortcutLegendStyle: React.CSSProperties = {
+  marginLeft: 6,
+  fontSize: '18px',
+  color: 'rgba(255, 255, 255, 0.5)',
+  whiteSpace: 'nowrap',
+};
+
 const tabStyle: React.CSSProperties = {
   padding: '2px 6px',
   fontSize: '20px',
@@ -47,6 +65,8 @@ interface EditorToolbarProps {
   selectedFurnitureType: string;
   selectedFurnitureUid: string | null;
   selectedFurnitureColor: FloorColor | null;
+  /** Whether the selected placed item belongs to a rotation group. */
+  selectedFurnitureRotatable: boolean;
   floorColor: FloorColor;
   wallColor: FloorColor;
   onToolChange: (tool: EditTool) => void;
@@ -54,6 +74,7 @@ interface EditorToolbarProps {
   onFloorColorChange: (color: FloorColor) => void;
   onWallColorChange: (color: FloorColor) => void;
   onSelectedFurnitureColorChange: (color: FloorColor | null) => void;
+  onRotateSelected: () => void;
   onFurnitureTypeChange: (type: string) => void;
   loadedAssets?: LoadedAssetData;
 }
@@ -165,6 +186,7 @@ export function EditorToolbar({
   selectedFurnitureType,
   selectedFurnitureUid,
   selectedFurnitureColor,
+  selectedFurnitureRotatable,
   floorColor,
   wallColor,
   onToolChange,
@@ -172,6 +194,7 @@ export function EditorToolbar({
   onFloorColorChange,
   onWallColorChange,
   onSelectedFurnitureColorChange,
+  onRotateSelected,
   onFurnitureTypeChange,
   loadedAssets,
 }: EditorToolbarProps) {
@@ -526,6 +549,15 @@ export function EditorToolbar({
       {selectedFurnitureUid && (
         <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 3 }}>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            {selectedFurnitureRotatable && (
+              <button
+                style={btnStyle}
+                onClick={onRotateSelected}
+                title="Rotate the selected item (R key)"
+              >
+                ↻ Rotate <span style={keyHintStyle}>R</span>
+              </button>
+            )}
             <button
               style={showFurnitureColor ? activeBtnStyle : btnStyle}
               onClick={() => setShowFurnitureColor((v) => !v)}
@@ -542,6 +574,9 @@ export function EditorToolbar({
                 Clear
               </button>
             )}
+            <span style={shortcutLegendStyle}>
+              {selectedFurnitureRotatable ? 'R rotate · ' : ''}T toggle · Del delete · Esc deselect
+            </span>
           </div>
           {showFurnitureColor && (
             <div

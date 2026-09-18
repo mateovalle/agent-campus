@@ -9,7 +9,8 @@
  *
  * Mirroring precedent: characters already render left as flipped-right, so
  * left views here are programmatic mirrors of the hand-drawn right views
- * (and desk_l_right mirrors desk_l wholesale).
+ * (the mirrored desk_l_right that shipped here was superseded by the
+ * true 90° rotation in batch 6).
  *
  * Same style rules as batch 1-3 (house palette only, light from top-left,
  * darker-material outlines). Back chair views: the backrest fills the sprite
@@ -34,7 +35,7 @@ import {
   WOOD_DARK,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { SPRITES, validateSprites } from './sprites.ts';
+import { validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -58,13 +59,6 @@ function rep(ch: string, n: number): string {
 /** Horizontal mirror of a compiled hex grid. */
 function mirrorSprite(sprite: string[][]): string[][] {
   return sprite.map((row) => [...row].reverse());
-}
-
-/** Look up a batch-1 sprite's compiled grid by id (for wholesale mirrors). */
-function baseSprite(id: string): string[][] {
-  const s = SPRITES.find((x) => x.id === id);
-  if (!s) throw new Error(`base sprite '${id}' not found in SPRITES`);
-  return s.sprite;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -304,13 +298,6 @@ const MONITOR_DUAL_BACK = (() => {
 })();
 
 // ════════════════════════════════════════════════════════════════
-// 7. desk_l_right — the L-desk mirrored, pedestal arm down the
-//    RIGHT column, 48x32, 3x2. Wholesale mirror of desk_l (house
-//    precedent: characters render left as flipped right).
-// ════════════════════════════════════════════════════════════════
-const DESK_L_RIGHT = mirrorSprite(baseSprite('desk_l'));
-
-// ════════════════════════════════════════════════════════════════
 
 export const SPRITES4: GeneratedSprite[] = [
   {
@@ -408,18 +395,6 @@ export const SPRITES4: GeneratedSprite[] = [
     sprite: MONITOR_DUAL_BACK,
     groupId: 'monitor_dual',
     orientation: 'back',
-  },
-  {
-    id: 'desk_l_right',
-    name: 'DESK_L_RIGHT',
-    label: 'L-Desk (Right)',
-    widthPx: 48,
-    heightPx: 32,
-    footprintW: 3,
-    footprintH: 2,
-    sprite: DESK_L_RIGHT,
-    groupId: 'desk_l',
-    orientation: 'right',
   },
 ];
 

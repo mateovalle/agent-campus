@@ -785,6 +785,8 @@ export const SPRITES3: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: KITCHEN_COUNTER,
+    groupId: 'kitchen_counter',
+    orientation: 'front',
   },
   {
     id: 'pingpong_table',

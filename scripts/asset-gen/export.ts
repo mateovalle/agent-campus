@@ -26,6 +26,7 @@ import { SPRITES2 } from './sprites2.ts';
 import { SPRITES3 } from './sprites3.ts';
 import { SPRITES4 } from './sprites4.ts';
 import { SPRITES5 } from './sprites5.ts';
+import { SPRITES6 } from './sprites6.ts';
 
 const { PNG } = pngjs;
 
@@ -102,7 +103,6 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   chair_gamer_right: { category: 'chairs' },
   couch_back: { category: 'chairs' },
   monitor_dual_back: { category: 'electronics', canPlaceOnSurfaces: true },
-  desk_l_right: { category: 'desks', isDesk: true },
   // ── rotation variants (batch 5) — same meta as their front sprite ──
   desk_double_back: { category: 'desks', isDesk: true },
   desk_standing_back: { category: 'desks', isDesk: true },
@@ -116,6 +116,24 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   filing_cabinet_right: { category: 'storage' },
   filing_cabinet_left: { category: 'storage' },
   pingpong_table_right: { category: 'decor' },
+  // ── rotation variants (batch 6, quarter turns) — same meta as their front sprite ──
+  desk_l_right: { category: 'desks', isDesk: true },
+  desk_l_back: { category: 'desks', isDesk: true },
+  desk_l_left: { category: 'desks', isDesk: true },
+  desk_double_right: { category: 'desks', isDesk: true },
+  desk_double_left: { category: 'desks', isDesk: true },
+  desk_standing_right: { category: 'desks', isDesk: true },
+  desk_standing_left: { category: 'desks', isDesk: true },
+  coffee_table_right: { category: 'decor' },
+  couch_right: { category: 'chairs' },
+  couch_left: { category: 'chairs' },
+  fish_tank_right: { category: 'decor' },
+  fish_tank_left: { category: 'decor' },
+  kitchen_counter_right: { category: 'storage', isDesk: true },
+  kitchen_counter_left: { category: 'storage', isDesk: true },
+  rug_large_right: { category: 'decor', backgroundTiles: 3 },
+  monitor_dual_right: { category: 'electronics', canPlaceOnSurfaces: true },
+  monitor_dual_left: { category: 'electronics', canPlaceOnSurfaces: true },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -191,7 +209,14 @@ function exportFloors(): void {
 function exportFurniture(): void {
   fs.mkdirSync(FURNITURE_DIR, { recursive: true });
 
-  const all: GeneratedSprite[] = [...SPRITES, ...SPRITES2, ...SPRITES3, ...SPRITES4, ...SPRITES5];
+  const all: GeneratedSprite[] = [
+    ...SPRITES,
+    ...SPRITES2,
+    ...SPRITES3,
+    ...SPRITES4,
+    ...SPRITES5,
+    ...SPRITES6,
+  ];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
   const spriteIds = new Set(all.map((s) => s.id));

@@ -22,6 +22,8 @@ import {
   OFFICE_POPUP_MARGIN_PX,
   OFFICE_POPUP_WIDTH_PX,
   PULSE_ANIMATION_DURATION_SEC,
+  ROTATE_HINT_TOP_DIRTY_PX,
+  ROTATE_HINT_TOP_PX,
 } from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
@@ -490,9 +492,10 @@ function App() {
           <div
             style={{
               position: 'absolute',
-              top: 8,
+              // Drop below the EditActionBar (Undo/Redo/Save/Reset) once it appears
+              top: editor.isDirty ? ROTATE_HINT_TOP_DIRTY_PX : ROTATE_HINT_TOP_PX,
               left: '50%',
-              transform: editor.isDirty ? 'translateX(calc(-50% + 100px))' : 'translateX(-50%)',
+              transform: 'translateX(-50%)',
               zIndex: 49,
               background: 'var(--pixel-hint-bg)',
               color: '#fff',
@@ -515,6 +518,9 @@ function App() {
             const selColor = selUid
               ? (officeState.getLayout().furniture.find((f) => f.uid === selUid)?.color ?? null)
               : null;
+            const selType = selUid
+              ? officeState.getLayout().furniture.find((f) => f.uid === selUid)?.type
+              : undefined;
             return (
               <EditorToolbar
                 activeTool={editorState.activeTool}
@@ -522,6 +528,7 @@ function App() {
                 selectedFurnitureType={editorState.selectedFurnitureType}
                 selectedFurnitureUid={selUid}
                 selectedFurnitureColor={selColor}
+                selectedFurnitureRotatable={selType !== undefined && isRotatable(selType)}
                 floorColor={editorState.floorColor}
                 wallColor={editorState.wallColor}
                 onToolChange={editor.handleToolChange}
@@ -529,6 +536,7 @@ function App() {
                 onFloorColorChange={editor.handleFloorColorChange}
                 onWallColorChange={editor.handleWallColorChange}
                 onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}
+                onRotateSelected={editor.handleRotateSelected}
                 onFurnitureTypeChange={editor.handleFurnitureTypeChange}
                 loadedAssets={loadedAssets}
               />

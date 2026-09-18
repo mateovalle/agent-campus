@@ -224,6 +224,9 @@ export const TASKS_ITEM_FONT_SIZE_PX = 20;
 export const TASKS_SECTION_FONT_SIZE_PX = 18;
 
 // Floating toolbar (right-edge icon bubbles)
+/** Top offset of the "Press R to rotate" hint; pushed down under the EditActionBar when the layout is dirty. */
+export const ROTATE_HINT_TOP_PX = 8;
+export const ROTATE_HINT_TOP_DIRTY_PX = 64;
 export const TOOLBAR_ICON_SCALE = 2; // device px per icon pixel (12×12 grid → 24px)
 export const TOOLBAR_BUBBLE_SIZE_PX = 42;
 export const TOOLBAR_BUBBLE_GAP_PX = 8;

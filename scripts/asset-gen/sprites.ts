@@ -686,6 +686,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: FISH_TANK,
+    groupId: 'fish_tank',
+    orientation: 'front',
   },
   {
     id: 'rug_large',
@@ -696,6 +698,8 @@ export const SPRITES: GeneratedSprite[] = [
     footprintW: 3,
     footprintH: 2,
     sprite: RUG_LARGE,
+    groupId: 'rug_large',
+    orientation: 'front',
   },
   {
     id: 'whiteboard',

@@ -91,10 +91,41 @@ export function rotateFurniture(
   if (!item) return layout;
   const newType = getRotatedType(item.type, direction);
   if (!newType) return layout;
+  const placement = rotatedPlacement(layout, item, newType);
+  if (!placement) return layout;
   return {
     ...layout,
-    furniture: layout.furniture.map((f) => (f.uid === uid ? { ...f, type: newType } : f)),
+    furniture: layout.furniture.map((f) =>
+      f.uid === uid ? { ...f, type: newType, col: placement.col, row: placement.row } : f,
+    ),
   };
+}
+
+/**
+ * Where a rotated item lands. Same-footprint variants (chairs, back views)
+ * stay put unchecked, as before. When the footprint turns (2x1 → 1x2) the
+ * item pivots on its center, then falls back to its original corner; if
+ * neither fits (map edge, another item) the rotation is refused (null).
+ */
+function rotatedPlacement(
+  layout: OfficeLayout,
+  item: PlacedFurniture,
+  newType: string,
+): { col: number; row: number } | null {
+  const from = getCatalogEntry(item.type);
+  const to = getCatalogEntry(newType);
+  if (!from || !to) return null;
+  if (from.footprintW === to.footprintW && from.footprintH === to.footprintH) {
+    return { col: item.col, row: item.row };
+  }
+  const centered = {
+    col: item.col + Math.floor((from.footprintW - to.footprintW) / 2),
+    row: item.row + Math.floor((from.footprintH - to.footprintH) / 2),
+  };
+  for (const cand of [centered, { col: item.col, row: item.row }]) {
+    if (canPlaceFurniture(layout, newType, cand.col, cand.row, item.uid)) return cand;
+  }
+  return null;
 }
 
 /** Toggle furniture state (on/off). Returns new layout (immutable). */

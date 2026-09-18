@@ -736,6 +736,8 @@ export const SPRITES2: GeneratedSprite[] = [
     footprintW: 2,
     footprintH: 1,
     sprite: COFFEE_TABLE,
+    groupId: 'coffee_table',
+    orientation: 'front',
   },
   {
     id: 'bookshelf_tall',
