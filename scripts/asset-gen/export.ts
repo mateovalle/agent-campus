@@ -27,6 +27,7 @@ import { SPRITES3 } from './sprites3.ts';
 import { SPRITES4 } from './sprites4.ts';
 import { SPRITES5 } from './sprites5.ts';
 import { SPRITES6 } from './sprites6.ts';
+import { SPRITES7 } from './sprites7.ts';
 
 const { PNG } = pngjs;
 
@@ -134,6 +135,37 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   rug_large_right: { category: 'decor', backgroundTiles: 3 },
   monitor_dual_right: { category: 'electronics', canPlaceOnSurfaces: true },
   monitor_dual_left: { category: 'electronics', canPlaceOnSurfaces: true },
+  // ── batch 7: office essentials + lounge ──
+  desk_single: { category: 'desks', isDesk: true },
+  desk_single_right: { category: 'desks', isDesk: true },
+  desk_single_back: { category: 'desks', isDesk: true },
+  desk_single_left: { category: 'desks', isDesk: true },
+  meeting_table: { category: 'desks', isDesk: true },
+  meeting_table_right: { category: 'desks', isDesk: true },
+  monitor_single: { category: 'electronics', canPlaceOnSurfaces: true },
+  monitor_single_right: { category: 'electronics', canPlaceOnSurfaces: true },
+  monitor_single_back: { category: 'electronics', canPlaceOnSurfaces: true },
+  monitor_single_left: { category: 'electronics', canPlaceOnSurfaces: true },
+  laptop: { category: 'electronics', canPlaceOnSurfaces: true },
+  laptop_back: { category: 'electronics', canPlaceOnSurfaces: true },
+  chair_wood: { category: 'chairs' },
+  chair_wood_right: { category: 'chairs' },
+  chair_wood_back: { category: 'chairs' },
+  chair_wood_left: { category: 'chairs' },
+  beanbag: { category: 'chairs' },
+  beanbag_back: { category: 'chairs' },
+  partition: { category: 'decor' },
+  partition_right: { category: 'decor' },
+  bookshelf_short: { category: 'storage' },
+  bookshelf_short_right: { category: 'storage' },
+  bookshelf_short_back: { category: 'storage' },
+  bookshelf_short_left: { category: 'storage' },
+  fridge: { category: 'storage' },
+  fridge_right: { category: 'storage' },
+  fridge_left: { category: 'storage' },
+  wall_shelf: { category: 'wall', canPlaceOnWalls: true },
+  neon_sign: { category: 'wall', canPlaceOnWalls: true },
+  calendar: { category: 'wall', canPlaceOnWalls: true },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -216,6 +248,7 @@ function exportFurniture(): void {
     ...SPRITES4,
     ...SPRITES5,
     ...SPRITES6,
+    ...SPRITES7,
   ];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
