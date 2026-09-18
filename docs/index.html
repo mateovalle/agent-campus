@@ -122,7 +122,8 @@
     font-family: var(--display);
     font-size: clamp(20px, 5vw, 52px);
     line-height: 1.35;
-    text-shadow: 4px 4px 0 var(--void), 8px 8px 0 rgba(74, 222, 128, 0.18);
+    /* em, not px: at the mobile clamp floor a fixed 8px shadow lands inside the glyphs */
+    text-shadow: 0.08em 0.08em 0 var(--void), 0.16em 0.16em 0 rgba(74, 222, 128, 0.18);
   }
   h1 .accent { color: var(--green); }
 
@@ -154,8 +155,10 @@
     position: relative;
     overflow: hidden;
     height: 384px; /* 192 native * scale 2 */
+    /* The office floor, in the app's own wood tones. A grey-on-grey checker
+       here read as an image editor's transparency pattern, not as a floor. */
     background:
-      repeating-conic-gradient(#24242c 0% 25%, #2c2c36 0% 50%) 0 64px / 32px 32px;
+      repeating-conic-gradient(#3f3527 0% 25%, #473c2a 0% 50%) 0 64px / 32px 32px;
   }
   .scene {
     position: absolute;
@@ -300,7 +303,7 @@
     flex: none;
     border: 2px solid var(--void);
     background-image: url('assets/contact-sheet.png');
-    background-size: 752px 1336px; /* sheet at 0.5x — sprites land at 3x native */
+    background-size: 752px 3840px; /* sheet at 0.5x — sprites land at 3x native */
     image-rendering: pixelated;
   }
   .cell::after {
@@ -569,9 +572,24 @@
         <p>Exact costs from the SDK — not estimates. Per turn, per day, per project, live on each office's label.</p>
       </div>
       <div class="card">
+        <div class="icon"><img class="px" src="assets/sprites/corkboard.png" alt="" width="96" height="96"></div>
+        <h3>THE BOARD</h3>
+        <p>One kanban across every office: Backlog, In Progress, Needs You, Done. Agents waiting on a permission land in Needs You with the buttons to unblock them.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><img class="px" src="assets/sprites/wall_clock.png" alt="" width="64" height="64"></div>
+        <h3>SCHEDULES</h3>
+        <p>Recurring unattended runs — daily, weekly, or every N minutes. They fire with the window closed, skip a run whose last agent is still busy, and offer the ones missed while the app was off.</p>
+      </div>
+      <div class="card">
+        <div class="icon"><img class="px" src="assets/sprites/role_qa.png" alt="" width="48" height="96"></div>
+        <h3>DISPATCH ROLES</h3>
+        <p>Tag a task <code>[qa]</code> or <code>[security]</code> and the agent spawns with that charter, that tool policy — the review roles can't edit, so you get a verdict, not a silent fix — and that character skin. Works on folders that hold no code at all: the same flow runs a marketing team.</p>
+      </div>
+      <div class="card">
         <div class="icon"><img class="px" src="assets/sprites/trophy_gold.png" alt="" width="64" height="64"></div>
         <h3>ACHIEVEMENTS</h3>
-        <p>Milestones for shipped tasks, parallel agents and streaks. Never for spend.</p>
+        <p>Milestones for shipped tasks, parallel agents and streaks — some of them unlock furniture you can only earn: a trophy case, a disco ball, a golden duck. Never for spend.</p>
       </div>
     </div>
   </section>
@@ -584,21 +602,28 @@
 
     <div class="strip-frame">
       <div class="strip" tabindex="0" aria-label="Scrollable strip of agent-drawn sprites from the asset pipeline's contact sheet">
-        <div class="cell" data-name="desk_l"          style="width:144px; height:96px;  background-position: -8px -56px;"></div>
-        <div class="cell" data-name="chair_gamer"     style="width:48px;  height:96px;  background-position: -156px -56px;"></div>
-        <div class="cell" data-name="server_rack"     style="width:48px;  height:144px; background-position: -308px -8px;"></div>
-        <div class="cell" data-name="fish_tank"       style="width:96px;  height:96px;  background-position: -60px -160px;"></div>
-        <div class="cell" data-name="rug_large"       style="width:144px; height:96px;  background-position: -160px -160px;"></div>
-        <div class="cell" data-name="couch"           style="width:96px;  height:96px;  background-position: -360px -264px;"></div>
-        <div class="cell" data-name="bookshelf_tall"  style="width:48px;  height:144px; background-position: -108px -368px;"></div>
-        <div class="cell" data-name="arcade_machine"  style="width:48px;  height:144px; background-position: -264px -520px;"></div>
-        <div class="cell" data-name="window"          style="width:96px;  height:96px;  background-position: -8px -672px;"></div>
-        <div class="cell" data-name="vending_machine" style="width:48px;  height:144px; background-position: -8px -776px;"></div>
-        <div class="cell" data-name="pingpong_table"  style="width:144px; height:96px;  background-position: -212px -824px;"></div>
-        <div class="cell" data-name="trophy_gold"     style="width:48px;  height:48px;  background-position: -408px -208px;"></div>
-        <div class="cell" data-name="cat_sleeping"    style="width:48px;  height:48px;  background-position: -60px -976px;"></div>
-        <div class="cell" data-name="rubber_duck"     style="width:48px;  height:48px;  background-position: -112px -976px;"></div>
-        <div class="cell" data-name="floor_herringbone" style="width:144px; height:144px; background-position: -600px -1032px;"></div>
+        <div class="cell" data-name="desk_l" style="width:144px; height:96px; background-position: -8px -56px;"></div>
+        <div class="cell" data-name="chair_gamer" style="width:48px; height:96px; background-position: -156px -56px;"></div>
+        <div class="cell" data-name="server_rack" style="width:48px; height:144px; background-position: -308px -8px;"></div>
+        <div class="cell" data-name="fish_tank" style="width:96px; height:96px; background-position: -60px -160px;"></div>
+        <div class="cell" data-name="rug_large" style="width:144px; height:96px; background-position: -160px -160px;"></div>
+        <div class="cell" data-name="couch" style="width:96px; height:96px; background-position: -360px -264px;"></div>
+        <div class="cell" data-name="bookshelf_tall" style="width:48px; height:144px; background-position: -108px -368px;"></div>
+        <div class="cell" data-name="arcade_machine" style="width:48px; height:144px; background-position: -264px -520px;"></div>
+        <div class="cell" data-name="window" style="width:96px; height:96px; background-position: -8px -672px;"></div>
+        <div class="cell" data-name="vending_machine" style="width:48px; height:144px; background-position: -8px -776px;"></div>
+        <div class="cell" data-name="pingpong_table" style="width:144px; height:96px; background-position: -212px -824px;"></div>
+        <div class="cell" data-name="meeting_table" style="width:144px; height:96px; background-position: -216px -2416px;"></div>
+        <div class="cell" data-name="fountain" style="width:96px; height:144px; background-position: -60px -3128px;"></div>
+        <div class="cell" data-name="tree" style="width:48px; height:144px; background-position: -8px -2976px;"></div>
+        <div class="cell" data-name="bench" style="width:96px; height:96px; background-position: -112px -3024px;"></div>
+        <div class="cell" data-name="trophy_case" style="width:96px; height:144px; background-position: -8px -3384px;"></div>
+        <div class="cell" data-name="neon_shipped" style="width:96px; height:96px; background-position: -108px -3432px;"></div>
+        <div class="cell" data-name="disco_ball" style="width:48px; height:96px; background-position: -260px -3432px;"></div>
+        <div class="cell" data-name="robot_statue" style="width:48px; height:96px; background-position: -312px -3432px;"></div>
+        <div class="cell" data-name="duck_golden" style="width:48px; height:48px; background-position: -208px -3480px;"></div>
+        <div class="cell" data-name="cat_sleeping" style="width:48px; height:48px; background-position: -60px -976px;"></div>
+        <div class="cell" data-name="rubber_duck" style="width:48px; height:48px; background-position: -112px -976px;"></div>
       </div>
       <div class="strip-caption">contact-sheet.png — actual output of the agents' sprite pipeline. Not a mockup.</div>
     </div>
