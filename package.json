@@ -1,6 +1,6 @@
 {
   "name": "pixel-agents-desktop",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Pixel Agents — standalone desktop app for visualizing AI coding agents",
   "main": "dist-electron/electron/main.js",
   "private": true,
