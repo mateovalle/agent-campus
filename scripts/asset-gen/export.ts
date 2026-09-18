@@ -29,6 +29,7 @@ import { SPRITES5 } from './sprites5.ts';
 import { SPRITES6 } from './sprites6.ts';
 import { SPRITES7 } from './sprites7.ts';
 import { SPRITES8 } from './sprites8.ts';
+import { SPRITES9 } from './sprites9.ts';
 
 const { PNG } = pngjs;
 
@@ -46,6 +47,8 @@ interface CatalogMeta {
   canPlaceOnWalls?: boolean;
   canPlaceOnSurfaces?: boolean;
   backgroundTiles?: number;
+  /** Achievement id that unlocks this piece in the editor palette. */
+  unlock?: string;
 }
 
 const CATALOG_META: Record<string, CatalogMeta> = {
@@ -181,6 +184,12 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   picnic_table_right: { category: 'decor' },
   flower_bed: { category: 'decor' },
   flower_bed_right: { category: 'decor' },
+  // ── batch 9: reward furniture (locked until the achievement unlocks) ──
+  trophy_case: { category: 'storage', unlock: 'ten-done' },
+  neon_shipped: { category: 'wall', canPlaceOnWalls: true, unlock: 'first-done' },
+  duck_golden: { category: 'decor', canPlaceOnSurfaces: true, unlock: 'century' },
+  disco_ball: { category: 'wall', canPlaceOnWalls: true, unlock: 'full-floor' },
+  robot_statue: { category: 'decor', unlock: 'automator' },
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -201,6 +210,7 @@ interface CatalogAsset {
   backgroundTiles?: number;
   groupId?: string;
   orientation?: string;
+  unlock?: string;
 }
 
 // ── PNG helpers ─────────────────────────────────────────────────
@@ -265,6 +275,7 @@ function exportFurniture(): void {
     ...SPRITES6,
     ...SPRITES7,
     ...SPRITES8,
+    ...SPRITES9,
   ];
 
   // Sanity: every sprite has metadata, every metadata entry has a sprite.
@@ -308,6 +319,7 @@ function exportFurniture(): void {
       canPlaceOnWalls: meta.canPlaceOnWalls ?? false,
     };
     if (meta.canPlaceOnSurfaces) entry.canPlaceOnSurfaces = true;
+    if (meta.unlock) entry.unlock = meta.unlock;
     if (meta.backgroundTiles !== undefined) entry.backgroundTiles = meta.backgroundTiles;
     if (s.groupId) entry.groupId = s.groupId;
     if (s.orientation) entry.orientation = s.orientation;

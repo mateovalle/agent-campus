@@ -37,6 +37,8 @@ export interface FurnitureAsset {
   backgroundTiles?: number;
   orientation?: string;
   state?: string;
+  /** Achievement id that unlocks this piece in the editor palette. */
+  unlock?: string;
 }
 
 /** Per-agent presentation metadata persisted by the host. */

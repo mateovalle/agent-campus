@@ -27,6 +27,7 @@ export interface LoadedAssetData {
     canPlaceOnSurfaces?: boolean;
     backgroundTiles?: number;
     canPlaceOnWalls?: boolean;
+    unlock?: string;
   }>;
   sprites: Record<string, SpriteData>;
 }
@@ -170,6 +171,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         isDesk: asset.isDesk,
         category: asset.category as FurnitureCategory,
         ...(asset.orientation ? { orientation: asset.orientation } : {}),
+        ...(asset.unlock ? { unlock: asset.unlock } : {}),
         ...(asset.canPlaceOnSurfaces ? { canPlaceOnSurfaces: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
@@ -308,6 +310,29 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs)`,
   );
   return true;
+}
+
+// ── Achievement locks ────────────────────────────────────────────
+
+let unlockedAchievements = new Set<string>();
+
+/**
+ * Ids the host reports as unlocked ('achievementsLoaded' / 'achievementUnlocked').
+ * Reward furniture carries an `unlock` id and stays locked until it appears here.
+ */
+export function setUnlockedAchievements(ids: readonly string[]): void {
+  unlockedAchievements = new Set(ids);
+}
+
+/** Marks one achievement unlocked ('achievementUnlocked' arrives one at a time). */
+export function addUnlockedAchievement(id: string): void {
+  unlockedAchievements.add(id);
+}
+
+/** True if this type is reward furniture whose achievement is still locked. */
+export function isTypeLocked(type: string): boolean {
+  const unlock = getCatalogEntry(type)?.unlock;
+  return unlock !== undefined && !unlockedAchievements.has(unlock);
 }
 
 /** True once buildDynamicCatalog() has loaded the shipped asset catalog. */

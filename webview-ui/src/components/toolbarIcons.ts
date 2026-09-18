@@ -85,3 +85,19 @@ export const ICON_SETTINGS: IconGrid = [
   '..XX.XX.XX..',
   '.....XX.....',
 ];
+
+/** Padlock — a reward piece whose achievement is still locked. */
+export const ICON_LOCK: IconGrid = [
+  '............',
+  '....XXXX....',
+  '...XX..XX...',
+  '...XX..XX...',
+  '...XX..XX...',
+  '..XXXXXXXX..',
+  '..XXAAAAXX..',
+  '..XXAAAAXX..',
+  '..XXAAAAXX..',
+  '..XXXXXXXX..',
+  '............',
+  '............',
+];

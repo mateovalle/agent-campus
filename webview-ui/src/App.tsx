@@ -529,6 +529,7 @@ function App() {
                 selectedFurnitureUid={selUid}
                 selectedFurnitureColor={selColor}
                 selectedFurnitureRotatable={selType !== undefined && isRotatable(selType)}
+                achievements={achievements}
                 floorColor={editorState.floorColor}
                 wallColor={editorState.wallColor}
                 onToolChange={editor.handleToolChange}

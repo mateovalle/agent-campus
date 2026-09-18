@@ -1,5 +1,10 @@
 import { DEFAULT_NEUTRAL_COLOR } from '../../constants.js';
-import { getCatalogEntry, getRotatedType, getToggledType } from '../layout/furnitureCatalog.js';
+import {
+  getCatalogEntry,
+  getRotatedType,
+  getToggledType,
+  isTypeLocked,
+} from '../layout/furnitureCatalog.js';
 import { getPlacementBlockedTiles } from '../layout/layoutSerializer.js';
 import type {
   FloorColor,
@@ -220,6 +225,12 @@ export function canPlaceFurniture(
 ): boolean {
   const entry = getCatalogEntry(type);
   if (!entry) return false;
+
+  // Reward furniture can't be placed until its achievement unlocks. Only NEW
+  // placements are refused: excludeUid means an existing item is being moved
+  // or rotated, and a layout that already holds a locked piece (imported, or
+  // unlocked on another machine) stays fully editable.
+  if (excludeUid === undefined && isTypeLocked(type)) return false;
 
   // Check bounds — wall items may extend above the map (top rows hang above the wall)
   if (entry.canPlaceOnWalls) {

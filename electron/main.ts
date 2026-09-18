@@ -545,7 +545,10 @@ function launchChatAgent(
     ...(role ? { role: role.id } : {}),
   });
   ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(cwd) });
-  trackAchievement('agentSpawned', { concurrentAgents: chatSessions.size });
+  trackAchievement('agentSpawned', {
+    concurrentAgents: chatSessions.size,
+    ...(role ? { role: role.id } : {}),
+  });
   if (initialPrompt) {
     session.send(initialPrompt);
   }
@@ -964,6 +967,7 @@ function dispatchSchedule(s: ScheduleEntry): void {
     s.role,
   );
   scheduleLastAgent.set(s.id, agentId);
+  trackAchievement('scheduleRan');
 }
 
 function schedulerTick(): void {

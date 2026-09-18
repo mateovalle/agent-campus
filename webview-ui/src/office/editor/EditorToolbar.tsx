@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { AchievementInfo } from '../../../../shared/protocol.js';
+import { PixelIcon } from '../../components/PixelIcon.js';
+import { ICON_LOCK } from '../../components/toolbarIcons.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
 import { getActiveCategories, getCatalogByCategory } from '../layout/furnitureCatalog.js';
@@ -34,6 +37,10 @@ const keyHintStyle: React.CSSProperties = {
   borderRadius: 0,
 };
 
+/** Padlock badge on a locked reward item's palette thumbnail. */
+const LOCK_ICON_FG = '#e8e8f0';
+const LOCK_ICON_ACCENT = '#cca700';
+
 /** Dim keyboard legend shown next to the selected-furniture buttons. */
 const shortcutLegendStyle: React.CSSProperties = {
   marginLeft: 6,
@@ -67,6 +74,8 @@ interface EditorToolbarProps {
   selectedFurnitureColor: FloorColor | null;
   /** Whether the selected placed item belongs to a rotation group. */
   selectedFurnitureRotatable: boolean;
+  /** Milestones from the host; reward furniture stays locked until its id is unlocked. */
+  achievements: readonly AchievementInfo[];
   floorColor: FloorColor;
   wallColor: FloorColor;
   onToolChange: (tool: EditTool) => void;
@@ -187,6 +196,7 @@ export function EditorToolbar({
   selectedFurnitureUid,
   selectedFurnitureColor,
   selectedFurnitureRotatable,
+  achievements,
   floorColor,
   wallColor,
   onToolChange,
@@ -239,6 +249,17 @@ export function EditorToolbar({
   );
 
   const categoryItems = getCatalogByCategory(activeCategory);
+
+  // Reward furniture: locked until its achievement is unlocked. The button
+  // stays visible (the point is to advertise the reward) but does nothing.
+  const lockedBy = useMemo(() => {
+    const byId = new Map(achievements.map((a) => [a.id, a]));
+    return (unlock?: string): AchievementInfo | null => {
+      if (!unlock) return null;
+      const a = byId.get(unlock);
+      return a && a.unlockedAt === undefined ? a : null;
+    };
+  }, [achievements]);
 
   const patternCount = getFloorPatternCount();
   // Wall is TileType 0, floor patterns are 1..patternCount
@@ -501,24 +522,32 @@ export function EditorToolbar({
             {categoryItems.map((entry) => {
               const cached = getCachedSprite(entry.sprite, 2);
               const isSelected = selectedFurnitureType === entry.type;
+              const locked = lockedBy(entry.unlock);
               return (
                 <button
                   key={entry.type}
-                  onClick={() => onFurnitureTypeChange(entry.type)}
-                  title={entry.label}
+                  onClick={() => {
+                    if (!locked) onFurnitureTypeChange(entry.type);
+                  }}
+                  title={
+                    // Locked descriptions stay hidden app-wide (Settings shows
+                    // ACHIEVEMENT_LOCKED_DESCRIPTION), so name the milestone, not its terms.
+                    locked ? `${entry.label} — locked, earn "${locked.name}"` : entry.label
+                  }
                   style={{
                     width: thumbSize,
                     height: thumbSize,
                     background: '#2A2A3A',
                     border: isSelected ? '2px solid #5a8cff' : '2px solid #4a4a6a',
                     borderRadius: 0,
-                    cursor: 'pointer',
+                    cursor: locked ? 'not-allowed' : 'pointer',
                     padding: 0,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     overflow: 'hidden',
                     flexShrink: 0,
+                    position: 'relative',
                   }}
                 >
                   <canvas
@@ -536,8 +565,30 @@ export function EditorToolbar({
                       const dh = cached.height * scale;
                       ctx.drawImage(cached, (thumbSize - dw) / 2, (thumbSize - dh) / 2, dw, dh);
                     }}
-                    style={{ width: thumbSize, height: thumbSize }}
+                    style={{
+                      width: thumbSize,
+                      height: thumbSize,
+                      ...(locked ? { filter: 'grayscale(1)', opacity: 0.3 } : {}),
+                    }}
                   />
+                  {locked && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: 1,
+                        bottom: 1,
+                        display: 'flex',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <PixelIcon
+                        grid={ICON_LOCK}
+                        fg={LOCK_ICON_FG}
+                        accent={LOCK_ICON_ACCENT}
+                        scale={1}
+                      />
+                    </span>
+                  )}
                 </button>
               );
             })}

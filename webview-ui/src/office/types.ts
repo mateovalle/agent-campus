@@ -119,6 +119,8 @@ export interface FurnitureCatalogEntry {
   canPlaceOnSurfaces?: boolean;
   /** Number of tile rows from the top of the footprint that are "background" (allow placement, still block walking). Default 0. */
   backgroundTiles?: number;
+  /** Achievement id that unlocks this piece; absent = always available */
+  unlock?: string;
   /** Whether this item can be placed on wall tiles */
   canPlaceOnWalls?: boolean;
 }

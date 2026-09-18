@@ -1,6 +1,11 @@
 /**
  * Achievements: milestone tracking persisted to ~/.pixel-agents/achievements.json.
- * Rewards are cosmetic milestones (future: unlock decorative furniture).
+ * Milestones are cosmetic, and some of them unlock decorative furniture — a
+ * catalog entry carries the achievement id in its `unlock` field, and the
+ * editor palette keeps it locked until that id is unlocked.
+ *
+ * Counting lives here; the decision of what counts as unlocked is the pure
+ * `newlyUnlocked()` below, which is what the unit tests exercise.
  */
 
 import * as fs from 'fs';
@@ -18,9 +23,10 @@ export type AchievementEvent =
   | 'taskCompleted'
   | 'agentTaskCompleted'
   | 'turnCompleted'
-  | 'workspaceAdded';
+  | 'workspaceAdded'
+  | 'scheduleRan';
 
-interface Counters {
+export interface AchievementCounters {
   agentsSpawned: number;
   maxConcurrentAgents: number;
   tasksAssigned: number;
@@ -29,10 +35,33 @@ interface Counters {
   turns: number;
   activeDays: string[];
   workspaces: number;
+  /** Agents dispatched by a schedule while the app ticked. */
+  scheduledRuns: number;
+  /** Turns that finished between midnight and 5am local time. */
+  nightTurns: number;
+  /** Distinct dispatch roles an agent has been created with. */
+  rolesUsed: string[];
+}
+
+/** Every counter at zero — also the shape older achievement files are widened to. */
+export function emptyCounters(): AchievementCounters {
+  return {
+    agentsSpawned: 0,
+    maxConcurrentAgents: 0,
+    tasksAssigned: 0,
+    tasksCompleted: 0,
+    agentTaskCompletions: 0,
+    turns: 0,
+    activeDays: [],
+    workspaces: 0,
+    scheduledRuns: 0,
+    nightTurns: 0,
+    rolesUsed: [],
+  };
 }
 
 interface State {
-  counters: Counters;
+  counters: AchievementCounters;
   unlocked: Record<string, number>;
 }
 
@@ -40,10 +69,10 @@ interface AchievementDef {
   id: string;
   name: string;
   description: string;
-  test: (c: Counters) => boolean;
+  test: (c: AchievementCounters) => boolean;
 }
 
-const DEFS: AchievementDef[] = [
+export const ACHIEVEMENT_DEFS: AchievementDef[] = [
   {
     id: 'first-agent',
     name: 'First Hire',
@@ -116,7 +145,48 @@ const DEFS: AchievementDef[] = [
     description: '100 agent turns completed',
     test: (c) => c.turns >= 100,
   },
+  {
+    id: 'veteran',
+    name: 'Veteran',
+    description: '1000 agent turns completed',
+    test: (c) => c.turns >= 1000,
+  },
+  {
+    id: 'automator',
+    name: 'Set and Forget',
+    description: 'A schedule dispatched an agent on its own',
+    test: (c) => c.scheduledRuns >= 1,
+  },
+  {
+    id: 'night-shift',
+    name: 'Night Shift',
+    description: 'An agent finished a turn between midnight and 5am',
+    test: (c) => c.nightTurns >= 1,
+  },
+  {
+    id: 'full-team',
+    name: 'Full Team',
+    description: 'Create agents in 3 different roles',
+    test: (c) => c.rolesUsed.length >= 3,
+  },
 ];
+
+/**
+ * The achievements these counters satisfy that `unlocked` does not list yet.
+ * Pure: no file access, no mutation of its arguments.
+ */
+export function newlyUnlocked(
+  counters: AchievementCounters,
+  unlocked: Record<string, number>,
+  now: number,
+): AchievementInfo[] {
+  return ACHIEVEMENT_DEFS.filter((d) => !unlocked[d.id] && d.test(counters)).map((d) => ({
+    id: d.id,
+    name: d.name,
+    description: d.description,
+    unlockedAt: now,
+  }));
+}
 
 let state: State | null = null;
 
@@ -127,19 +197,11 @@ function load(): State {
   } catch {
     state = null;
   }
-  state ??= {
-    counters: {
-      agentsSpawned: 0,
-      maxConcurrentAgents: 0,
-      tasksAssigned: 0,
-      tasksCompleted: 0,
-      agentTaskCompletions: 0,
-      turns: 0,
-      activeDays: [],
-      workspaces: 0,
-    },
-    unlocked: {},
-  };
+  state ??= { counters: emptyCounters(), unlocked: {} };
+  // Files written before a counter existed would leave it undefined, and the
+  // array counters would then blow up on .push / .length.
+  state.counters = { ...emptyCounters(), ...state.counters };
+  state.unlocked ??= {};
   return state;
 }
 
@@ -154,7 +216,7 @@ function save(): void {
 
 export function listAchievements(): AchievementInfo[] {
   const st = load();
-  return DEFS.map((d) => ({
+  return ACHIEVEMENT_DEFS.map((d) => ({
     id: d.id,
     name: d.name,
     description: d.description,
@@ -165,13 +227,14 @@ export function listAchievements(): AchievementInfo[] {
 /** Records an event; returns any achievements newly unlocked by it. */
 export function recordAchievementEvent(
   event: AchievementEvent,
-  detail?: { concurrentAgents?: number; workspaces?: number },
+  detail?: { concurrentAgents?: number; workspaces?: number; role?: string },
 ): AchievementInfo[] {
   const st = load();
   const c = st.counters;
   if (event === 'agentSpawned') {
     c.agentsSpawned++;
     c.maxConcurrentAgents = Math.max(c.maxConcurrentAgents, detail?.concurrentAgents ?? 0);
+    if (detail?.role && !c.rolesUsed.includes(detail.role)) c.rolesUsed.push(detail.role);
   } else if (event === 'taskAssigned') {
     c.tasksAssigned++;
   } else if (event === 'taskCompleted') {
@@ -181,24 +244,18 @@ export function recordAchievementEvent(
     c.tasksCompleted++;
   } else if (event === 'turnCompleted') {
     c.turns++;
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
     if (!c.activeDays.includes(today)) c.activeDays.push(today);
+    if (now.getHours() < 5) c.nightTurns++;
   } else if (event === 'workspaceAdded') {
     c.workspaces = Math.max(c.workspaces, detail?.workspaces ?? 0);
+  } else if (event === 'scheduleRan') {
+    c.scheduledRuns++;
   }
 
-  const fresh: AchievementInfo[] = [];
-  for (const d of DEFS) {
-    if (!st.unlocked[d.id] && d.test(c)) {
-      st.unlocked[d.id] = Date.now();
-      fresh.push({
-        id: d.id,
-        name: d.name,
-        description: d.description,
-        unlockedAt: st.unlocked[d.id],
-      });
-    }
-  }
+  const fresh = newlyUnlocked(c, st.unlocked, Date.now());
+  for (const a of fresh) st.unlocked[a.id] = a.unlockedAt as number;
   save();
   return fresh;
 }

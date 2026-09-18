@@ -1720,6 +1720,77 @@
       "canPlaceOnWalls": false,
       "groupId": "flower_bed",
       "orientation": "right"
+    },
+    {
+      "id": "trophy_case",
+      "name": "TROPHY_CASE",
+      "label": "Trophy Case",
+      "category": "storage",
+      "file": "furniture/trophy_case.png",
+      "width": 32,
+      "height": 48,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "unlock": "ten-done"
+    },
+    {
+      "id": "neon_shipped",
+      "name": "NEON_SHIPPED",
+      "label": "Shipped Sign",
+      "category": "wall",
+      "file": "furniture/neon_shipped.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": true,
+      "unlock": "first-done"
+    },
+    {
+      "id": "duck_golden",
+      "name": "DUCK_GOLDEN",
+      "label": "Golden Duck",
+      "category": "decor",
+      "file": "furniture/duck_golden.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "canPlaceOnSurfaces": true,
+      "unlock": "century"
+    },
+    {
+      "id": "disco_ball",
+      "name": "DISCO_BALL",
+      "label": "Disco Ball",
+      "category": "wall",
+      "file": "furniture/disco_ball.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": true,
+      "unlock": "full-floor"
+    },
+    {
+      "id": "robot_statue",
+      "name": "ROBOT_STATUE",
+      "label": "Robot Statue",
+      "category": "decor",
+      "file": "furniture/robot_statue.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 1,
+      "isDesk": false,
+      "canPlaceOnWalls": false,
+      "unlock": "automator"
     }
   ]
 }

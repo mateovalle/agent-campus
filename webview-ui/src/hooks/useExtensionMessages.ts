@@ -14,7 +14,12 @@ import type {
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js';
 import type { CampusState } from '../office/engine/campusState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
-import { buildDynamicCatalog, pruneUnknownFurniture } from '../office/layout/furnitureCatalog.js';
+import {
+  addUnlockedAchievement,
+  buildDynamicCatalog,
+  pruneUnknownFurniture,
+  setUnlockedAchievements,
+} from '../office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
 import { setCharacterTemplates, setRoleSprites } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
@@ -548,8 +553,13 @@ export function useExtensionMessages(
         campus.setTodayUsage(msg.summary.todayByWorkspace ?? {});
       } else if (msg.type === 'achievementsLoaded') {
         setAchievements(msg.achievements);
+        // Mirrors into the catalog module, which gates placement imperatively
+        setUnlockedAchievements(
+          msg.achievements.filter((a) => a.unlockedAt !== undefined).map((a) => a.id),
+        );
       } else if (msg.type === 'achievementUnlocked') {
         const unlocked = msg.achievement;
+        addUnlockedAchievement(unlocked.id);
         setAchievements((prev) => {
           const idx = prev.findIndex((a) => a.id === unlocked.id);
           if (idx === -1) return [...prev, unlocked];
