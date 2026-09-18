@@ -14,7 +14,7 @@ import type {
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js';
 import type { CampusState } from '../office/engine/campusState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
-import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, pruneUnknownFurniture } from '../office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
 import { setCharacterTemplates, setRoleSprites } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
@@ -206,7 +206,10 @@ export function useExtensionMessages(
           return;
         }
         const rawLayout = msg.layout as OfficeLayout | null;
-        const layout = rawLayout && rawLayout.version === 1 ? migrateLayoutColors(rawLayout) : null;
+        const layout =
+          rawLayout && rawLayout.version === 1
+            ? pruneUnknownFurniture(migrateLayoutColors(rawLayout))
+            : null;
         if (msg.workspacePath !== undefined) {
           // Per-workspace layout — override just that workspace's office
           if (layout) campus.setWorkspaceLayout(msg.workspacePath, layout);

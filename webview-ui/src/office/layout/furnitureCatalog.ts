@@ -8,7 +8,7 @@ import {
   PLANT_SPRITE,
   WHITEBOARD_SPRITE,
 } from '../sprites/spriteData.js';
-import type { FurnitureCatalogEntry, SpriteData } from '../types.js';
+import type { FurnitureCatalogEntry, OfficeLayout, SpriteData } from '../types.js';
 import { FurnitureType } from '../types.js';
 
 export interface LoadedAssetData {
@@ -308,6 +308,28 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs)`,
   );
   return true;
+}
+
+/** True once buildDynamicCatalog() has loaded the shipped asset catalog. */
+export function isDynamicCatalogReady(): boolean {
+  return internalCatalogMap !== null;
+}
+
+/**
+ * Drop furniture whose type no longer exists in the loaded catalog (ids from
+ * retired asset packs). Such items render nothing and block nothing, so
+ * removing them in memory is invisible until the user's next save, which
+ * then persists the cleaned list. No-op until the dynamic catalog is ready,
+ * so a failed asset load can't wipe a layout.
+ */
+export function pruneUnknownFurniture(layout: OfficeLayout): OfficeLayout {
+  if (!isDynamicCatalogReady()) return layout;
+  const known = layout.furniture.filter((f) => getCatalogEntry(f.type) !== undefined);
+  if (known.length === layout.furniture.length) return layout;
+  console.warn(
+    `[FurnitureCatalog] Dropping ${layout.furniture.length - known.length} furniture item(s) with unknown types`,
+  );
+  return { ...layout, furniture: known };
 }
 
 export function getCatalogEntry(type: string): CatalogEntryWithCategory | undefined {
