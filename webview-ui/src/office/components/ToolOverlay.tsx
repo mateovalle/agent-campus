@@ -5,7 +5,7 @@ import { CHARACTER_SITTING_OFFSET_PX, TOOL_OVERLAY_VERTICAL_OFFSET } from '../..
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import type { CampusState } from '../engine/campusState.js';
 import type { ToolActivity } from '../types.js';
-import { CharacterState, TILE_SIZE } from '../types.js';
+import { BubbleKind, CharacterState, TILE_SIZE } from '../types.js';
 
 interface ToolOverlayProps {
   campus: CampusState;
@@ -138,7 +138,7 @@ export function ToolOverlay({
           dpr;
 
         // Get activity text
-        const subHasPermission = isSub && ch.bubbleType === 'permission';
+        const subHasPermission = isSub && ch.bubbleType === BubbleKind.BLOCKED;
         let activityText: string;
         if (isSub) {
           if (subHasPermission) {
@@ -150,6 +150,13 @@ export function ToolOverlay({
         } else {
           activityText = getActivityText(id, agentTools, ch.isActive);
         }
+
+        // Named agents lead with the name and demote the activity to the
+        // subtitle; unnamed ones keep the old activity-first layout.
+        const displayName = isSub ? undefined : ch.name;
+        const primaryText = displayName ?? activityText;
+        const secondaryText =
+          [displayName ? activityText : null, ch.folderName].filter(Boolean).join(' · ') || null;
 
         // Determine dot color
         const tools = agentTools[id];
@@ -218,9 +225,9 @@ export function ToolOverlay({
                     display: 'block',
                   }}
                 >
-                  {activityText}
+                  {primaryText}
                 </span>
-                {ch.folderName && (
+                {secondaryText && (
                   <span
                     style={{
                       fontSize: '16px',
@@ -230,7 +237,7 @@ export function ToolOverlay({
                       display: 'block',
                     }}
                   >
-                    {ch.folderName}
+                    {secondaryText}
                   </span>
                 )}
               </div>

@@ -57,6 +57,24 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 own-write suppression) — external edits apply without restart
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger
+  officeTemplate.ts           — The STARTER office (~/.pixel-agents/office-template.json): the
+                                layout a workspace's office is born with when it has no design of
+                                its own. Absent by default → the bundled default-layout.json.
+                                Written only on purpose: Settings' "Use This Office For New
+                                Workspaces", an import, or editing the detached (workspace-less)
+                                office; "Reset Starter Office" deletes it. The desktop host no
+                                longer reads ~/.pixel-agents/layout.json at all — that file
+                                predates the campus, kept seeding new offices by accident (with
+                                furniture ids retired months earlier), and now belongs to the
+                                VS Code host alone, where it really is the one office
+  claudeAuth.ts               — First-run gate: `claude auth status --json` on the RESOLVED bundled
+                                executable (not ~/.claude — on macOS the credentials live in the
+                                login Keychain, so a file probe reports "logged out" on every Mac).
+                                Pure `parseAuthStatus()` (unit-tested) → ClaudeAuthState
+                                ok | logged-out | unavailable → `claudeAuth` message → WelcomeModal.
+                                `recheckClaudeAuth` re-probes; `startClaudeLogin` opens a PTY tab
+                                running `<bundled claude> auth login`, so signing in works even
+                                with no CLI installed. Probed in the background on webviewReady
   achievements.ts             — 16 milestone defs + counters in ~/.pixel-agents/achievements.json.
                                 recordAchievementEvent(event, detail) bumps counters and returns
                                 what that unlocked (→ achievementUnlocked); listAchievements() feeds
@@ -132,6 +150,9 @@ webview-ui/src/               — React + TypeScript (Vite)
     BottomToolbar.tsx          — + Agent, Layout toggle, Settings button
     ZoomControls.tsx           — +/- zoom (top-right)
     SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug toggle
+    WelcomeModal.tsx           — First-run panel when Claude Code is logged out or unreachable:
+                                 explains both auth paths, opens a login terminal, re-checks, or
+                                 steps aside (the office and the layout editor work logged out)
     DebugView.tsx              — Debug overlay
   office/
     types.ts                  — Interfaces (OfficeLayout, FloorColor, Character, etc.) + re-exports constants from constants.ts

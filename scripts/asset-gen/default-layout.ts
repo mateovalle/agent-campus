@@ -60,8 +60,8 @@ interface CatalogAsset {
 
 // ── Scene ────────────────────────────────────────────────────────
 
-const COLS = 26;
-const ROWS = 16;
+const COLS = 16;
+const ROWS = 11;
 
 // Floor recipes (pattern + Colorize-mode HSBC), lifted from a hand-built office.
 const GRASS: FloorColor = { h: 85, s: 30, b: -32, c: 0 };
@@ -81,71 +81,49 @@ interface Zone {
 // Painted in order; later zones win.
 const ZONES: Zone[] = [
   { c0: 0, r0: 0, c1: COLS - 1, r1: ROWS - 1, tile: VOID, color: null },
-  // grass campus ground below the sky rows
+  // campus ground below the sky row
   { c0: 0, r0: 1, c1: COLS - 1, r1: ROWS - 1, tile: CARPET, color: GRASS },
-  // the office: top wall + side walls, wood floor inside
-  { c0: 3, r0: 2, c1: 22, r1: 2, tile: WALL, color: WALL_BLUE },
-  { c0: 3, r0: 3, c1: 3, r1: 12, tile: WALL, color: WALL_BLUE },
-  { c0: 22, r0: 3, c1: 22, r1: 12, tile: WALL, color: WALL_BLUE },
-  { c0: 4, r0: 3, c1: 21, r1: 12, tile: CONCRETE, color: WOOD_DARK },
-  // kitchen corner gets tiles
-  { c0: 16, r0: 9, c1: 21, r1: 12, tile: LARGE_TILES, color: TAN },
-  // path from the door to the campus edge
-  { c0: 12, r0: 13, c1: 13, r1: ROWS - 1, tile: LARGE_TILES, color: TAN },
+  // one room, 12x7 inside: top wall, side walls, open at the bottom
+  { c0: 1, r0: 1, c1: 14, r1: 1, tile: WALL, color: WALL_BLUE },
+  { c0: 1, r0: 2, c1: 1, r1: 8, tile: WALL, color: WALL_BLUE },
+  { c0: 14, r0: 2, c1: 14, r1: 8, tile: WALL, color: WALL_BLUE },
+  { c0: 2, r0: 2, c1: 13, r1: 8, tile: CONCRETE, color: WOOD_DARK },
+  // short path out to the campus
+  { c0: 7, r0: 9, c1: 8, r1: ROWS - 1, tile: LARGE_TILES, color: TAN },
 ];
 
-/** [type, col, row] — see the comments for the intent of each group. */
+/**
+ * Deliberately sparse: a worked example of an office, not a showroom.
+ * Seventeen pieces and five seats in a room of eighty-four tiles — someone
+ * opening the app for the first time should be able to make it theirs by
+ * adding, not by deleting. Chairs sit flush against their desks so the
+ * grouping reads as a workstation.
+ */
 const FURNITURE: Array<[string, number, number]> = [
   // wall decor (bottom row sits on the wall row)
-  ['window', 5, 2],
-  ['medals_wall', 7, 2],
-  ['whiteboard', 9, 2],
-  ['wall_clock', 12, 2],
-  ['tv_dashboard', 14, 2],
-  ['poster_code', 17, 2],
-  ['corkboard', 18, 2],
-  // desk 1: double desk, one seat each side (front chair faces down, back chair faces up)
-  ['desk_double', 5, 4],
-  ['chair_office', 6, 3],
-  ['chair_office_back', 6, 6],
-  ['monitor_dual_back', 6, 4],
-  ['desk_lamp', 5, 4],
-  ['monitor_dual', 5, 5],
-  ['printer', 7, 5],
-  // desk 2: L-desk
-  ['desk_l', 10, 4],
-  ['chair_office_back', 11, 6],
-  ['plant_cactus', 10, 4],
-  ['monitor_dual', 11, 4],
-  // desk 3: standing desk with the gamer chair
-  ['desk_standing', 15, 4],
-  ['chair_gamer_back', 15, 5],
-  ['monitor_dual', 15, 4],
-  // storage along the walls (tall pieces kept clear of wall decor columns)
-  ['server_rack', 4, 3],
-  ['filing_cabinet', 4, 5],
-  ['bookshelf_tall', 20, 3],
-  ['bookshelf_tall', 21, 3],
-  // lounge
-  ['lamp_floor', 4, 8],
-  ['couch', 5, 8],
-  ['rug_large', 5, 9],
-  ['coffee_table', 5, 10],
-  ['couch_left', 8, 9],
-  ['cat_sleeping', 7, 11],
-  ['plant_monstera', 4, 12],
-  ['pingpong_table', 11, 10],
-  ['arcade_machine', 14, 9],
-  ['trash_bin', 15, 12],
-  // kitchen
-  ['fish_tank', 20, 8],
-  ['stool', 18, 9],
-  ['kitchen_counter', 17, 11],
-  ['coffee_machine', 17, 11],
-  ['microwave', 18, 11],
-  ['mini_fridge', 19, 11],
-  ['water_dispenser', 20, 11],
-  ['vending_machine', 21, 11],
+  ['window', 3, 1],
+  ['whiteboard', 6, 1],
+  ['wall_clock', 10, 1],
+  // a desk for two, a seat on each side
+  ['desk_double', 3, 3],
+  ['chair_office', 4, 2],
+  ['chair_office_back', 4, 5],
+  ['monitor_dual', 3, 3],
+  // and a single desk
+  ['desk_single', 10, 3],
+  // the chair goes under the desk's right half so the monitor stays clear
+  ['chair_office_back', 11, 4],
+  ['monitor_single', 10, 3],
+  ['laptop', 11, 3],
+  // lounge corner: the table sits on the rug's BOTTOM row — on the top row
+  // the rug's own z-sort draws over it
+  ['couch', 2, 5],
+  ['rug_large', 2, 6],
+  ['coffee_table', 3, 7],
+  // decor, three pieces and no more
+  ['bookshelf_tall', 12, 2],
+  ['plant_monstera', 2, 2],
+  ['trash_bin', 13, 8],
 ];
 
 // ── Build ────────────────────────────────────────────────────────

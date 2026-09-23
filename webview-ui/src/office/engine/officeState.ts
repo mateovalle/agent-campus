@@ -10,7 +10,6 @@ import {
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   PALETTE_COUNT,
-  WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
 import { getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
@@ -29,7 +28,14 @@ import type {
   Seat,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '../types.js';
+import {
+  BubbleKind,
+  CharacterState,
+  Direction,
+  isUnreadBubble,
+  MATRIX_EFFECT_DURATION,
+  TILE_SIZE,
+} from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
@@ -274,6 +280,18 @@ export class OfficeState {
     if (!ch) return;
     if (role) ch.role = role;
     else delete ch.role;
+  }
+
+  /**
+   * Set an agent's display name (host-derived from its first prompt). The
+   * office falls back to `Agent <id>` while this is unset.
+   */
+  setAgentName(id: number, name: string | null): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    const trimmed = name?.trim();
+    if (trimmed) ch.name = trimmed;
+    else delete ch.name;
   }
 
   removeAgent(id: number): void {
@@ -606,41 +624,50 @@ export class OfficeState {
     }
   }
 
-  showPermissionBubble(id: number): void {
+  /**
+   * Raise a bubble. A 'blocked' bubble outranks the unread ones: an agent that
+   * is waiting on you must not look merely "done". Re-raising the same kind
+   * keeps its age, so an escalating block doesn't reset its clock.
+   */
+  showBubble(id: number, kind: BubbleKind): void {
     const ch = this.characters.get(id);
-    if (ch) {
-      ch.bubbleType = 'permission';
-      ch.bubbleTimer = 0;
+    if (!ch) return;
+    if (ch.bubbleType === BubbleKind.BLOCKED && kind !== BubbleKind.BLOCKED) return;
+    if (ch.bubbleType !== kind) {
+      ch.bubbleType = kind;
+      ch.bubbleAgeSec = 0;
     }
+    ch.bubbleFadeSec = 0;
   }
 
-  clearPermissionBubble(id: number): void {
-    const ch = this.characters.get(id);
-    if (ch && ch.bubbleType === 'permission') {
-      ch.bubbleType = null;
-      ch.bubbleTimer = 0;
-    }
-  }
-
-  showWaitingBubble(id: number): void {
-    const ch = this.characters.get(id);
-    if (ch) {
-      ch.bubbleType = 'waiting';
-      ch.bubbleTimer = WAITING_BUBBLE_DURATION_SEC;
-    }
-  }
-
-  /** Dismiss bubble on click — permission: instant, waiting: quick fade */
-  dismissBubble(id: number): void {
+  /** Clear a bubble. With `kind`, only if that kind is the one showing. */
+  clearBubble(id: number, kind?: BubbleKind): void {
     const ch = this.characters.get(id);
     if (!ch || !ch.bubbleType) return;
-    if (ch.bubbleType === 'permission') {
-      ch.bubbleType = null;
-      ch.bubbleTimer = 0;
-    } else if (ch.bubbleType === 'waiting') {
-      // Trigger immediate fade (0.3s remaining)
-      ch.bubbleTimer = Math.min(ch.bubbleTimer, DISMISS_BUBBLE_FAST_FADE_SEC);
-    }
+    if (kind && ch.bubbleType !== kind) return;
+    ch.bubbleType = null;
+    ch.bubbleAgeSec = 0;
+    ch.bubbleFadeSec = 0;
+  }
+
+  /**
+   * The user has actually looked at this agent (opened its tab). Clears the
+   * unread badges only — a real block survives, because looking at it is not
+   * the same as resolving it.
+   */
+  acknowledgeAgent(id: number): void {
+    const ch = this.characters.get(id);
+    if (!ch || !isUnreadBubble(ch.bubbleType)) return;
+    ch.bubbleFadeSec = DISMISS_BUBBLE_FAST_FADE_SEC;
+  }
+
+  /**
+   * Click-to-dismiss. Only unread badges can be waved away; a 'blocked' bubble
+   * is NOT dismissible, because hiding it would leave the office claiming
+   * nothing is wrong while the agent is still stuck waiting for you.
+   */
+  dismissBubble(id: number): void {
+    this.acknowledgeAgent(id);
   }
 
   update(dt: number): void {
@@ -668,12 +695,16 @@ export class OfficeState {
         updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
       );
 
-      // Tick bubble timer for waiting bubbles
-      if (ch.bubbleType === 'waiting') {
-        ch.bubbleTimer -= dt;
-        if (ch.bubbleTimer <= 0) {
-          ch.bubbleType = null;
-          ch.bubbleTimer = 0;
+      // Age the bubble (drives blocked-bubble escalation) and run any fade-out.
+      if (ch.bubbleType) {
+        ch.bubbleAgeSec += dt;
+        if (ch.bubbleFadeSec > 0) {
+          ch.bubbleFadeSec -= dt;
+          if (ch.bubbleFadeSec <= 0) {
+            ch.bubbleType = null;
+            ch.bubbleAgeSec = 0;
+            ch.bubbleFadeSec = 0;
+          }
         }
       }
     }

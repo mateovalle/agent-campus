@@ -225,6 +225,10 @@ interface SettingsModalProps {
   /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
   bypassPermissions: boolean;
   onSetBypassPermissions: (enabled: boolean) => void;
+  /** Store the office currently on screen as the starter for new workspaces. */
+  onSetOfficeTemplate: () => void;
+  /** Go back to the office layout the app ships with. */
+  onResetOfficeTemplate: () => void;
 }
 
 const formFieldStyle: React.CSSProperties = {
@@ -523,6 +527,8 @@ export function SettingsModal({
   onClose,
   isDebugMode,
   onToggleDebugMode,
+  onSetOfficeTemplate,
+  onResetOfficeTemplate,
   usageSummary,
   achievements,
   schedules,
@@ -608,6 +614,39 @@ export function SettingsModal({
           </button>
         </div>
         {/* Menu items */}
+        {/* The starter office: what a workspace's office looks like before it
+            has a design of its own. Explicit, because this used to happen by
+            accident through a leftover layout file nobody chose. */}
+        <button
+          onClick={() => {
+            onSetOfficeTemplate();
+            onClose();
+          }}
+          onMouseEnter={() => setHovered('template-set')}
+          onMouseLeave={() => setHovered(null)}
+          title="New workspaces will open with the office you are looking at now"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'template-set' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Use This Office For New Workspaces
+        </button>
+        <button
+          onClick={() => {
+            onResetOfficeTemplate();
+            onClose();
+          }}
+          onMouseEnter={() => setHovered('template-reset')}
+          onMouseLeave={() => setHovered(null)}
+          title="Forget that choice; new workspaces open with the office the app ships with"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'template-reset' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Reset Starter Office
+        </button>
         <button
           onClick={() => {
             vscode.postMessage({ type: 'openSessionsFolder' });

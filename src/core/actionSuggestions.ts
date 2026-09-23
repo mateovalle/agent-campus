@@ -18,6 +18,7 @@ const TEST_COMMAND_PATTERN =
 /** Suggestion texts are plain prompts (not slash commands) so they work in
  * any session regardless of which skills the user has installed. */
 const SUGGESTION_REVIEW: AgentActionSuggestion = {
+  kind: 'review',
   label: 'Review',
   command:
     'Review the changes you just made for bugs, regressions, and missed edge cases. ' +
@@ -26,18 +27,21 @@ const SUGGESTION_REVIEW: AgentActionSuggestion = {
 };
 
 const SUGGESTION_TEST: AgentActionSuggestion = {
+  kind: 'test',
   label: 'Test',
   command: 'Run the tests and checks relevant to your recent changes and fix any failures.',
   reason: 'Changes were not verified by tests',
 };
 
 const SUGGESTION_COMMIT: AgentActionSuggestion = {
+  kind: 'commit',
   label: 'Commit',
   command: 'Commit the current changes with a descriptive message.',
   reason: 'Changes were made and tests ran without errors',
 };
 
 const SUGGESTION_INVESTIGATE: AgentActionSuggestion = {
+  kind: 'investigate',
   label: 'Investigate',
   command:
     'Take a step back: several commands failed this turn. Systematically investigate ' +

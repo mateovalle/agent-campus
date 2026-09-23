@@ -49,7 +49,14 @@ import {
   type TrackerContext,
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
-import { type ChatSession, startChatSession } from './chatAgent.js';
+import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
+import { probeClaudeAuth } from './claudeAuth.js';
+import {
+  clearOfficeTemplate,
+  officeTemplatePath,
+  readOfficeTemplate,
+  writeOfficeTemplate,
+} from './officeTemplate.js';
 import {
   addSchedule,
   collectDueSchedules,
@@ -432,6 +439,33 @@ function autoNameAgent(agentId: number, promptText: string): void {
   saveJsonFile(AGENT_SEATS_FILE, { bySession });
 
   ctx.send({ type: 'agentLabel', id: agentId, label: name });
+}
+
+/** Probe Claude Code's auth state and push it to the webview. */
+async function sendClaudeAuth(): Promise<void> {
+  const status = await probeClaudeAuth(resolveClaudeExecutable());
+  if (status.kind !== 'ok') {
+    console.log(`[Pixel Agents] Claude auth: ${status.kind}`);
+  }
+  ctx.send({ type: 'claudeAuth', status });
+}
+
+/**
+ * Open a terminal tab running `claude auth login`. It uses the bundled
+ * executable rather than `claude` on PATH, so logging in works even when
+ * the user has never installed the CLI themselves.
+ */
+function startClaudeLogin(): void {
+  const exe = resolveClaudeExecutable();
+  const quoted = exe
+    ? process.platform === 'win32'
+      ? `& '${exe}'`
+      : `'${exe.replace(/'/g, "'\\''")}'`
+    : 'claude';
+  const label = 'Log in';
+  const ptyId = spawnPty({ command: `${quoted} auth login`, label });
+  ctx.send({ type: 'pty-created', ptyId, label });
+  console.log('[Pixel Agents] Opened a Claude Code login terminal');
 }
 
 function launchAgent(cwd: string): void {
@@ -1141,6 +1175,19 @@ function focusChatTab(agentId: number): void {
 function handleWebviewMessage(msg: WebviewToHostMessage): void {
   if (msg.type === 'webviewReady') {
     onWebviewReady();
+  } else if (msg.type === 'recheckClaudeAuth') {
+    void sendClaudeAuth();
+  } else if (msg.type === 'setOfficeTemplate') {
+    if (isValidLayout(msg.layout) && writeOfficeTemplate(msg.layout)) {
+      console.log(`[Pixel Agents] Starter office saved to ${officeTemplatePath()}`);
+      ctx.send({ type: 'layoutLoaded', layout: msg.layout });
+    }
+  } else if (msg.type === 'resetOfficeTemplate') {
+    clearOfficeTemplate();
+    const layout = loadDefaultLayout(getAssetsRoot());
+    ctx.send({ type: 'layoutLoaded', layout });
+  } else if (msg.type === 'startClaudeLogin') {
+    startClaudeLogin();
   } else if (msg.type === 'openClaude') {
     void resolveAgentCwd(msg.folderPath).then((cwd) => {
       if (cwd) launchAgent(cwd);
@@ -1228,8 +1275,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
         layoutsOwnWrites.set(path.basename(file), Date.now());
         saveJsonFile(file, msg.layout);
       } else {
-        layoutWatcher?.markOwnWrite();
-        writeLayoutToFile(msg.layout);
+        // No workspace path: the office being edited is the detached one,
+        // which IS the starter office.
+        writeOfficeTemplate(msg.layout);
       }
     }
   } else if (msg.type === 'saveAgentSeats') {
@@ -1406,12 +1454,12 @@ function onWebviewReady(): void {
     const assets = await loadFurnitureAssets(assetsRoot);
     if (assets) sendAssets(ctx.send, assets);
 
-    // Send layout AFTER assets (webview buffers agents until layoutLoaded)
-    let layout = readLayoutFromFile();
-    if (!layout) {
-      layout = loadDefaultLayout(assetsRoot);
-      if (layout) writeLayoutToFile(layout);
-    }
+    // Send layout AFTER assets (webview buffers agents until layoutLoaded).
+    // This is the STARTER office: what an office looks like before its
+    // workspace has a design of its own. Per-workspace layouts override it
+    // below. ~/.pixel-agents/layout.json is deliberately not consulted here
+    // — see officeTemplate.ts for why.
+    const layout = readOfficeTemplate() ?? loadDefaultLayout(assetsRoot);
     ctx.send({ type: 'layoutLoaded', layout });
 
     // Per-workspace layout overrides (offices with their own saved design)
@@ -1443,6 +1491,9 @@ function onWebviewReady(): void {
   ctx.send({ type: 'workspacesLoaded', workspaces: loadWorkspaces() });
   ctx.send({ type: 'usageSummary', summary: summarizeUsage() });
   ctx.send({ type: 'achievementsLoaded', achievements: listAchievements() });
+  // Auth probe runs in the background: it spawns the CLI, and the office
+  // should not wait on it to appear.
+  void sendClaudeAuth();
 
   // Send human todos + live agent plans
   for (const p of getAllTodoPaths()) {
@@ -1515,8 +1566,7 @@ async function importLayout(): Promise<void> {
     const raw = fs.readFileSync(result.filePaths[0], 'utf-8');
     const imported = JSON.parse(raw) as Record<string, unknown>;
     if (!isValidLayout(imported)) return;
-    layoutWatcher?.markOwnWrite();
-    writeLayoutToFile(imported);
+    writeOfficeTemplate(imported);
     ctx.send({ type: 'layoutLoaded', layout: imported });
   } catch (err) {
     console.error('[Pixel Agents] Failed to import layout:', err);

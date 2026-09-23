@@ -49,6 +49,26 @@ export const BUTTON_LINE_WIDTH_ZOOM_FACTOR = 0.5;
 export const BUBBLE_FADE_DURATION_SEC = 0.5;
 export const BUBBLE_SITTING_OFFSET_PX = 10;
 export const BUBBLE_VERTICAL_OFFSET_PX = 24;
+/**
+ * Bubbles are a UI layer, not a world object: they never render smaller than
+ * this many device pixels per sprite pixel (scaled by dpr), so a blocked agent
+ * stays legible when the campus is zoomed out. Mirrors the office label plate.
+ */
+export const BUBBLE_MIN_SCALE = 2;
+/** A blocked bubble escalates amber → orange → red at these ages. */
+export const BUBBLE_AGE_WARN_SEC = 60;
+export const BUBBLE_AGE_URGENT_SEC = 300;
+/** Pulse frequency (Hz) of a blocked bubble at age 0 and at BUBBLE_AGE_URGENT_SEC. */
+export const BUBBLE_PULSE_MIN_HZ = 0.4;
+export const BUBBLE_PULSE_MAX_HZ = 1.6;
+/** Trough alpha of the blocked-bubble pulse (peak is always 1). */
+export const BUBBLE_PULSE_ALPHA_MIN = 0.55;
+/** Gap between an office's label plate and its clustered bubble marker. */
+export const CAMPUS_CLUSTER_GAP_PX = 4;
+/** Edge arrow pointing at a blocked agent that is off screen (CSS px, x dpr). */
+export const OFFSCREEN_MARKER_SIZE_PX = 7;
+/** Arrow colour per blocked tier — matches the bubble accents. */
+export const OFFSCREEN_MARKER_COLORS = ['#CCA700', '#E07A1F', '#E0483C'];
 export const FALLBACK_FLOOR_COLOR = '#808080';
 
 // ── Rendering - Overlay Colors (canvas, not CSS) ─────────────
@@ -248,7 +268,6 @@ export const BOARD_PLAN_KICKOFF_PROMPT =
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
-export const WAITING_BUBBLE_DURATION_SEC = 2.0;
 export const DISMISS_BUBBLE_FAST_FADE_SEC = 0.3;
 export const INACTIVE_SEAT_TIMER_MIN_SEC = 3.0;
 export const INACTIVE_SEAT_TIMER_RANGE_SEC = 2.0;

@@ -44,6 +44,10 @@ interface BottomToolbarProps {
   roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
   bypassPermissions: boolean;
+  /** Store the office on screen as the starter for new workspaces. */
+  onSetOfficeTemplate: () => void;
+  /** Go back to the office layout the app ships with. */
+  onResetOfficeTemplate: () => void;
 }
 
 interface BubbleProps {
@@ -149,6 +153,8 @@ export function BottomToolbar({
   roles,
   launchAtLogin,
   bypassPermissions,
+  onSetOfficeTemplate,
+  onResetOfficeTemplate,
 }: BottomToolbarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -223,6 +229,8 @@ export function BottomToolbar({
           onSetBypassPermissions={(enabled) =>
             vscode.postMessage({ type: 'setBypassPermissions', enabled })
           }
+          onSetOfficeTemplate={onSetOfficeTemplate}
+          onResetOfficeTemplate={onResetOfficeTemplate}
         />
       </div>
     </div>

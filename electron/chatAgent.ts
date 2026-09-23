@@ -65,7 +65,7 @@ const STARTUP_ERROR_HINT =
  */
 let cachedClaudeExecutable: string | undefined;
 let claudeExecutableResolved = false;
-function resolveClaudeExecutable(): string | undefined {
+export function resolveClaudeExecutable(): string | undefined {
   if (claudeExecutableResolved) return cachedClaudeExecutable;
   claudeExecutableResolved = true;
 

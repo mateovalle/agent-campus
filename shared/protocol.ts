@@ -166,7 +166,12 @@ export interface AgentTodo {
  * office UI. Suggested by the host from end-of-turn heuristics; clicking it
  * sends `command` to the agent's session (runAgentAction).
  */
+/** Which heuristic produced a suggestion — lets the UI react to turn outcome. */
+export type AgentActionKind = 'investigate' | 'review' | 'test' | 'commit';
+
 export interface AgentActionSuggestion {
+  /** Which heuristic fired. 'investigate' means the turn ended with tool errors. */
+  kind?: AgentActionKind;
   /** Short button label, e.g. "Review". */
   label: string;
   /** Text injected into the agent's session (slash command or plain prompt). */
@@ -176,6 +181,16 @@ export interface AgentActionSuggestion {
 }
 
 // ── Achievements ─────────────────────────────────────────────
+
+/**
+ * Whether Claude Code can authenticate, probed once on startup.
+ * 'unavailable' covers a missing or unreadable CLI; 'logged-out' is the
+ * common first run, where the app works but no agent could ever start.
+ */
+export type ClaudeAuthState =
+  | { kind: 'ok'; method?: string; email?: string; plan?: string }
+  | { kind: 'logged-out' }
+  | { kind: 'unavailable'; reason: string };
 
 export interface AchievementInfo {
   id: string;
@@ -332,12 +347,22 @@ export type HostToWebviewMessage =
   | { type: 'usageSummary'; summary: UsageSummary }
   // Achievements
   | { type: 'achievementsLoaded'; achievements: AchievementInfo[] }
-  | { type: 'achievementUnlocked'; achievement: AchievementInfo };
+  | { type: 'achievementUnlocked'; achievement: AchievementInfo }
+  /** Claude Code auth state (Electron only); drives the first-run welcome. */
+  | { type: 'claudeAuth'; status: ClaudeAuthState };
 
 // ── Webview → Host ───────────────────────────────────────────
 
 export type WebviewToHostMessage =
   | { type: 'webviewReady' }
+  /** Re-run the Claude Code auth probe (the welcome screen's "Check again"). */
+  | { type: 'recheckClaudeAuth' }
+  /** Store this layout as the starter office new workspaces are born with. */
+  | { type: 'setOfficeTemplate'; layout: unknown }
+  /** Forget the user's starter office and go back to the bundled one. */
+  | { type: 'resetOfficeTemplate' }
+  /** Open a terminal tab running `claude auth login`. */
+  | { type: 'startClaudeLogin' }
   /** Opens a TERMINAL agent (PTY). No folderPath → host shows a folder picker. */
   | { type: 'openClaude'; folderPath?: string }
   /** Opens a CHAT agent (Agent SDK). No folderPath → host shows a folder picker. */

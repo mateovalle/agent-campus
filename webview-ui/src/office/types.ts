@@ -34,6 +34,28 @@ export interface FloorColor {
   colorize?: boolean;
 }
 
+/**
+ * What a bubble over a character's head can mean. The rule is deliberately
+ * strict: a bubble always means "there is something here for you". Ordinary
+ * work carries no bubble at all.
+ *
+ * - blocked: the agent cannot continue without you (permission or question).
+ *   Persists until actually resolved — a click will NOT dismiss it.
+ * - done:    the turn finished and you haven't looked yet. Unread badge.
+ * - error:   the turn finished with tool errors and you haven't looked yet.
+ */
+export const BubbleKind = {
+  BLOCKED: 'blocked',
+  DONE: 'done',
+  ERROR: 'error',
+} as const;
+export type BubbleKind = (typeof BubbleKind)[keyof typeof BubbleKind];
+
+/** Bubbles you can clear just by looking; a blocked one needs a real resolution. */
+export function isUnreadBubble(kind: BubbleKind | null): boolean {
+  return kind === BubbleKind.DONE || kind === BubbleKind.ERROR;
+}
+
 export const CharacterState = {
   IDLE: 'idle',
   WALK: 'walk',
@@ -179,10 +201,18 @@ export interface Character {
   isActive: boolean;
   /** Assigned seat uid, or null if no seat */
   seatId: string | null;
-  /** Active speech bubble type, or null if none showing */
-  bubbleType: 'permission' | 'waiting' | null;
-  /** Countdown timer for bubble (waiting: 2→0, permission: unused) */
-  bubbleTimer: number;
+  /** Active speech bubble kind, or null if none showing */
+  bubbleType: BubbleKind | null;
+  /**
+   * Seconds the current bubble has been up, counting up. Drives the escalation
+   * of a 'blocked' bubble — the older the block, the louder it reads.
+   */
+  bubbleAgeSec: number;
+  /**
+   * Fade-out countdown in seconds. 0 = not fading; > 0 means the bubble is
+   * being dismissed and clears when it reaches 0.
+   */
+  bubbleFadeSec: number;
   /** Timer to stay seated while inactive after seat reassignment (counts down to 0) */
   seatTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
@@ -197,6 +227,12 @@ export interface Character {
   matrixEffectSeeds: number[];
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /**
+   * Display name, auto-derived by the host from the agent's first prompt and
+   * persisted per session in agent-seats.json. Undefined until the host sends
+   * one — callers fall back to `Agent <id>`.
+   */
+  name?: string;
   /** Role skin id (e.g. 'qa'); undefined = base look */
   role?: string;
 }
