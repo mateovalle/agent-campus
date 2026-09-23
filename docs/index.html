@@ -172,7 +172,7 @@
   .scene * { position: absolute; image-rendering: pixelated; }
   .scene img { display: block; }
 
-  #walls i {
+  #walls i, .wallrow i {
     top: 0;
     width: 16px;
     height: 32px;
@@ -518,15 +518,18 @@
 
   /* the night shift: the office keeps running with one light on */
   .night { margin-top: 22px; border: 2px solid var(--line); box-shadow: 4px 4px 0 var(--void);
-           background: repeating-conic-gradient(#221d16 0% 25%, #272016 0% 50%) 0 48px / 24px 24px;
-           overflow: hidden; height: 216px; position: relative; }
-  .night-room { position: absolute; left: 50%; top: 0; width: 288px; height: 72px;
-                margin-left: -432px; transform: scale(3); transform-origin: top left; }
+           background: repeating-conic-gradient(#221d14 0% 25%, #272117 0% 50%) 0 64px / 32px 32px;
+           overflow: hidden; height: 192px; position: relative; }
+  .night-room { position: absolute; left: 50%; top: 0; width: 432px; height: 96px;
+                margin-left: -432px; transform: scale(2); transform-origin: top left; }
   .night-room > *, .dim > * { position: absolute; }
+  .wallrow { left: 0; top: 0; width: 432px; height: 32px; }
+  .wallrow i { position: absolute; }
+  .night .wallrow { filter: brightness(.5); }
   .night .dim { position: absolute; inset: 0; filter: brightness(.42) saturate(.7); }
   .night .lit { z-index: 2; }
-  .night .lamp { left: 60px; top: 14px; width: 48px; height: 40px; z-index: 1;
-                 background: radial-gradient(ellipse at 50% 60%, rgba(120,170,255,.22), transparent 70%); }
+  .night .lamp { left: 180px; top: 32px; width: 48px; height: 40px; z-index: 1;
+                 background: radial-gradient(ellipse at 50% 60%, rgba(120,170,255,.28), transparent 70%); }
 
   /* what the day cost, by project and by day */
   .spend { margin: 22px 0 0; border: 2px solid var(--line); background: var(--panel);
@@ -729,14 +732,19 @@
           <div class="night" aria-hidden="true">
             <div class="night-room">
               <div class="dim">
-                <img class="px" src="assets/sprites/coffee_machine.png" style="left:8px; top:40px" width="16" height="16" alt="">
-                <img class="px" src="assets/sprites/plant_monstera.png" style="left:236px; top:24px" width="16" height="32" alt="">
-                <img class="px" src="assets/sprites/cat_sleeping.png" style="left:168px; top:48px" width="16" height="16" alt="">
-                <div class="char p3 typing-up" style="left:76px; top:12px"></div>
-                <img class="px" src="assets/sprites/desk_double.png" style="left:60px; top:32px" width="48" height="32" alt="">
+                <div class="wallrow" id="nightWalls"></div>
+                <img class="px" src="assets/sprites/poster_code.png" style="left:248px; top:0" width="16" height="32" alt="">
+                <img class="px" src="assets/sprites/wall_clock.png" style="left:88px; top:8px" width="16" height="16" alt="">
+                <img class="px" src="assets/sprites/bookshelf_tall.png" style="left:24px; top:8px" width="16" height="48" alt="">
+                <img class="px" src="assets/sprites/server_rack.png" style="left:404px; top:8px" width="16" height="48" alt="">
+                <img class="px" src="assets/sprites/coffee_machine.png" style="left:60px; top:72px" width="16" height="16" alt="">
+                <img class="px" src="assets/sprites/plant_monstera.png" style="left:352px; top:56px" width="16" height="32" alt="">
+                <img class="px" src="assets/sprites/cat_sleeping.png" style="left:300px; top:76px" width="16" height="16" alt="">
+                <div class="char p3 typing-up" style="left:196px; top:34px"></div>
+                <img class="px" src="assets/sprites/desk_double.png" style="left:180px; top:58px" width="48" height="32" alt="">
               </div>
               <div class="lamp"></div>
-              <img class="px lit" src="assets/sprites/monitor_dual.png" style="left:68px; top:24px" width="32" height="16" alt="">
+              <img class="px lit" src="assets/sprites/monitor_dual.png" style="left:188px; top:50px" width="32" height="16" alt="">
             </div>
           </div>
         </div>
@@ -863,6 +871,17 @@
   // The rail reads the hour of whichever beat you are on. One device, moved by
   // your scrolling — no entrance animations on the beats themselves.
   (function () {
+    var nw = document.getElementById('nightWalls');
+    if (nw) {
+      for (var w = 0; w < 27; w++) {
+        var mask = w === 0 ? 2 : w === 26 ? 8 : 10;
+        var tile = document.createElement('i');
+        tile.style.left = w * 16 + 'px';
+        tile.style.backgroundPosition = -(mask % 4) * 16 + 'px ' + -Math.floor(mask / 4) * 32 + 'px';
+        nw.appendChild(tile);
+      }
+    }
+
     var beats = [].slice.call(document.querySelectorAll('.beat'));
     var rail = document.getElementById('dayRail');
     var time = document.getElementById('dayTime');
