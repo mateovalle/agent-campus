@@ -470,8 +470,32 @@
   .day-time { font-family: var(--display); font-size: 15px; color: var(--muted);
               letter-spacing: 1px; transition: color .45s steps(3); }
   .day-rail[data-live="1"] .day-time { color: var(--green); }
-  .day-track { width: 2px; height: 180px; margin: 20px auto 0; background: var(--line); position: relative; }
-  .day-fill { position: absolute; inset: 0 0 auto 0; height: 0; background: var(--green); transition: height .45s steps(6); }
+  /* the desk in the rail: one agent acting out whatever beat you are on */
+  .stage { position: relative; height: 132px; margin: 18px 0 0; }
+  .stage-scene { position: absolute; left: calc(50% - 36px); top: 0;
+                 width: 24px; height: 44px; transform: scale(3); transform-origin: top left; }
+  .actor { position: absolute; left: 4px; top: 10px; opacity: 0; transition: opacity .3s steps(2); }
+  .stage-bub { position: absolute; left: 6px; top: 0; opacity: 0; transition: opacity .3s steps(2); }
+  .stage-bub i { position: absolute; display: block; }
+  .desk-line { position: absolute; left: 0; bottom: 0; width: 24px; height: 2px; background: var(--line); }
+
+  /* one class per beat. Coordinates are sheet-native: the parent's scale(3)
+     does the magnifying, so doubling them here would magnify twice. */
+  .stage .actor { width: 16px; height: 32px; background-repeat: no-repeat; image-rendering: pixelated; }
+  [data-act="arrive"] .actor { opacity: 1; background-position: 0 0;
+                               animation: sWalk .45s steps(3) infinite; }
+  @keyframes sWalk { from { background-position: 0 0; } to { background-position: -48px 0; } }
+  [data-act="read"] .actor { opacity: 1; background-position: -80px 0;
+                             animation: sRead 1.1s steps(2) infinite; }
+  @keyframes sRead { from { background-position: -80px 0; } to { background-position: -112px 0; } }
+  [data-act="ask"] .actor,
+  [data-act="night"] .actor { opacity: 1; background-position: -48px 0;
+                              animation: sType .5s steps(2) infinite; }
+  @keyframes sType { from { background-position: -48px 0; } to { background-position: -80px 0; } }
+  [data-act="night"] .actor { filter: brightness(.62) saturate(.7); }
+  [data-act="idle"] .actor { opacity: 1; background-position: -16px 0; animation: none; }
+  [data-act="ask"] .stage-bub { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .actor { animation: none !important; } }
 
   /* the beats */
   .beat { padding: 0 0 92px; }
@@ -510,7 +534,9 @@
     .day-rail { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
                 background: var(--night); border-bottom: 2px solid var(--line); padding: 10px 0; margin-bottom: 28px; text-align: left; }
     .day-clock { width: 32px; height: 32px; margin: 0; }
-    .day-track { display: none; }
+    /* the acting agent needs room it does not have here, and it would
+       overlap the beat it is meant to illustrate */
+    .stage { display: none; }
     .coda { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -608,11 +634,17 @@
       <div class="day-rail" id="dayRail">
         <img class="px day-clock" src="assets/sprites/wall_clock.png" alt="" width="64" height="64">
         <div class="day-time" id="dayTime">--:--</div>
-        <div class="day-track"><div class="day-fill" id="dayFill"></div></div>
+        <div class="stage" aria-hidden="true">
+          <div class="stage-scene">
+            <div class="stage-bub bubble"><i class="dots"></i></div>
+            <div class="actor p3"></div>
+            <div class="desk-line"></div>
+          </div>
+        </div>
       </div>
 
       <div>
-        <div class="beat before" data-time="--:--">
+        <div class="beat before" data-time="--:--" data-act="empty">
           <h3>You have six terminals open.</h3>
           <p>One of them is waiting on you and you don't know which. One finished ten minutes ago. One has been stuck on a permission prompt since you went to get coffee. You alt-tab through all six to find out.</p>
           <div class="stack" aria-hidden="true">
@@ -627,30 +659,30 @@
 
         <p class="turn">Open Agent Campus and the same day looks like this.</p>
 
-        <div class="beat" data-time="09:02">
+        <div class="beat" data-time="09:02" data-act="empty">
           <h3>Every project gets an office.</h3>
           <p>Your folders become rooms on one map. Who is working, who is stuck, and what each project has cost today &mdash; all of it readable without opening anything.</p>
           <img class="shot" src="assets/shots/campus.png" alt="Two offices side by side on the campus map, each labelled with its project and agent count." width="1100" height="428" loading="lazy">
         </div>
 
-        <div class="beat" data-time="09:14">
+        <div class="beat" data-time="09:14" data-act="arrive">
           <h3>You hire someone.</h3>
           <p>Click an office, click <b>+ Agent</b>, and a character walks in and sits down at a free desk. Behind the sprite it is an ordinary Claude Code session: your login, your config, a transcript you can pick up in a terminal later.</p>
         </div>
 
-        <div class="beat" data-time="09:31">
+        <div class="beat" data-time="09:31" data-act="read">
           <h3>You hand over the backlog.</h3>
           <p>One board across every office. Press <b>Assign</b> on a task and an agent spawns to do it &mdash; and if the task is tagged <b>[qa]</b> or <b>[marketing]</b>, it spawns with that charter, that tool policy and that character skin.</p>
           <img class="shot" src="assets/shots/board.png" alt="The board: a Backlog column with tagged tasks and Assign buttons, a Needs You column, and a Done column." width="1100" height="445" loading="lazy">
         </div>
 
-        <div class="beat" data-time="10:05">
+        <div class="beat" data-time="10:05" data-act="ask">
           <h3>It asks before it touches anything.</h3>
           <p>An amber bubble appears over their head and the request lands in the chat with Allow and Deny. The review roles cannot edit at all &mdash; ask for a security pass and you get a verdict, not a silent fix.</p>
           <img class="shot" src="assets/shots/permission.png" alt="A permission request in the chat panel: Allow Write? launch-note.md, with Allow and Deny buttons." width="1100" height="177" loading="lazy">
         </div>
 
-        <div class="beat" data-time="14:47">
+        <div class="beat" data-time="14:47" data-act="idle">
           <h3>You see exactly what it cost.</h3>
           <p>Not an estimate &mdash; the number the SDK reports, per turn, per day and per project, sitting on each office label.</p>
           <div class="receipt">
@@ -660,12 +692,12 @@
           </div>
         </div>
 
-        <div class="beat" data-time="03:00">
+        <div class="beat" data-time="03:00" data-act="night">
           <h3>They work while you're asleep.</h3>
           <p>Schedules run daily, weekly, or every few minutes, and they fire with the window closed. Whatever was missed while the app was off is offered to you in the morning, to run or to skip.</p>
         </div>
 
-        <div class="beat" data-time="off">
+        <div class="beat" data-time="17:40" data-act="idle">
           <h3>And then you make the place yours.</h3>
           <div class="coda">
             <div>
@@ -790,15 +822,14 @@
     var beats = [].slice.call(document.querySelectorAll('.beat'));
     var rail = document.getElementById('dayRail');
     var time = document.getElementById('dayTime');
-    var fill = document.getElementById('dayFill');
     if (!beats.length || !rail) return;
 
     function show(i) {
       var t = beats[i].getAttribute('data-time');
-      var live = t !== '--:--';
-      time.textContent = live ? (t === 'off' ? '--:--' : t) : '--:--';
-      rail.setAttribute('data-live', live && t !== 'off' ? '1' : '0');
-      fill.style.height = Math.round((i / (beats.length - 1)) * 100) + '%';
+      var live = t !== '--:--' && t !== 'off';
+      time.textContent = live ? t : '--:--';
+      rail.setAttribute('data-live', live ? '1' : '0');
+      rail.setAttribute('data-act', beats[i].getAttribute('data-act') || 'empty');
     }
 
     var io = new IntersectionObserver(function (entries) {
