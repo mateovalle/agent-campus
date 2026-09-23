@@ -274,49 +274,57 @@ export const LAMP_SPRITE: SpriteData = (() => {
 
 // ── Speech Bubble Sprites ───────────────────────────────────────
 
-/** Permission bubble: white square with "..." in amber, and a tail pointer (11x13) */
-export const BUBBLE_PERMISSION_SPRITE: SpriteData = (() => {
+/**
+ * Build an 11x13 speech bubble: rounded plate, tail pointer, and accent pixels
+ * at the given [row, col] cells. Rows 1-8 are the drawable interior.
+ */
+function makeBubbleSprite(accent: string, cells: Array<[number, number]>): SpriteData {
   const B = '#555566' // border
   const F = '#EEEEFF' // fill
-  const A = '#CCA700' // amber dots
-  return [
-    [B, B, B, B, B, B, B, B, B, B, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, A, F, A, F, A, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, B, B, B, B, B, B, B, B, B, B],
+  const rows: SpriteData = [
+    [_, B, B, B, B, B, B, B, B, B, _],
+    ...Array.from({ length: 8 }, () => [B, F, F, F, F, F, F, F, F, F, B]),
+    [_, B, B, B, B, B, B, B, B, B, _],
     [_, _, _, _, B, B, B, _, _, _, _],
     [_, _, _, _, _, B, _, _, _, _, _],
     [_, _, _, _, _, _, _, _, _, _, _],
   ]
-})()
+  for (const [r, c] of cells) rows[r][c] = accent
+  return rows
+}
 
-/** Waiting bubble: white square with green checkmark, and a tail pointer (11x13) */
-export const BUBBLE_WAITING_SPRITE: SpriteData = (() => {
-  const B = '#555566' // border
-  const F = '#EEEEFF' // fill
-  const G = '#44BB66' // green check
-  return [
-    [_, B, B, B, B, B, B, B, B, B, _],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, G, F, B],
-    [B, F, F, F, F, F, F, G, F, F, B],
-    [B, F, F, G, F, F, G, F, F, F, B],
-    [B, F, F, F, G, G, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [B, F, F, F, F, F, F, F, F, F, B],
-    [_, B, B, B, B, B, B, B, B, B, _],
-    [_, _, _, _, B, B, B, _, _, _, _],
-    [_, _, _, _, _, B, _, _, _, _, _],
-    [_, _, _, _, _, _, _, _, _, _, _],
-  ]
-})()
+/** "..." — the agent is blocked on you. Accent escalates with the wait's age. */
+const BLOCKED_CELLS: Array<[number, number]> = [
+  [5, 3],
+  [5, 5],
+  [5, 7],
+]
+
+/** Blocked bubble at a given escalation tier (0 = fresh, 2 = long overdue). */
+export const BUBBLE_BLOCKED_SPRITES: SpriteData[] = [
+  makeBubbleSprite('#CCA700', BLOCKED_CELLS),
+  makeBubbleSprite('#E07A1F', BLOCKED_CELLS),
+  makeBubbleSprite('#E0483C', BLOCKED_CELLS),
+]
+
+/** Green check — the turn finished and you haven't looked yet. */
+export const BUBBLE_DONE_SPRITE: SpriteData = makeBubbleSprite('#44BB66', [
+  [3, 8],
+  [4, 7],
+  [5, 3],
+  [5, 6],
+  [6, 4],
+  [6, 5],
+])
+
+/** Red "!" — the turn finished with tool errors and you haven't looked yet. */
+export const BUBBLE_ERROR_SPRITE: SpriteData = makeBubbleSprite('#E0483C', [
+  [2, 5],
+  [3, 5],
+  [4, 5],
+  [5, 5],
+  [7, 5],
+])
 
 // ── Character Sprites ───────────────────────────────────────────
 // 16x24 characters with palette substitution

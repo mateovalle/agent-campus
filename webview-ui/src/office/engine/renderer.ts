@@ -1,5 +1,11 @@
 import {
+  BUBBLE_AGE_URGENT_SEC,
+  BUBBLE_AGE_WARN_SEC,
   BUBBLE_FADE_DURATION_SEC,
+  BUBBLE_MIN_SCALE,
+  BUBBLE_PULSE_ALPHA_MIN,
+  BUBBLE_PULSE_MAX_HZ,
+  BUBBLE_PULSE_MIN_HZ,
   BUBBLE_SITTING_OFFSET_PX,
   BUBBLE_VERTICAL_OFFSET_PX,
   BUTTON_ICON_SIZE_FACTOR,
@@ -31,6 +37,8 @@ import {
   GHOST_VALID_TINT,
   GRID_LINE_COLOR,
   HOVERED_OUTLINE_ALPHA,
+  OFFSCREEN_MARKER_COLORS,
+  OFFSCREEN_MARKER_SIZE_PX,
   OUTLINE_Z_SORT_OFFSET,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
@@ -45,8 +53,9 @@ import {
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
-  BUBBLE_PERMISSION_SPRITE,
-  BUBBLE_WAITING_SPRITE,
+  BUBBLE_BLOCKED_SPRITES,
+  BUBBLE_DONE_SPRITE,
+  BUBBLE_ERROR_SPRITE,
   getCharacterSprites,
 } from '../sprites/spriteData.js';
 import type {
@@ -57,7 +66,7 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, TILE_SIZE, TileType } from '../types.js';
+import { BubbleKind, CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
@@ -490,6 +499,59 @@ export function renderRotateButton(
 
 // ── Speech bubbles ──────────────────────────────────────────────
 
+/** Escalation tier of a blocked bubble from how long it has been waiting. */
+export function blockedTier(ageSec: number): number {
+  if (ageSec >= BUBBLE_AGE_URGENT_SEC) return 2;
+  if (ageSec >= BUBBLE_AGE_WARN_SEC) return 1;
+  return 0;
+}
+
+/** The sprite a character's current bubble should draw with. */
+export function bubbleSpriteFor(ch: Character): SpriteData | null {
+  switch (ch.bubbleType) {
+    case BubbleKind.BLOCKED:
+      return BUBBLE_BLOCKED_SPRITES[blockedTier(ch.bubbleAgeSec)];
+    case BubbleKind.DONE:
+      return BUBBLE_DONE_SPRITE;
+    case BubbleKind.ERROR:
+      return BUBBLE_ERROR_SPRITE;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Bubbles are drawn as a UI layer pinned to the character rather than as part
+ * of the world: they never shrink below BUBBLE_MIN_SCALE device pixels per
+ * sprite pixel, so "this agent needs you" stays readable at campus zoom, where
+ * the character itself is only a few pixels tall.
+ */
+export function bubbleScale(zoom: number): number {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(Math.round(BUBBLE_MIN_SCALE * dpr), zoom);
+}
+
+/**
+ * Top-centre of a character's bubble in device pixels. Shared by the renderer
+ * and the off-screen markers so both agree on where a bubble actually sits.
+ */
+export function bubbleTopPoint(
+  ch: Character,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+  spriteRows: number,
+): { x: number; y: number } {
+  const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+  return {
+    x: offsetX + ch.x * zoom,
+    y:
+      offsetY +
+      (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX) * zoom -
+      spriteRows * bubbleScale(zoom),
+  };
+}
+
 export function renderBubbles(
   ctx: CanvasRenderingContext2D,
   characters: Character[],
@@ -497,33 +559,176 @@ export function renderBubbles(
   offsetY: number,
   zoom: number,
 ): void {
+  const scale = bubbleScale(zoom);
+  const nowSec = performance.now() / 1000;
+
   for (const ch of characters) {
-    if (!ch.bubbleType) continue;
+    const sprite = bubbleSpriteFor(ch);
+    if (!sprite) continue;
 
-    const sprite =
-      ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE;
-
-    // Compute opacity: permission = full, waiting = fade in last 0.5s
     let alpha = 1.0;
-    if (ch.bubbleType === 'waiting' && ch.bubbleTimer < BUBBLE_FADE_DURATION_SEC) {
-      alpha = ch.bubbleTimer / BUBBLE_FADE_DURATION_SEC;
+    // A blocked bubble breathes, and breathes faster the longer it has waited —
+    // so the oldest block is the one that catches your eye first.
+    if (ch.bubbleType === BubbleKind.BLOCKED) {
+      const t = Math.min(ch.bubbleAgeSec / BUBBLE_AGE_URGENT_SEC, 1);
+      const hz = BUBBLE_PULSE_MIN_HZ + (BUBBLE_PULSE_MAX_HZ - BUBBLE_PULSE_MIN_HZ) * t;
+      const wave = (Math.sin(nowSec * hz * Math.PI * 2) + 1) / 2;
+      alpha = BUBBLE_PULSE_ALPHA_MIN + (1 - BUBBLE_PULSE_ALPHA_MIN) * wave;
+    }
+    // Dismissal fade-out (unread badges only)
+    if (ch.bubbleFadeSec > 0) {
+      alpha *= Math.min(ch.bubbleFadeSec / BUBBLE_FADE_DURATION_SEC, 1);
     }
 
-    const cached = getCachedSprite(sprite, zoom);
-    // Position: centered above the character's head
-    // Character is anchored bottom-center at (ch.x, ch.y), sprite is 16x24
-    // Place bubble above head with a small gap; follow sitting offset
-    const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
-    const bubbleX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
-    const bubbleY = Math.round(
-      offsetY + (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX) * zoom - cached.height - 1 * zoom,
-    );
+    const cached = getCachedSprite(sprite, scale);
+    // Anchor in world space (above the head, following the sitting offset),
+    // then draw the fixed-size sprite centered on it.
+    const top = bubbleTopPoint(ch, offsetX, offsetY, zoom, sprite.length);
+    const bubbleX = Math.round(top.x - cached.width / 2);
+    const bubbleY = Math.round(top.y);
 
     ctx.save();
     if (alpha < 1.0) ctx.globalAlpha = alpha;
     ctx.drawImage(cached, bubbleX, bubbleY);
     ctx.restore();
   }
+}
+
+/**
+ * Bubbles keep a constant on-screen size, so once characters are packed closer
+ * together than a bubble is wide they turn into confetti. Past that point the
+ * campus shows one marker per office instead.
+ */
+export function shouldClusterBubbles(zoom: number): boolean {
+  return TILE_SIZE * zoom < BUBBLE_DONE_SPRITE[0].length * bubbleScale(zoom);
+}
+
+/** Most-urgent-first, so a clustered office reports its worst state. */
+const BUBBLE_PRIORITY: BubbleKind[] = [BubbleKind.BLOCKED, BubbleKind.ERROR, BubbleKind.DONE];
+
+export interface BubbleSummary {
+  kind: BubbleKind;
+  count: number;
+  /** Age of the oldest bubble of that kind, for escalation. */
+  oldestAgeSec: number;
+}
+
+/** Roll a set of characters up into the single bubble their office should show. */
+export function summarizeBubbles(characters: Character[]): BubbleSummary | null {
+  for (const kind of BUBBLE_PRIORITY) {
+    const matching = characters.filter((ch) => ch.bubbleType === kind);
+    if (matching.length === 0) continue;
+    return {
+      kind,
+      count: matching.length,
+      oldestAgeSec: Math.max(...matching.map((ch) => ch.bubbleAgeSec)),
+    };
+  }
+  return null;
+}
+
+/**
+ * One aggregated bubble for a whole office, drawn above its label plate with a
+ * "xN" tally when more than one agent is flagged.
+ */
+export function renderBubbleCluster(
+  ctx: CanvasRenderingContext2D,
+  summary: BubbleSummary,
+  centerX: number,
+  bottomY: number,
+  zoom: number,
+): void {
+  const sprite =
+    summary.kind === BubbleKind.BLOCKED
+      ? BUBBLE_BLOCKED_SPRITES[blockedTier(summary.oldestAgeSec)]
+      : summary.kind === BubbleKind.ERROR
+        ? BUBBLE_ERROR_SPRITE
+        : BUBBLE_DONE_SPRITE;
+  const cached = getCachedSprite(sprite, bubbleScale(zoom));
+
+  const dpr = window.devicePixelRatio || 1;
+  const fontPx = Math.max(CAMPUS_LABEL_FONT_MIN_PX * dpr, zoom * CAMPUS_LABEL_FONT_ZOOM_FACTOR);
+  const countText = summary.count > 1 ? `x${summary.count}` : '';
+
+  ctx.save();
+  ctx.font = `${fontPx}px ${CAMPUS_LABEL_FONT_FAMILY}`;
+  const countW = countText ? ctx.measureText(countText).width + fontPx * 0.3 : 0;
+  const totalW = cached.width + countW;
+  const x = Math.round(centerX - totalW / 2);
+  const y = Math.round(bottomY - cached.height);
+
+  let alpha = 1;
+  if (summary.kind === BubbleKind.BLOCKED) {
+    const t = Math.min(summary.oldestAgeSec / BUBBLE_AGE_URGENT_SEC, 1);
+    const hz = BUBBLE_PULSE_MIN_HZ + (BUBBLE_PULSE_MAX_HZ - BUBBLE_PULSE_MIN_HZ) * t;
+    const wave = (Math.sin((performance.now() / 1000) * hz * Math.PI * 2) + 1) / 2;
+    alpha = BUBBLE_PULSE_ALPHA_MIN + (1 - BUBBLE_PULSE_ALPHA_MIN) * wave;
+  }
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(cached, x, y);
+  if (countText) {
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = CAMPUS_LABEL_TEXT;
+    ctx.fillText(countText, x + cached.width + fontPx * 0.3, y + cached.height / 2);
+  }
+  ctx.restore();
+}
+
+/** A blocked agent that currently sits outside the viewport. */
+export interface OffscreenTarget {
+  /** Device-pixel position of the agent, possibly outside the canvas. */
+  x: number;
+  y: number;
+  ageSec: number;
+}
+
+/**
+ * Arrows pinned to the viewport edge pointing at blocked agents whose bubble
+ * is not fully on screen. The office never moves itself to get your attention,
+ * so this is how "someone needs you over there" stays findable. The test is on
+ * the bubble, not the character: an agent can sit just inside the top edge with
+ * its bubble clipped away, which reads as "nothing is wrong" — the worst lie
+ * this UI can tell.
+ */
+export function renderOffscreenMarkers(
+  ctx: CanvasRenderingContext2D,
+  targets: OffscreenTarget[],
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
+  if (targets.length === 0) return;
+  const size = OFFSCREEN_MARKER_SIZE_PX * (window.devicePixelRatio || 1);
+  const pad = size;
+
+  ctx.save();
+  for (const t of targets) {
+    if (t.x >= 0 && t.x <= canvasWidth && t.y >= 0 && t.y <= canvasHeight) continue;
+    const cx = canvasWidth / 2;
+    const cy = canvasHeight / 2;
+    const dx = t.x - cx;
+    const dy = t.y - cy;
+    if (dx === 0 && dy === 0) continue;
+    // Clamp the direction vector to the padded viewport rectangle
+    const scaleX = dx === 0 ? Infinity : (canvasWidth / 2 - pad) / Math.abs(dx);
+    const scaleY = dy === 0 ? Infinity : (canvasHeight / 2 - pad) / Math.abs(dy);
+    const k = Math.min(scaleX, scaleY);
+    const px = cx + dx * k;
+    const py = cy + dy * k;
+    const angle = Math.atan2(dy, dx);
+
+    ctx.translate(px, py);
+    ctx.rotate(angle);
+    ctx.fillStyle = OFFSCREEN_MARKER_COLORS[blockedTier(t.ageSec)];
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.6, -size * 0.7);
+    ctx.lineTo(-size * 0.6, size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  ctx.restore();
 }
 
 export interface ButtonBounds {
@@ -586,6 +791,7 @@ export function renderOffice(
   offsetX: number,
   offsetY: number,
   zoom: number,
+  showBubbles = true,
 ): void {
   const layout = office.getLayout();
   renderTileGrid(ctx, office.tileMap, offsetX, offsetY, zoom, layout.tileColors, layout.cols);
@@ -619,7 +825,7 @@ export function renderOffice(
     office.hoveredAgentId,
   );
 
-  renderBubbles(ctx, characters, offsetX, offsetY, zoom);
+  if (showBubbles) renderBubbles(ctx, characters, offsetX, offsetY, zoom);
 }
 
 /**
@@ -634,7 +840,7 @@ export function renderOfficeLabel(
   offsetY: number,
   zoom: number,
   officeDeviceWidth: number,
-): void {
+): { x: number; y: number; w: number; h: number } {
   // Constant on-screen size: the canvas is in DEVICE pixels, so scale the
   // CSS-pixel minimum by devicePixelRatio (else retina renders it half-size).
   const dpr = window.devicePixelRatio || 1;
@@ -671,6 +877,7 @@ export function renderOfficeLabel(
   ctx.fillStyle = dim ? CAMPUS_LABEL_TEXT_DIM : CAMPUS_LABEL_TEXT;
   ctx.fillText(text, plateX + plateW / 2, plateY + plateH / 2 + 1);
   ctx.restore();
+  return { x: plateX, y: plateY, w: plateW, h: plateH };
 }
 
 export function renderFrame(

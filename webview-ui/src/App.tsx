@@ -17,6 +17,7 @@ import type { AgentTaskGroup } from './components/TasksDrawer.js';
 import { TasksDrawer } from './components/TasksDrawer.js';
 import { TerminalPanel } from './components/TerminalPanel.js';
 import { TerminalSplitter } from './components/TerminalSplitter.js';
+import { WelcomeModal } from './components/WelcomeModal.js';
 import { ZoomControls } from './components/ZoomControls.js';
 import {
   OFFICE_POPUP_MARGIN_PX,
@@ -158,6 +159,7 @@ function App() {
     selectedAgent,
     agentTools,
     agentStatuses,
+    agentNames,
     subagentTools,
     subagentCharacters,
     layoutReady,
@@ -167,6 +169,7 @@ function App() {
     agentTodos,
     usageSummary,
     achievements,
+    claudeAuth,
     unlockQueue,
     dismissUnlock,
     agentSuggestions,
@@ -276,6 +279,9 @@ function App() {
   }, []);
 
   const handleSelectAgent = useCallback((id: number) => {
+    // Opening the agent counts as having read it: drop the unread badge.
+    // A 'blocked' bubble deliberately survives — looking isn't resolving.
+    campus.getOfficeForAgent(id)?.acknowledgeAgent(id);
     vscode.postMessage({ type: 'focusAgent', id });
   }, []);
 
@@ -343,6 +349,12 @@ function App() {
     })();
 
   // Tasks drawer data — resolves to null when the workspace was removed.
+  /**
+   * How an agent is named everywhere outside its own chat tab: the host's
+   * auto-derived name when it has one, else the bare id.
+   */
+  const agentDisplayName = (id: number): string => agentNames[id] ?? `Agent ${id}`;
+
   const tasksWorkspace = tasksDrawerPath
     ? (workspaces.find((w) => w.path === tasksDrawerPath) ?? null)
     : null;
@@ -355,7 +367,11 @@ function App() {
             todos.length > 0 &&
             campus.getEntryForAgent(Number(idStr))?.workspace.path === tasksWorkspace.path,
         )
-        .map(([idStr, todos]) => ({ agentId: Number(idStr), label: `Agent ${idStr}`, todos }))
+        .map(([idStr, todos]) => ({
+          agentId: Number(idStr),
+          label: agentDisplayName(Number(idStr)),
+          todos,
+        }))
     : [];
 
   // Board data — every live agent with its state, activity, plan, and
@@ -370,7 +386,7 @@ function App() {
     const planItem = (agentTodos[id] ?? []).find((t) => t.status === 'in_progress');
     return {
       id,
-      label: folderName ? `${folderName} · Agent ${id}` : `Agent ${id}`,
+      label: folderName ? `${folderName} · ${agentDisplayName(id)}` : agentDisplayName(id),
       workspaceName: entry?.workspace.name ?? '',
       state: activeTool ? 'working' : isWaiting ? 'waiting' : 'idle',
       needsPermission,
@@ -467,6 +483,13 @@ function App() {
           roles={roles}
           launchAtLogin={launchAtLogin}
           bypassPermissions={bypassPermissions}
+          onSetOfficeTemplate={() =>
+            vscode.postMessage({
+              type: 'setOfficeTemplate',
+              layout: campus.getActiveOffice().getLayout(),
+            })
+          }
+          onResetOfficeTemplate={() => vscode.postMessage({ type: 'resetOfficeTemplate' })}
         />
 
         {isBoardOpen && !editor.isEditMode && (
@@ -481,6 +504,7 @@ function App() {
         )}
 
         <AchievementToast queue={unlockQueue} onDismiss={dismissUnlock} />
+        <WelcomeModal auth={claudeAuth} />
 
         <MissedRunsModal missed={missedRuns} onResolved={clearMissedRuns} />
 

@@ -148,6 +148,9 @@ describe('agentSuggestions emission', () => {
     const msg = sent.find((m) => m.type === 'agentSuggestions');
     if (msg?.type === 'agentSuggestions') {
       expect(msg.suggestions.map((s) => s.label)).toEqual(['Investigate']);
+      // The office turns this kind into the red "!" bubble, so it is part of
+      // the contract — not just a tooltip detail.
+      expect(msg.suggestions.map((s) => s.kind)).toEqual(['investigate']);
     } else {
       expect.unreachable('agentSuggestions not sent');
     }

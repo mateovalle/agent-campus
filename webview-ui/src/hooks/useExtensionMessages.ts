@@ -4,6 +4,7 @@ import type {
   AchievementInfo,
   AgentActionSuggestion,
   AgentTodo,
+  ClaudeAuthState,
   HostToWebviewMessage,
   MissedScheduleRun,
   ScheduleEntry,
@@ -24,6 +25,7 @@ import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
 import { setCharacterTemplates, setRoleSprites } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
+import { BubbleKind } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
 import { vscode } from '../vscodeApi.js';
 
@@ -62,6 +64,8 @@ export interface ExtensionMessageState {
   selectedAgent: number | null;
   agentTools: Record<number, ToolActivity[]>;
   agentStatuses: Record<number, string>;
+  /** Display name per agent (auto-derived from its first prompt); absent until named. */
+  agentNames: Record<number, string>;
   subagentTools: Record<number, Record<string, ToolActivity[]>>;
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
@@ -76,6 +80,8 @@ export interface ExtensionMessageState {
   usageSummary: UsageSummary | null;
   /** Full achievements list from the host ('achievementsLoaded' on ready). */
   achievements: AchievementInfo[];
+  /** Claude Code auth state; null until the host's startup probe answers. */
+  claudeAuth: ClaudeAuthState | null;
   /** Transient queue of freshly unlocked achievements awaiting toast display. */
   unlockQueue: AchievementInfo[];
   /** Dismiss the currently displayed unlock toast (drops unlockQueue[0]). */
@@ -127,6 +133,8 @@ export function useExtensionMessages(
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [agentTools, setAgentTools] = useState<Record<number, ToolActivity[]>>({});
   const [agentStatuses, setAgentStatuses] = useState<Record<number, string>>({});
+  /** Host-derived display names, mirrored into React so labels re-render. */
+  const [agentNames, setAgentNames] = useState<Record<number, string>>({});
   const [subagentTools, setSubagentTools] = useState<
     Record<number, Record<string, ToolActivity[]>>
   >({});
@@ -141,6 +149,7 @@ export function useExtensionMessages(
   const [agentTodos, setAgentTodos] = useState<Record<number, AgentTodo[]>>({});
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [achievements, setAchievements] = useState<AchievementInfo[]>([]);
+  const [claudeAuth, setClaudeAuth] = useState<ClaudeAuthState | null>(null);
   const [unlockQueue, setUnlockQueue] = useState<AchievementInfo[]>([]);
   const [agentSuggestions, setAgentSuggestions] = useState<Record<number, AgentActionSuggestion[]>>(
     {},
@@ -188,14 +197,22 @@ export function useExtensionMessages(
       role?: string;
       folderName?: string;
       workspacePath?: string;
+      name?: string;
     }> = [];
     let workspacesLoaded = false;
+    /**
+     * Outstanding chat permission/question requests per agent. The SDK can have
+     * several in flight, so the blocked bubble only clears when the last one
+     * resolves.
+     */
+    const pendingChatPermissions = new Map<number, Set<string>>();
 
     const flushPendingAgents = () => {
       if (!layoutReadyRef.current || !workspacesLoaded || pendingAgents.length === 0) return;
       for (const p of pendingAgents) {
         const office = campus.routeOffice(p.workspacePath, p.folderName);
         office.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.role);
+        if (p.name) office.setAgentName(p.id, p.name);
       }
       pendingAgents = [];
       saveAgentSeats(campus);
@@ -265,6 +282,12 @@ export function useExtensionMessages(
           delete next[id];
           return next;
         });
+        setAgentNames((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         setSubagentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -284,6 +307,7 @@ export function useExtensionMessages(
           return next;
         });
         pendingAgents = pendingAgents.filter((p) => p.id !== id);
+        pendingChatPermissions.delete(id);
         // Remove all sub-agent characters belonging to this agent
         const os = campus.getOfficeForAgent(id);
         os?.removeAllSubagents(id);
@@ -303,8 +327,17 @@ export function useExtensionMessages(
             seatId: m?.seatId ?? undefined,
             role: m?.role ?? undefined,
             folderName: folderNames[id],
+            name: m?.name,
           });
         }
+        setAgentNames((prev) => {
+          const next = { ...prev };
+          for (const id of incoming) {
+            const n = meta[id]?.name;
+            if (n) next[id] = n;
+          }
+          return next;
+        });
         setAgents((prev) => {
           const ids = new Set(prev);
           const merged = [...prev];
@@ -330,7 +363,8 @@ export function useExtensionMessages(
           const toolName = extractToolName(status);
           os.setAgentTool(id, toolName);
           os.setAgentActive(id, true);
-          os.clearPermissionBubble(id);
+          // Work resumed: whatever the bubble was saying is no longer true.
+          os.clearBubble(id);
           // Create sub-agent character for Task tool subtasks
           if (status.startsWith('Subtask:')) {
             const label = status.slice('Subtask:'.length).trim();
@@ -371,7 +405,7 @@ export function useExtensionMessages(
         os?.removeAllSubagents(id);
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
         os?.setAgentTool(id, null);
-        os?.clearPermissionBubble(id);
+        os?.clearBubble(id, BubbleKind.BLOCKED);
       } else if (msg.type === 'agentSuggestions') {
         const id = msg.id;
         const suggestions = msg.suggestions;
@@ -384,6 +418,52 @@ export function useExtensionMessages(
           }
           return { ...prev, [id]: suggestions };
         });
+        // 'investigate' means the turn ended with repeated tool errors — the
+        // office should say so rather than show a clean checkmark.
+        if (suggestions.some((sg) => sg.kind === 'investigate')) {
+          campus.getOfficeForAgent(id)?.showBubble(id, BubbleKind.ERROR);
+        }
+      } else if (msg.type === 'agentLabel') {
+        // The host auto-names an agent from its first prompt. Route it to the
+        // character too, so the office reads "fix-auth-timeout", not "Agent 3".
+        const pending = pendingAgents.find((p) => p.id === msg.id);
+        if (pending) pending.name = msg.label;
+        campus.getOfficeForAgent(msg.id)?.setAgentName(msg.id, msg.label);
+        setAgentNames((prev) => ({ ...prev, [msg.id]: msg.label }));
+      } else if (msg.type === 'chat-permission-request') {
+        // Chat agents (the default for "+ Agent") ask for permission through
+        // the SDK's canUseTool bridge, not through the transcript timer, so
+        // this is the only place the office can learn they are blocked.
+        // AskUserQuestion arrives here too — same meaning: stuck on a human.
+        const id = msg.agentId;
+        const pending = pendingChatPermissions.get(id) ?? new Set<string>();
+        pending.add(msg.requestId);
+        pendingChatPermissions.set(id, pending);
+        campus.getOfficeForAgent(id)?.showBubble(id, BubbleKind.BLOCKED);
+        setAgentTools((prev) => {
+          const list = prev[id];
+          if (!list) return prev;
+          return {
+            ...prev,
+            [id]: list.map((t) => (t.done ? t : { ...t, permissionWait: true })),
+          };
+        });
+      } else if (msg.type === 'chat-permission-resolved') {
+        const id = msg.agentId;
+        const pending = pendingChatPermissions.get(id);
+        pending?.delete(msg.requestId);
+        if (!pending || pending.size === 0) {
+          pendingChatPermissions.delete(id);
+          campus.getOfficeForAgent(id)?.clearBubble(id, BubbleKind.BLOCKED);
+          setAgentTools((prev) => {
+            const list = prev[id];
+            if (!list || !list.some((t) => t.permissionWait)) return prev;
+            return {
+              ...prev,
+              [id]: list.map((t) => (t.permissionWait ? { ...t, permissionWait: false } : t)),
+            };
+          });
+        }
       } else if (msg.type === 'agentSelected') {
         setSelectedAgent(msg.id);
       } else if (msg.type === 'agentStatus') {
@@ -400,8 +480,16 @@ export function useExtensionMessages(
         });
         const os = campus.getOfficeForAgent(id);
         os?.setAgentActive(id, status === 'active');
+        if (status === 'active') {
+          // A new turn began: any badge from the previous one is now stale.
+          // Covers text-only turns, which never emit a tool start.
+          os?.clearBubble(id);
+        }
         if (status === 'waiting') {
-          os?.showWaitingBubble(id);
+          // Unread badge: unlike the old 2s flash, this stays up until the
+          // user actually opens the agent, so a turn finished while they were
+          // away is still there when they come back.
+          os?.showBubble(id, BubbleKind.DONE);
           playDoneSound();
         }
       } else if (msg.type === 'agentToolPermission') {
@@ -414,7 +502,7 @@ export function useExtensionMessages(
             [id]: list.map((t) => (t.done ? t : { ...t, permissionWait: true })),
           };
         });
-        campus.getOfficeForAgent(id)?.showPermissionBubble(id);
+        campus.getOfficeForAgent(id)?.showBubble(id, BubbleKind.BLOCKED);
       } else if (msg.type === 'subagentToolPermission') {
         const id = msg.id;
         const parentToolId = msg.parentToolId;
@@ -422,7 +510,7 @@ export function useExtensionMessages(
         const os = campus.getOfficeForAgent(id);
         const subId = os?.getSubagentId(id, parentToolId) ?? null;
         if (os && subId !== null) {
-          os.showPermissionBubble(subId);
+          os.showBubble(subId, BubbleKind.BLOCKED);
         }
       } else if (msg.type === 'agentToolPermissionClear') {
         const id = msg.id;
@@ -438,11 +526,11 @@ export function useExtensionMessages(
         });
         const os = campus.getOfficeForAgent(id);
         if (os) {
-          os.clearPermissionBubble(id);
+          os.clearBubble(id, BubbleKind.BLOCKED);
           // Also clear permission bubbles on all sub-agent characters of this parent
           for (const [subId, meta] of os.subagentMeta) {
             if (meta.parentAgentId === id) {
-              os.clearPermissionBubble(subId);
+              os.clearBubble(subId, BubbleKind.BLOCKED);
             }
           }
         }
@@ -551,6 +639,8 @@ export function useExtensionMessages(
       } else if (msg.type === 'usageSummary') {
         setUsageSummary(msg.summary);
         campus.setTodayUsage(msg.summary.todayByWorkspace ?? {});
+      } else if (msg.type === 'claudeAuth') {
+        setClaudeAuth(msg.status);
       } else if (msg.type === 'achievementsLoaded') {
         setAchievements(msg.achievements);
         // Mirrors into the catalog module, which gates placement imperatively
@@ -591,6 +681,7 @@ export function useExtensionMessages(
     selectedAgent,
     agentTools,
     agentStatuses,
+    agentNames,
     subagentTools,
     subagentCharacters,
     layoutReady,
@@ -601,6 +692,7 @@ export function useExtensionMessages(
     agentTodos,
     usageSummary,
     achievements,
+    claudeAuth,
     unlockQueue,
     dismissUnlock,
     agentSuggestions,

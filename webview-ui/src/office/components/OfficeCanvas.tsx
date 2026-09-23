@@ -4,6 +4,7 @@ import type { WorkspaceInfo } from '../../../../shared/protocol.js';
 import {
   CAMERA_FOLLOW_LERP,
   CAMERA_FOLLOW_SNAP_THRESHOLD,
+  CAMPUS_CLUSTER_GAP_PX,
   CAMPUS_CULL_PAD_PX,
   CAMPUS_FIT_PAD_FRACTION,
   PAN_MARGIN_FRACTION,
@@ -28,10 +29,21 @@ import type {
   RotateButtonBounds,
   SelectionRenderState,
 } from '../engine/renderer.js';
-import { renderFrame, renderOffice, renderOfficeLabel } from '../engine/renderer.js';
+import type { OffscreenTarget } from '../engine/renderer.js';
+import {
+  bubbleSpriteFor,
+  bubbleTopPoint,
+  renderBubbleCluster,
+  renderFrame,
+  renderOffice,
+  renderOfficeLabel,
+  renderOffscreenMarkers,
+  shouldClusterBubbles,
+  summarizeBubbles,
+} from '../engine/renderer.js';
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js';
 import { formatUsd } from '../toolUtils.js';
-import { EditTool, TILE_SIZE } from '../types.js';
+import { BubbleKind, EditTool, TILE_SIZE } from '../types.js';
 
 interface OfficeCanvasProps {
   campus: CampusState;
@@ -212,6 +224,10 @@ export function OfficeCanvas({
 
           if (campus.entries.length > 0) {
             const pad = CAMPUS_CULL_PAD_PX * zoom;
+            // Zoomed far enough out, per-character bubbles overlap into noise:
+            // roll each office up into a single marker on its label plate.
+            const cluster = shouldClusterBubbles(zoom);
+            const offscreen: OffscreenTarget[] = [];
             for (const entry of campus.entries) {
               // Offices may have per-workspace layouts with differing sizes
               const layout = entry.office.getLayout();
@@ -228,11 +244,11 @@ export function OfficeCanvas({
               ) {
                 continue;
               }
-              renderOffice(ctx, entry.office, ox, oy, zoom);
+              renderOffice(ctx, entry.office, ox, oy, zoom, !cluster);
               const count = campus.agentCount(entry.office);
               const todayUsd = campus.getTodayUsd(entry.workspace.path);
               const costSegment = todayUsd > 0 ? ` · ${formatUsd(todayUsd)}` : '';
-              renderOfficeLabel(
+              const plate = renderOfficeLabel(
                 ctx,
                 `${entry.workspace.name} · ${count}${costSegment}`,
                 count === 0,
@@ -241,7 +257,29 @@ export function OfficeCanvas({
                 zoom,
                 officeW,
               );
+              if (cluster) {
+                const summary = summarizeBubbles(entry.office.getCharacters());
+                if (summary) {
+                  renderBubbleCluster(
+                    ctx,
+                    summary,
+                    plate.x + plate.w / 2,
+                    plate.y - CAMPUS_CLUSTER_GAP_PX,
+                    zoom,
+                  );
+                }
+              }
+              // Remember blocked agents so the edge arrows can point at the
+              // ones whose bubble ended up outside the viewport.
+              for (const ch of entry.office.getCharacters()) {
+                if (ch.bubbleType !== BubbleKind.BLOCKED || ch.isSubagent) continue;
+                const sprite = bubbleSpriteFor(ch);
+                if (!sprite) continue;
+                const top = bubbleTopPoint(ch, ox, oy, zoom, sprite.length);
+                offscreen.push({ x: top.x, y: top.y, ageSec: ch.bubbleAgeSec });
+              }
             }
+            renderOffscreenMarkers(ctx, offscreen, w, h);
           }
 
           deleteButtonBoundsRef.current = null;
