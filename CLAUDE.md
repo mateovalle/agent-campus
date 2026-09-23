@@ -1,6 +1,14 @@
 # Agent Campus — Compressed Reference
 
-Dual-target app: pixel art office where AI agents (Claude Code terminals) are animated characters. Ships as (1) a standalone **Electron desktop app** (this repo's default `package.json`) and (2) a **VS Code extension** (swap manifests via `npm run use:vscode` / `use:electron`, implemented by `scripts/swap-target.js`; `package-vscode.json` is tracked, `package-electron.json` is generated+gitignored). Both hosts share `src/core/` and the `shared/protocol.ts` message types.
+Electron desktop app: a pixel-art campus where AI agents (Claude Code sessions) are animated
+characters. Every project is an office; agents are characters you watch work and dispatch.
+
+This used to be a dual-target repo that also built a VS Code extension out of `src/`. That target
+was deleted: it had fallen ~2 months behind (no chat, campus, Board, tasks, schedules,
+achievements or cost — 17 handled message types against Electron's ~70) and the webview has no
+per-host gating, so its Electron-only toolbar rendered buttons that did nothing. `src/core/`
+survives as the host-agnostic backend and `shared/protocol.ts` as the message contract; the
+project it was forked from still ships the extension, and is the place to look for one.
 
 ## Architecture
 
@@ -29,16 +37,6 @@ src/core/                     — Host-agnostic backend core (no vscode/electron
   assetLoader.ts              — PNG parsing, sprite conversion, asset/layout loading, sendX(send, ...) helpers
   layoutPersistence.ts        — Layout file I/O (~/.pixel-agents/layout.json), isValidLayout, cross-window watcher
 
-src/                          — VS Code extension host (imports src/core)
-  constants.ts                — VS Code IDs + re-exports core constants
-  extension.ts                — Entry: activate(), deactivate()
-  PixelAgentsViewProvider.ts  — WebviewViewProvider; owns HostContext (ctx); message dispatch; asset loading
-  agentManager.ts             — Terminal lifecycle: launch, remove, restore (15s grace for async terminal
-                                restore via onDidOpenTerminal), persist
-  fileWatcher.ts              — Project-dir scans (one per workspace folder), /clear reassignment, adoption
-  layoutPersistence.ts        — migrateAndLoadLayout (workspace-state migration) + core re-exports
-  types.ts                    — AgentState (core + terminalRef), HostContext, PersistedAgent
-
 electron/                     — Electron desktop host (imports src/core; tsconfig rootDir=.. →
                                 dist-electron/electron/main.js + dist-electron/src/core/)
   main.ts                     — Main process: window, node-pty terminals (main constructs ALL commands;
@@ -62,11 +60,11 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 its own. Absent by default → the bundled default-layout.json.
                                 Written only on purpose: Settings' "Use This Office For New
                                 Workspaces", an import, or editing the detached (workspace-less)
-                                office; "Reset Starter Office" deletes it. The desktop host no
-                                longer reads ~/.pixel-agents/layout.json at all — that file
-                                predates the campus, kept seeding new offices by accident (with
-                                furniture ids retired months earlier), and now belongs to the
-                                VS Code host alone, where it really is the one office
+                                office; "Reset Starter Office" deletes it. ~/.pixel-agents/layout.json is no
+                                longer read at all — it predates the campus and kept seeding new
+                                offices by accident, with furniture ids retired months earlier.
+                                It was the VS Code host's single office; that host is gone, so
+                                the file is now purely vestigial
   claudeAuth.ts               — First-run gate: `claude auth status --json` on the RESOLVED bundled
                                 executable (not ~/.claude — on macOS the credentials live in the
                                 login Keychain, so a file probe reports "logged out" on every Mac).
@@ -113,7 +111,7 @@ electron/                     — Electron desktop host (imports src/core; tscon
   preload.ts                  — Minimal contextBridge: postMessage/onMessage + ptyInput/Resize/Kill/Ready
 
 webview-ui/src/               — React + TypeScript (Vite)
-  vscodeApi.ts                — Host abstraction: VS Code webview API or Electron IPC bridge (typed by protocol)
+  vscodeApi.ts                — Electron IPC bridge (typed by protocol). Name is historical
   components/TerminalPanel.tsx / TerminalInstance.tsx / TerminalTabs.tsx / TerminalSplitter.tsx
                               — Electron-only bottom panel: mixed terminal (xterm.js) + chat tabs
                                 (hidden-not-unmounted, replay-gated output)
@@ -203,7 +201,7 @@ examples/
 
 ## Core Concepts
 
-**Vocabulary**: Terminal = VS Code terminal running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
+**Vocabulary**: Terminal = PTY tab running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
 
 **Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in `shared/protocol.ts` (`HostToWebviewMessage` / `WebviewToHostMessage`) — add new message types THERE first; all three targets typecheck against it. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`, `settingsLoaded`, `setSoundEnabled`, `agentSuggestions`/`runAgentAction` (action buttons), plus Electron-only `pty-*` terminal messages.
 
@@ -221,7 +219,20 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 
 **Extension state per agent**: `id, terminalRef, projectDir, jsonlFile, fileOffset, lineBuffer, activeToolIds, activeToolStatuses, activeSubagentToolNames, isWaiting`.
 
-**Persistence**: Agents persisted to `workspaceState` key `'agent-campus.agents'` (includes palette/hueShift/seatId). **Layout persisted to `~/.pixel-agents/layout.json`** (user-level, shared across all VS Code windows/workspaces). `layoutPersistence.ts` handles all file I/O: `readLayoutFromFile()`, `writeLayoutToFile()` (atomic via `.tmp` + rename), `migrateAndLoadLayout()` (checks file → migrates old workspace state → falls back to bundled default), `watchLayoutFile()` (hybrid `fs.watch` + 2s polling for cross-window sync). On save, `markOwnWrite()` prevents the watcher from re-reading our own write. External changes push `layoutLoaded` to the webview; skipped if the editor has unsaved changes (last-save-wins). On webview ready: `restoreAgents()` matches persisted entries to live terminals. `nextAgentId`/`nextTerminalIndex` advanced past restored values. **Default layout**: When no saved layout file exists and no workspace state to migrate, a bundled `default-layout.json` is loaded from `assets/` and written to the file. If that also doesn't exist, `createDefaultLayout()` generates a basic office. The default is GENERATED: `node --experimental-strip-types scripts/asset-gen/default-layout.ts` declares the scene (tile zones + furniture list) and validates every placement against `furniture-catalog.json` with the editor's rules before writing `webview-ui/public/assets/default-layout.json` — edit the script, not the JSON (the VS Code "Export Layout as Default" command still overwrites it from the live editor if you prefer). On `layoutLoaded` the webview runs `pruneUnknownFurniture()` (furnitureCatalog.ts): items whose type is missing from the loaded catalog (ids from retired asset packs) are dropped in memory and disappear from disk on the user's next save; no-op until the dynamic catalog is ready. **Export/Import**: Settings modal offers Export Layout (save dialog → JSON file) and Import Layout (open dialog → validates `version: 1` + `tiles` array → writes to layout file + pushes `layoutLoaded` to webview).
+**Persistence**: Seats, palettes, hue shifts and roles are persisted by SESSION id (see
+`saveAgentSeats`). Layouts are per-workspace files under `~/.pixel-agents/layouts/`, written
+atomically (`.tmp` + rename) by `src/core/layoutPersistence.ts` and hot-reloaded through a
+layouts-dir watcher (debounced, own-write suppression) so external edits apply without a restart.
+**Default layout**: a workspace with no design of its own is born from the starter office
+(`~/.pixel-agents/office-template.json`) when present, else the bundled `default-layout.json`.
+That bundled default is GENERATED: `node --experimental-strip-types scripts/asset-gen/default-layout.ts`
+declares the scene (tile zones + furniture list) and validates every placement against
+`furniture-catalog.json` with the editor's rules before writing
+`webview-ui/public/assets/default-layout.json` — edit the script, not the JSON. On `layoutLoaded`
+the webview runs `pruneUnknownFurniture()` (furnitureCatalog.ts): items whose type is missing from
+the loaded catalog (ids from retired asset packs) are dropped in memory and disappear from disk on
+the user's next save; no-op until the dynamic catalog is ready.
+**Export/Import**: Settings modal offers Export Layout (save dialog → JSON file) and Import Layout (open dialog → validates `version: 1` + `tiles` array → writes to the layout file + pushes `layoutLoaded` to the webview).
 
 ## Office UI
 
@@ -243,7 +254,7 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 
 **Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2s. Sprites in `spriteData.ts`.
 
-**Action suggestion buttons**: On `turn_duration`, core sends `agentSuggestions` derived from the turn's TurnStats (`actionSuggestions.ts` heuristics: edits → Review/Test, clean tests → Commit, ≥3 tool errors → Investigate). ToolOverlay renders them as buttons under the selected character's status pill (hidden while active). Clicking sends `runAgentAction` — Electron writes the command to the PTY (text, then `\r` after `PTY_ACTION_ENTER_DELAY_MS`) or `ChatSession.send()`; VS Code uses `terminalRef.sendText()`. Commands are plain-language prompts (not slash commands) so they work without any skills installed. Suggestions cleared on new user prompt (empty array), agent close, and optimistically on click.
+**Action suggestion buttons**: On `turn_duration`, core sends `agentSuggestions` derived from the turn's TurnStats (`actionSuggestions.ts` heuristics: edits → Review/Test, clean tests → Commit, ≥3 tool errors → Investigate). ToolOverlay renders them as buttons under the selected character's status pill (hidden while active). Clicking sends `runAgentAction` — the host writes the command to the PTY (text, then `\r` after `PTY_ACTION_ENTER_DELAY_MS`) or calls `ChatSession.send()`. Commands are plain-language prompts (not slash commands) so they work without any skills installed. Suggestions cleared on new user prompt (empty array), agent close, and optimistically on click.
 
 **Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` called on canvas mousedown to ensure context is resumed (webviews start suspended). Toggled via "Sound Notifications" checkbox in Settings modal. Enabled by default; persisted in extension `globalState` key `agent-campus.soundEnabled`, sent to webview as `settingsLoaded` on init.
 
@@ -271,7 +282,7 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 ## Asset System
 
-**Loading**: `esbuild.js` copies `webview-ui/public/assets/` → `dist/assets/`. Loader checks bundled path first, falls back to workspace root. PNG → pngjs → SpriteData (2D hex array, alpha≥128 = opaque). `loadDefaultLayout()` reads `assets/default-layout.json` (JSON OfficeLayout) as fallback for new workspaces.
+**Loading**: `getAssetsRoot()` (electron/main.ts) resolves `webview-ui/public` in dev and `process.resourcesPath` when packaged (electron-builder `extraResources`). PNG → pngjs → SpriteData (2D hex array, alpha≥128 = opaque). `loadDefaultLayout()` reads `assets/default-layout.json` (JSON OfficeLayout) as fallback for new workspaces.
 
 **Catalog**: `furniture-catalog.json` with id, name, label, category, footprint, isDesk, canPlaceOnWalls, groupId?, orientation?, state?, canPlaceOnSurfaces?, backgroundTiles?. String-based type system (no enum constraint). Categories: desks, chairs, storage, electronics, decor, wall, misc. Wall-placeable items (`canPlaceOnWalls: true`) use the `wall` category and appear in a dedicated "Wall" tab in the editor. Asset naming convention: `{BASE}[_{ORIENTATION}][_{STATE}]` (e.g., `MONITOR_FRONT_OFF`, `CRT_MONITOR_BACK`). `orientation` is stored on `FurnitureCatalogEntry` and used for chair z-sorting and seat facing direction.
 
@@ -307,7 +318,7 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 - **Idle detection** has two signals: (1) `system` + `subtype: "turn_duration"` — reliable for tool-using turns (~98%), emitted once per completed turn, handler clears all tool state as safety measure. (2) Text-idle timer (`TEXT_IDLE_DELAY_MS = 5s`) — for text-only turns where `turn_duration` is never emitted. Only starts when `hadToolsInTurn` is false (no tools used yet in this turn); if any tool_use arrives, `hadToolsInTurn` becomes true and the timer is suppressed for the rest of the turn. Reset on new user prompt or `turn_duration`. Cancelled by ANY new JSONL data arriving in `readNewLines`. Only fires after 5s of complete file silence
 - User prompt `content` can be string (text) or array (tool_results) — handle both
 - `/clear` creates NEW JSONL file (old file just stops)
-- `--output-format stream-json` needs non-TTY stdin — can't use with VS Code terminals
+- `--output-format stream-json` needs non-TTY stdin — can't use with PTY terminal tabs
 - Hook-based IPC failed (hooks captured at startup, env vars don't propagate). JSONL watching works
 - PNG→SpriteData: pngjs for RGBA buffer, alpha threshold 128
 - OfficeCanvas selection changes are imperative (`editorState.selectedFurnitureUid`); must call `onEditorSelectionChange()` to trigger React re-render for toolbar
@@ -321,11 +332,9 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
 Electron (default manifest):
 - `npm run dev` — Vite dev server + Electron (wait-on gated); `npm start` — build + run built app
 - `npm run build` — check (types+lint) → tsc electron → vite webview; `npm run package` — electron-builder (dmg/AppImage/nsis)
-- `npm run check-types` covers src/, electron/, webview-ui/; `npm run lint` covers src/ + electron/ (webview has its own flat config)
+- `npm run check-types` covers src/core/, electron/, webview-ui/; `npm run lint` covers src/ + electron/ (webview has its own flat config)
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml
-
-VS Code extension: `npm run use:vscode && npm install`, then F5 for Extension Dev Host (esbuild bundle). Swap back with `npm run use:electron`.
 
 Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKILL.md + Playwright REPL `driver.mjs`, isolated HOME, screenshots/clicks/keys) — use it to verify UI, editor and furniture changes in the real app.
 
@@ -340,7 +349,6 @@ Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKI
 All magic numbers and strings are centralized — never add inline constants to source files:
 
 - **Backend (shared)**: `src/core/constants.ts` — timing intervals, display truncation limits, PNG/asset parsing values, layout file names
-- **VS Code host**: `src/constants.ts` — VS Code command/key identifiers, restore grace (re-exports core constants)
 - **Electron host**: top of `electron/main.ts` — session scan/stale windows, PTY scrollback cap, window geometry
 - **Webview**: `webview-ui/src/constants.ts` — grid/layout sizes, character animation speeds, matrix effect params, rendering offsets/colors, camera, zoom, editor defaults, game logic thresholds
 - **CSS styling**: `webview-ui/src/index.css` `:root` block — `--pixel-*` custom properties for UI colors, backgrounds, borders, z-indices used in React inline styles
@@ -349,7 +357,6 @@ All magic numbers and strings are centralized — never add inline constants to 
 
 ## Key Patterns
 
-- `crypto.randomUUID()` works in VS Code extension host
 - Terminal `cwd` option sets working directory at creation
 - `/add-dir <path>` grants session access to additional directory
 
@@ -357,11 +364,7 @@ All magic numbers and strings are centralized — never add inline constants to 
 
 - `uvx --python 3.13 windows-mcp` — Tools: Snapshot, Click, Type, Scroll, Move, Shortcut, App, Shell, Wait, Scrape
 - Webview buttons show `(0,0)` in a11y tree — must use `Snapshot(use_vision=true)` for coordinates
-- Snap both VS Code windows side-by-side on SAME screen before clicking in Extension Dev Host
-- Reload extension via button on main VS Code window after building
 
 ## Key Decisions
 
-- `WebviewViewProvider` (not `WebviewPanel`) — lives in panel area alongside terminal
-- Inline esbuild problem matcher (no extra extension needed)
 - Webview is separate Vite project with own `node_modules`/`tsconfig`

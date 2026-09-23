@@ -1,6 +1,4 @@
 // Debug configurations for the Electron app.
-// (The old "Run Extension" extensionHost config requires the VS Code
-// manifest — run `npm run use:vscode` first if you need it.)
 {
 	"version": "0.2.0",
 	"configurations": [
