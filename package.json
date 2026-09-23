@@ -1,7 +1,7 @@
 {
-  "name": "pixel-agents-desktop",
+  "name": "agent-campus-desktop",
   "version": "0.2.0",
-  "description": "Pixel Agents — standalone desktop app for visualizing AI coding agents",
+  "description": "Agent Campus — a desktop campus where every project is an office and every Claude Code agent is a character",
   "main": "dist-electron/electron/main.js",
   "private": true,
   "scripts": {
@@ -32,8 +32,8 @@
     "use:electron": "node scripts/swap-target.js electron"
   },
   "build": {
-    "appId": "com.pixelagents.desktop",
-    "productName": "Pixel Agents",
+    "appId": "com.agentcampus.desktop",
+    "productName": "Agent Campus",
     "directories": {
       "output": "release"
     },

@@ -3,16 +3,16 @@
 export * from './core/constants.js';
 
 // ── Settings Persistence ────────────────────────────────────
-export const GLOBAL_KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
-export const GLOBAL_KEY_BYPASS_PERMISSIONS = 'pixel-agents.bypassPermissions';
+export const GLOBAL_KEY_SOUND_ENABLED = 'agent-campus.soundEnabled';
+export const GLOBAL_KEY_BYPASS_PERMISSIONS = 'agent-campus.bypassPermissions';
 
 // ── VS Code Identifiers ─────────────────────────────────────
-export const VIEW_ID = 'pixel-agents.panelView';
-export const COMMAND_SHOW_PANEL = 'pixel-agents.showPanel';
-export const COMMAND_EXPORT_DEFAULT_LAYOUT = 'pixel-agents.exportDefaultLayout';
-export const WORKSPACE_KEY_AGENTS = 'pixel-agents.agents';
-export const WORKSPACE_KEY_AGENT_SEATS = 'pixel-agents.agentSeats';
-export const WORKSPACE_KEY_LAYOUT = 'pixel-agents.layout';
+export const VIEW_ID = 'agent-campus.panelView';
+export const COMMAND_SHOW_PANEL = 'agent-campus.showPanel';
+export const COMMAND_EXPORT_DEFAULT_LAYOUT = 'agent-campus.exportDefaultLayout';
+export const WORKSPACE_KEY_AGENTS = 'agent-campus.agents';
+export const WORKSPACE_KEY_AGENT_SEATS = 'agent-campus.agentSeats';
+export const WORKSPACE_KEY_LAYOUT = 'agent-campus.layout';
 export const TERMINAL_NAME_PREFIX = 'Claude Code';
 
 // ── Agent Restore ───────────────────────────────────────────

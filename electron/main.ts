@@ -171,7 +171,7 @@ function loadJsonFile<T>(file: string): T | null {
       return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
     }
   } catch (err) {
-    console.error(`[Pixel Agents] Failed to read ${path.basename(file)}:`, err);
+    console.error(`[Agent Campus] Failed to read ${path.basename(file)}:`, err);
   }
   return null;
 }
@@ -181,7 +181,7 @@ function saveJsonFile(file: string, value: unknown): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf-8');
   } catch (err) {
-    console.error(`[Pixel Agents] Failed to write ${path.basename(file)}:`, err);
+    console.error(`[Agent Campus] Failed to write ${path.basename(file)}:`, err);
   }
 }
 
@@ -237,14 +237,14 @@ function watchWorkspaceLayouts(): void {
           if (!ws) return;
           const layout = loadJsonFile<Record<string, unknown>>(getWorkspaceLayoutFile(ws.path));
           if (layout && isValidLayout(layout)) {
-            console.log(`[Pixel Agents] Workspace layout changed on disk — pushing ${ws.path}`);
+            console.log(`[Agent Campus] Workspace layout changed on disk — pushing ${ws.path}`);
             ctx.send({ type: 'layoutLoaded', layout, workspacePath: ws.path });
           }
         }, WORKSPACE_LAYOUT_DEBOUNCE_MS),
       );
     });
   } catch (err) {
-    console.error('[Pixel Agents] Failed to watch workspace layouts:', err);
+    console.error('[Agent Campus] Failed to watch workspace layouts:', err);
   }
 }
 
@@ -281,7 +281,7 @@ function fixPathEnv(): void {
       process.env.PATH = loginPath;
     }
   } catch (err) {
-    console.error('[Pixel Agents] Could not resolve login-shell PATH:', err);
+    console.error('[Agent Campus] Could not resolve login-shell PATH:', err);
   }
 }
 
@@ -445,7 +445,7 @@ function autoNameAgent(agentId: number, promptText: string): void {
 async function sendClaudeAuth(): Promise<void> {
   const status = await probeClaudeAuth(resolveClaudeExecutable());
   if (status.kind !== 'ok') {
-    console.log(`[Pixel Agents] Claude auth: ${status.kind}`);
+    console.log(`[Agent Campus] Claude auth: ${status.kind}`);
   }
   ctx.send({ type: 'claudeAuth', status });
 }
@@ -465,7 +465,7 @@ function startClaudeLogin(): void {
   const label = 'Log in';
   const ptyId = spawnPty({ command: `${quoted} auth login`, label });
   ctx.send({ type: 'pty-created', ptyId, label });
-  console.log('[Pixel Agents] Opened a Claude Code login terminal');
+  console.log('[Agent Campus] Opened a Claude Code login terminal');
 }
 
 function launchAgent(cwd: string): void {
@@ -700,7 +700,7 @@ function scanForNewJsonlFiles(projectDir: string): void {
     const target = mostRecentlyTypedAgentIn(projectDir);
     if (!target) continue; // no internal agent here — external activity, ignore
     console.log(
-      `[Pixel Agents] New JSONL ${path.basename(file)} → reassigning agent ${target.id} (/clear)`,
+      `[Agent Campus] New JSONL ${path.basename(file)} → reassigning agent ${target.id} (/clear)`,
     );
     reassignAgentToFile(target, file);
   }
@@ -795,7 +795,7 @@ function openAssistant(): void {
     label: 'Assistant',
     send: ctx.send,
     systemPromptAppend:
-      'You are the campus assistant of Pixel Agents, a mission-control app where a ' +
+      'You are the campus assistant of Agent Campus, a mission-control app where a ' +
       'developer runs multiple Claude Code agents across project workspaces (offices). ' +
       'Your job is orchestration: keep an overview of workspaces, agents, tasks and ' +
       'spending via your campus tools, help the user prioritize, and dispatch work by ' +
@@ -992,7 +992,7 @@ function sendSchedules(): void {
 }
 
 function dispatchSchedule(s: ScheduleEntry): void {
-  console.log(`[Pixel Agents] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
+  console.log(`[Agent Campus] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
   const agentId = launchChatAgent(
     s.workspacePath,
     undefined,
@@ -1012,7 +1012,7 @@ function schedulerTick(): void {
     const lastAgentId = scheduleLastAgent.get(s.id);
     const lastSession = lastAgentId !== undefined ? chatSessions.get(lastAgentId) : undefined;
     if (lastSession && !lastSession.ended && lastSession.busy) {
-      console.log(`[Pixel Agents] Schedule ${s.id}: previous agent still busy — skipping run`);
+      console.log(`[Agent Campus] Schedule ${s.id}: previous agent still busy — skipping run`);
       continue;
     }
     dispatchSchedule(s);
@@ -1179,7 +1179,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     void sendClaudeAuth();
   } else if (msg.type === 'setOfficeTemplate') {
     if (isValidLayout(msg.layout) && writeOfficeTemplate(msg.layout)) {
-      console.log(`[Pixel Agents] Starter office saved to ${officeTemplatePath()}`);
+      console.log(`[Agent Campus] Starter office saved to ${officeTemplatePath()}`);
       ctx.send({ type: 'layoutLoaded', layout: msg.layout });
     }
   } else if (msg.type === 'resetOfficeTemplate') {
@@ -1466,7 +1466,7 @@ function onWebviewReady(): void {
     for (const ws of loadWorkspaces()) {
       const wsLayout = loadJsonFile<Record<string, unknown>>(getWorkspaceLayoutFile(ws.path));
       if (wsLayout && isValidLayout(wsLayout)) {
-        console.log(`[Pixel Agents] Sending workspace layout override for ${ws.path}`);
+        console.log(`[Agent Campus] Sending workspace layout override for ${ws.path}`);
         ctx.send({ type: 'layoutLoaded', layout: wsLayout, workspacePath: ws.path });
       }
     }
@@ -1544,13 +1544,13 @@ async function exportLayout(): Promise<void> {
   if (!layout) return;
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'JSON Files', extensions: ['json'] }],
-    defaultPath: path.join(os.homedir(), 'pixel-agents-layout.json'),
+    defaultPath: path.join(os.homedir(), 'agent-campus-layout.json'),
   });
   if (result.filePath) {
     try {
       fs.writeFileSync(result.filePath, JSON.stringify(layout, null, 2), 'utf-8');
     } catch (err) {
-      console.error('[Pixel Agents] Failed to export layout:', err);
+      console.error('[Agent Campus] Failed to export layout:', err);
     }
   }
 }
@@ -1569,7 +1569,7 @@ async function importLayout(): Promise<void> {
     writeOfficeTemplate(imported);
     ctx.send({ type: 'layoutLoaded', layout: imported });
   } catch (err) {
-    console.error('[Pixel Agents] Failed to import layout:', err);
+    console.error('[Agent Campus] Failed to import layout:', err);
   }
 }
 
@@ -1578,7 +1578,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
-    title: 'Pixel Agents',
+    title: 'Agent Campus',
     backgroundColor: WINDOW_BACKGROUND,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

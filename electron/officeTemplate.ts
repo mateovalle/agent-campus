@@ -49,7 +49,7 @@ export function writeOfficeTemplate(layout: Record<string, unknown>): boolean {
     fs.renameSync(tmp, TEMPLATE_FILE);
     return true;
   } catch (err) {
-    console.error('[Pixel Agents] Failed to save the starter office:', err);
+    console.error('[Agent Campus] Failed to save the starter office:', err);
     return false;
   }
 }
@@ -60,7 +60,7 @@ export function clearOfficeTemplate(): boolean {
     fs.rmSync(TEMPLATE_FILE, { force: true });
     return true;
   } catch (err) {
-    console.error('[Pixel Agents] Failed to clear the starter office:', err);
+    console.error('[Agent Campus] Failed to clear the starter office:', err);
     return false;
   }
 }

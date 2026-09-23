@@ -33,7 +33,7 @@ function save(): void {
     fs.mkdirSync(path.dirname(TODOS_FILE), { recursive: true });
     fs.writeFileSync(TODOS_FILE, JSON.stringify({ byWorkspace: cache ?? {} }, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Pixel Agents] Failed to save todos:', err);
+    console.error('[Agent Campus] Failed to save todos:', err);
   }
 }
 

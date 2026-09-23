@@ -1,7 +1,7 @@
 ---
 name: run-desktop
 description: >-
-  Launch and drive the built Pixel Agents Electron app without a screen —
+  Launch and drive the built Agent Campus Electron app without a screen —
   screenshots, clicks on the office canvas, keyboard shortcuts, the layout
   editor — through a Playwright REPL driver with an ISOLATED HOME so the
   user's real ~/.pixel-agents is never touched. Use to verify a UI or

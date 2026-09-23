@@ -28,14 +28,14 @@ export function migrateAndLoadLayout(
   // 1. Try file
   const fromFile = readLayoutFromFile();
   if (fromFile) {
-    console.log('[Pixel Agents] Layout loaded from file');
+    console.log('[Agent Campus] Layout loaded from file');
     return fromFile;
   }
 
   // 2. Migrate from workspace state
   const fromState = context.workspaceState.get<Record<string, unknown>>(WORKSPACE_KEY_LAYOUT);
   if (fromState) {
-    console.log('[Pixel Agents] Migrating layout from workspace state to file');
+    console.log('[Agent Campus] Migrating layout from workspace state to file');
     writeLayoutToFile(fromState);
     context.workspaceState.update(WORKSPACE_KEY_LAYOUT, undefined);
     return fromState;
@@ -43,7 +43,7 @@ export function migrateAndLoadLayout(
 
   // 3. Use bundled default
   if (defaultLayout) {
-    console.log('[Pixel Agents] Writing bundled default layout to file');
+    console.log('[Agent Campus] Writing bundled default layout to file');
     writeLayoutToFile(defaultLayout);
     return defaultLayout;
   }

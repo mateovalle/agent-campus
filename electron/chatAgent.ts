@@ -48,7 +48,7 @@ const ASAR_UNPACKED_DIR_NAME = 'app.asar.unpacked';
 const STARTUP_ERROR_PREFIX = "Couldn't start Claude session: ";
 const STARTUP_ERROR_HINT =
   'Is Claude Code installed and logged in? Setup guide: ' +
-  'https://github.com/mateovalle/pixel-agents#installing-the-packaged-app';
+  'https://github.com/mateovalle/agent-campus#installing-the-packaged-app';
 
 /**
  * Absolute path of the Claude Code binary the SDK should spawn.
@@ -299,7 +299,7 @@ export function startChatSession(opts: {
           await query?.setPermissionMode(mode);
           session.mode = mode;
         } catch (err) {
-          console.error(`[Pixel Agents] Chat ${agentId}: setPermissionMode failed`, err);
+          console.error(`[Agent Campus] Chat ${agentId}: setPermissionMode failed`, err);
         }
         // Echo the authoritative mode either way so the UI reconciles
         send({ type: 'chat-mode', agentId, mode: session.mode });
@@ -568,12 +568,12 @@ export function startChatSession(opts: {
         try {
           handleMessage(msg);
         } catch (err) {
-          console.error(`[Pixel Agents] Chat ${agentId}: bad message`, err);
+          console.error(`[Agent Campus] Chat ${agentId}: bad message`, err);
         }
       }
     } catch (err) {
       if (!disposed) {
-        console.error(`[Pixel Agents] Chat ${agentId} session error:`, err);
+        console.error(`[Agent Campus] Chat ${agentId} session error:`, err);
         const message = err instanceof Error ? err.message : String(err);
         // Before `system init` the CLI never launched — surface guidance,
         // not just the raw spawn error.
@@ -593,7 +593,7 @@ export function startChatSession(opts: {
   })();
 
   console.log(
-    `[Pixel Agents] Chat agent ${agentId}: session ${sessionId} in ${path.basename(cwd)}`,
+    `[Agent Campus] Chat agent ${agentId}: session ${sessionId} in ${path.basename(cwd)}`,
   );
   return session;
 }

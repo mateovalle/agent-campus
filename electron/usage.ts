@@ -34,7 +34,7 @@ export function recordTurnUsage(cwd: string, costUsd: number, durationMs: number
     fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
     fs.appendFileSync(USAGE_FILE, JSON.stringify(entry) + '\n', 'utf-8');
   } catch (err) {
-    console.error('[Pixel Agents] Failed to record usage:', err);
+    console.error('[Agent Campus] Failed to record usage:', err);
   }
 }
 

@@ -26,7 +26,7 @@ describe('readNewLines', () => {
   let file: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-agents-test-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-campus-test-'));
     file = path.join(dir, 'session.jsonl');
   });
 

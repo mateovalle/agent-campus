@@ -39,7 +39,7 @@ function save(): void {
     fs.mkdirSync(path.dirname(SCHEDULES_FILE), { recursive: true });
     fs.writeFileSync(SCHEDULES_FILE, JSON.stringify({ schedules: cache ?? [] }, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Pixel Agents] Failed to save schedules:', err);
+    console.error('[Agent Campus] Failed to save schedules:', err);
   }
 }
 
