@@ -18,8 +18,8 @@ Sessions are **real Claude Code sessions** — same login, same config, same tra
 
 ## Requirements
 
-- [Claude Code](https://claude.com/claude-code) installed and logged in (`claude` on your PATH)
-- Node.js 22+, macOS / Linux / Windows
+- A Claude subscription or an `ANTHROPIC_API_KEY`. The packaged app ships the Claude Code CLI, so there is nothing to install first — it checks on launch and walks you through signing in. (A `claude` already on your PATH is used instead, if you have one.)
+- macOS / Linux / Windows. Building from source additionally needs Node.js 22+.
 
 ## Quick start
 
