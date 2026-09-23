@@ -457,6 +457,65 @@
     .scene { transform: translateX(-50%) scale(2) translateY(-16px); }
     .maker { padding: 24px; }
   }
+
+  /* ================= ONE DAY (narrative) ================= */
+  .day { position: relative; }
+  .day-grid { display: grid; grid-template-columns: 132px 1fr; gap: 40px; align-items: start; }
+
+  /* the rail: a clock that reads the hour you have scrolled to */
+  .day-rail { position: sticky; top: 96px; text-align: center; }
+  .day-clock { width: 64px; height: 64px; margin: 0 auto 12px; display: block;
+               filter: saturate(0.15) brightness(0.65); transition: filter .45s steps(3); }
+  .day-rail[data-live="1"] .day-clock { filter: none; }
+  .day-time { font-family: var(--display); font-size: 15px; color: var(--muted);
+              letter-spacing: 1px; transition: color .45s steps(3); }
+  .day-rail[data-live="1"] .day-time { color: var(--green); }
+  .day-track { width: 2px; height: 180px; margin: 20px auto 0; background: var(--line); position: relative; }
+  .day-fill { position: absolute; inset: 0 0 auto 0; height: 0; background: var(--green); transition: height .45s steps(6); }
+
+  /* the beats */
+  .beat { padding: 0 0 92px; }
+  .beat h3, .beat p, .beat .stack { max-width: 640px; }
+  .beat:last-child { padding-bottom: 32px; }
+  .beat h3 { font-family: var(--display); font-size: clamp(13px, 1.9vw, 17px); line-height: 1.7;
+             color: var(--paper); margin: 0 0 14px; }
+  .beat p { font-size: 15px; line-height: 1.85; color: var(--muted); margin: 0; }
+  .beat .shot { margin-top: 22px; border: 2px solid var(--line); box-shadow: 4px 4px 0 var(--void);
+                background: var(--panel); display: block; width: 100%; height: auto; }
+
+  /* the one 'before': deliberately flat and colourless */
+  .before { border-left: 2px solid var(--line); padding-left: 20px; }
+  .before h3 { color: var(--muted); }
+  .stack { margin-top: 20px; display: grid; gap: 6px; }
+  .stack span { display: block; height: 22px; background: #1a1a22; border: 1px solid #2b2b36;
+                color: #4e4e60; font-size: 11px; line-height: 20px; padding-left: 8px; overflow: hidden; white-space: nowrap; }
+  .turn { margin: 0 0 92px; font-size: 15px; color: var(--paper); border-left: 2px solid var(--green);
+          padding-left: 20px; max-width: 640px; line-height: 1.85; }
+
+  /* the receipt for the money beat — the app's own cost line */
+  .receipt { margin-top: 22px; border: 2px solid var(--line); background: var(--panel);
+             box-shadow: 4px 4px 0 var(--void); padding: 16px 18px; font-size: 13px; color: var(--muted); }
+  .receipt b { color: var(--paper); font-weight: 400; }
+  .receipt .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
+
+  /* coda */
+  .coda { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 640px; margin-top: 8px; }
+  .coda div { border: 2px solid var(--line); background: var(--panel); box-shadow: 4px 4px 0 var(--void); padding: 18px; }
+  .coda img { image-rendering: pixelated; display: block; margin-bottom: 12px; }
+  .coda h4 { font-family: var(--display); font-size: 11px; color: var(--paper); margin: 0 0 10px; line-height: 1.6; }
+  .coda p { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.8; }
+
+  @media (max-width: 860px) {
+    .day-grid { grid-template-columns: 1fr; gap: 0; }
+    .day-rail { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px;
+                background: var(--night); border-bottom: 2px solid var(--line); padding: 10px 0; margin-bottom: 28px; text-align: left; }
+    .day-clock { width: 32px; height: 32px; margin: 0; }
+    .day-track { display: none; }
+    .coda { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .day-clock, .day-time, .day-fill { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -540,67 +599,87 @@
     </div>
   </header>
 
-  <!-- ================= FEATURES ================= -->
-  <section class="wrap" id="features">
-    <p class="eyebrow">FEATURES</p>
-    <h2>WHAT'S IN THE BOX</h2>
-    <p class="lead">Real Claude Code sessions — same login, same config, same transcripts. Start in the app, resume in your terminal, or vice versa. Nothing is locked in.</p>
+  <!-- ================= ONE DAY ================= -->
+  <section class="wrap day" id="features">
+    <h2>ONE DAY WITH A TEAM OF AGENTS</h2>
+    <p class="lead">Real Claude Code sessions &mdash; same login, same config, same transcripts. Start in the app, resume in your terminal, or vice versa.</p>
 
-    <div class="grid">
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/window.png" alt="" width="96" height="96"></div>
-        <h3>CAMPUS VIEW</h3>
-        <p>Register project folders as offices on one pannable pixel map. See at a glance who's working, who's waiting for you, and what each project costs today.</p>
+    <div class="day-grid" style="margin-top:56px">
+      <div class="day-rail" id="dayRail">
+        <img class="px day-clock" src="assets/sprites/wall_clock.png" alt="" width="64" height="64">
+        <div class="day-time" id="dayTime">--:--</div>
+        <div class="day-track"><div class="day-fill" id="dayFill"></div></div>
       </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/monitor_dual.png" alt="" width="96" height="48"></div>
-        <h3>RICH CHAT AGENTS</h3>
-        <p>Powered by the Claude Agent SDK: streamed markdown, tool cards with real diffs, Allow/Deny permission buttons, image paste, session resume.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/whiteboard.png" alt="" width="96" height="96"></div>
-        <h3>TASK ORCHESTRATION</h3>
-        <p>Shared task lists between you and your agents. Assign a task with one click — an agent spawns, works, logs discovered work, and checks it off when it truly finishes.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/rubber_duck.png" alt="" width="64" height="64"></div>
-        <h3>THE ASSISTANT</h3>
-        <p>The rubber duck that talks back: a campus-wide orchestrator that reads project status, backlogs and spending, and dispatches agents to any office in plain language.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/tv_dashboard.png" alt="" width="96" height="48"></div>
-        <h3>SPEND TRACKING</h3>
-        <p>Exact costs from the SDK — not estimates. Per turn, per day, per project, live on each office's label.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/corkboard.png" alt="" width="96" height="96"></div>
-        <h3>THE BOARD</h3>
-        <p>One kanban across every office: Backlog, In Progress, Needs You, Done. Agents waiting on a permission land in Needs You with the buttons to unblock them.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/wall_clock.png" alt="" width="64" height="64"></div>
-        <h3>SCHEDULES</h3>
-        <p>Recurring unattended runs — daily, weekly, or every N minutes. They fire with the window closed, skip a run whose last agent is still busy, and offer the ones missed while the app was off.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/role_qa.png" alt="" width="48" height="96"></div>
-        <h3>DISPATCH ROLES</h3>
-        <p>Tag a task <code>[qa]</code> or <code>[security]</code> and the agent spawns with that charter, that tool policy — the review roles can't edit, so you get a verdict, not a silent fix — and that character skin. Works on folders that hold no code at all: the same flow runs a marketing team.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/trophy_gold.png" alt="" width="64" height="64"></div>
-        <h3>ACHIEVEMENTS</h3>
-        <p>Milestones for shipped tasks, parallel agents and streaks — some of them unlock furniture you can only earn: a trophy case, a disco ball, a golden duck. Never for spend.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/couch.png" alt="" width="96" height="96"></div>
-        <h3>BUILD THE OFFICE</h3>
-        <p>A full pixel editor, not a theme picker. Paint floors and walls in any colour, place and rotate 120+ pieces of furniture, grow the floor plan a tile at a time, undo anything. Every agent sits where you decide.</p>
-      </div>
-      <div class="card">
-        <div class="icon"><img class="px" src="assets/sprites/poster_code.png" alt="" width="48" height="96"></div>
-        <h3>REAL TERMINALS TOO</h3>
-        <p>Not every job wants a chat. Open a true terminal tab running Claude Code — full TTY, scrollback, your own slash commands — beside the chat ones. Same office, same characters.</p>
+
+      <div>
+        <div class="beat before" data-time="--:--">
+          <h3>You have six terminals open.</h3>
+          <p>One of them is waiting on you and you don't know which. One finished ten minutes ago. One has been stuck on a permission prompt since you went to get coffee. You alt-tab through all six to find out.</p>
+          <div class="stack" aria-hidden="true">
+            <span>claude &mdash; ~/work/acme-launch</span>
+            <span>claude &mdash; ~/work/pixel-tools</span>
+            <span>claude &mdash; ~/work/oasis</span>
+            <span>claude &mdash; ~/work/acme-launch (2)</span>
+            <span>zsh &mdash; ~/work</span>
+            <span>claude &mdash; ~/work/pixel-tools (2)</span>
+          </div>
+        </div>
+
+        <p class="turn">Open Agent Campus and the same day looks like this.</p>
+
+        <div class="beat" data-time="09:02">
+          <h3>Every project gets an office.</h3>
+          <p>Your folders become rooms on one map. Who is working, who is stuck, and what each project has cost today &mdash; all of it readable without opening anything.</p>
+          <img class="shot" src="assets/shots/campus.png" alt="Two offices side by side on the campus map, each labelled with its project and agent count." width="1100" height="428" loading="lazy">
+        </div>
+
+        <div class="beat" data-time="09:14">
+          <h3>You hire someone.</h3>
+          <p>Click an office, click <b>+ Agent</b>, and a character walks in and sits down at a free desk. Behind the sprite it is an ordinary Claude Code session: your login, your config, a transcript you can pick up in a terminal later.</p>
+        </div>
+
+        <div class="beat" data-time="09:31">
+          <h3>You hand over the backlog.</h3>
+          <p>One board across every office. Press <b>Assign</b> on a task and an agent spawns to do it &mdash; and if the task is tagged <b>[qa]</b> or <b>[marketing]</b>, it spawns with that charter, that tool policy and that character skin.</p>
+          <img class="shot" src="assets/shots/board.png" alt="The board: a Backlog column with tagged tasks and Assign buttons, a Needs You column, and a Done column." width="1100" height="445" loading="lazy">
+        </div>
+
+        <div class="beat" data-time="10:05">
+          <h3>It asks before it touches anything.</h3>
+          <p>An amber bubble appears over their head and the request lands in the chat with Allow and Deny. The review roles cannot edit at all &mdash; ask for a security pass and you get a verdict, not a silent fix.</p>
+          <img class="shot" src="assets/shots/permission.png" alt="A permission request in the chat panel: Allow Write? launch-note.md, with Allow and Deny buttons." width="1100" height="177" loading="lazy">
+        </div>
+
+        <div class="beat" data-time="14:47">
+          <h3>You see exactly what it cost.</h3>
+          <p>Not an estimate &mdash; the number the SDK reports, per turn, per day and per project, sitting on each office label.</p>
+          <div class="receipt">
+            <div class="row"><span>acme-launch &mdash; draft the launch note</span><b>$0.3639 &middot; 139.8s</b></div>
+            <div class="row"><span>pixel-tools &mdash; count colours per row</span><b>$0.1204 &middot; 42.1s</b></div>
+            <div class="row" style="border-top:1px solid var(--line); margin-top:8px; padding-top:10px"><span>today, across 2 offices</span><b>$0.48</b></div>
+          </div>
+        </div>
+
+        <div class="beat" data-time="03:00">
+          <h3>They work while you're asleep.</h3>
+          <p>Schedules run daily, weekly, or every few minutes, and they fire with the window closed. Whatever was missed while the app was off is offered to you in the morning, to run or to skip.</p>
+        </div>
+
+        <div class="beat" data-time="off">
+          <h3>And then you make the place yours.</h3>
+          <div class="coda">
+            <div>
+              <img class="px" src="assets/sprites/couch.png" alt="" width="64" height="64">
+              <h4>BUILD THE OFFICE</h4>
+              <p>A real pixel editor. Paint floors and walls in any colour, place and rotate 120+ pieces, grow the floor plan a tile at a time.</p>
+            </div>
+            <div>
+              <img class="px" src="assets/sprites/trophy_gold.png" alt="" width="48" height="48">
+              <h4>EARN THE REST</h4>
+              <p>Some furniture can't be bought, only unlocked: a trophy case, a disco ball, a golden duck. Never for spending money.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -701,6 +780,34 @@
       t.style.backgroundPosition = -(mask % 4) * 16 + 'px ' + -Math.floor(mask / 4) * 32 + 'px';
       row.appendChild(t);
     }
+  })();
+</script>
+
+<script>
+  // The rail reads the hour of whichever beat you are on. One device, moved by
+  // your scrolling — no entrance animations on the beats themselves.
+  (function () {
+    var beats = [].slice.call(document.querySelectorAll('.beat'));
+    var rail = document.getElementById('dayRail');
+    var time = document.getElementById('dayTime');
+    var fill = document.getElementById('dayFill');
+    if (!beats.length || !rail) return;
+
+    function show(i) {
+      var t = beats[i].getAttribute('data-time');
+      var live = t !== '--:--';
+      time.textContent = live ? (t === 'off' ? '--:--' : t) : '--:--';
+      rail.setAttribute('data-live', live && t !== 'off' ? '1' : '0');
+      fill.style.height = Math.round((i / (beats.length - 1)) * 100) + '%';
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) show(beats.indexOf(e.target));
+      });
+    }, { rootMargin: '-45% 0px -45% 0px' });
+    beats.forEach(function (b) { io.observe(b); });
+    show(0);
   })();
 </script>
 </body>
