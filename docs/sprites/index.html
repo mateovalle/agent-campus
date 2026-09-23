@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawing pixel art with an LLM by making it write character grids</title>
+<meta name="description" content="How the furniture in Agent Campus was generated: sprites authored as character grids with a colour legend, rendered to a contact sheet the model looks at, and revised from there.">
+<meta property="og:title" content="Drawing pixel art with an LLM by making it write character grids">
+<meta property="og:description" content="Sprites as character grids, a contact sheet the model can look at, and what broke along the way.">
+<meta property="og:image" content="https://mateovalle.github.io/agent-campus/assets/contact-sheet-top.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #0a0a14; --night: #14141c; --panel: #1e1e2e; --line: #3a3a4e;
+    --green: #4ade80; --paper: #e8e8f0; --muted: #9a9ab0;
+    --display: 'Press Start 2P', monospace;
+    --body: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--night); color: var(--paper);
+         font-family: var(--body); font-size: 16px; line-height: 1.85;
+         -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--green); }
+  header { padding: 72px 0 8px; }
+  .back { font-size: 12px; color: var(--muted); text-decoration: none; display: inline-block; margin-bottom: 40px; }
+  .back:hover { color: var(--green); }
+  h1 { font-family: var(--display); font-size: clamp(15px, 2.6vw, 21px); line-height: 1.7;
+       margin: 0 0 28px; }
+  h2 { font-family: var(--display); font-size: clamp(11px, 1.7vw, 14px); line-height: 1.7;
+       margin: 56px 0 18px; color: var(--paper); }
+  p { margin: 0 0 20px; color: var(--muted); }
+  p.lede { color: var(--paper); }
+  ul { margin: 0 0 20px; padding-left: 20px; color: var(--muted); }
+  li { margin-bottom: 8px; }
+  em { color: var(--paper); font-style: italic; }
+  code { color: var(--paper); }
+  pre { background: var(--panel); border: 2px solid var(--line); box-shadow: 4px 4px 0 var(--void);
+        padding: 18px 20px; overflow-x: auto; font-size: 13px; line-height: 1.6;
+        color: var(--muted); margin: 0 0 24px; }
+  figure { margin: 28px 0 32px; }
+  figure img { display: block; width: 100%; height: auto; border: 2px solid var(--line);
+               box-shadow: 4px 4px 0 var(--void); image-rendering: pixelated; }
+  figcaption { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .rot { display: flex; gap: 24px; align-items: flex-end; background: var(--panel);
+         border: 2px solid var(--line); box-shadow: 4px 4px 0 var(--void); padding: 24px; }
+  .rot div { text-align: center; flex: 1; }
+  .rot img { width: 128px; height: 192px; image-rendering: pixelated; border: 0; box-shadow: none; }
+  .rot .flip img { transform: scaleX(-1); }
+  .rot span { display: block; font-size: 11px; color: var(--muted); margin-top: 12px; }
+  footer { border-top: 2px solid var(--line); margin-top: 72px; padding: 24px 0 80px;
+           font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="back" href="../">&larr; Agent Campus</a>
+    <h1>Drawing pixel art with an LLM by making it write character grids</h1>
+  </header>
+
+  <p class="lede">My side project is a desktop app where Claude Code agents show up as characters in a pixel-art office. It was open source, MIT &mdash; and it shipped with sprites from a private asset pack I had no right to redistribute. The licence said one thing and the art said another.</p>
+
+  <p>I can't draw. What I could do was notice that a language model doesn't have to draw either. It has to write a grid of characters.</p>
+
+  <h2>SPRITES AS TEXT</h2>
+
+  <p>Every sprite is a character grid plus a legend mapping those characters to colours from a shared palette. Here is a real one, an office chair, 16&times;32:</p>
+
+  <pre>const CHAIR_OFFICE = fromAscii(
+  [
+    '.dBBBBBBBBBBBBd.',
+    '..ddBBBBBBBBdd..',
+    '...dddddddddd...',
+    '.......gk.......',
+    '.......gk.......',
+    '......ogko......',
+    '....kkkkkkkk....',
+    '..kkk..kk..kkk..',
+    '..oo...oo...oo..',
+  ],
+  { d: SCREEN_SHADOW, B: BLUE, g: STEEL, k: IRON_DARK, o: INK },
+);</pre>
+
+  <p><code>fromAscii</code> compiles that to the hex grid the renderer already used, so nothing downstream had to change.</p>
+
+  <p>This suits the model unusually well. It can hold a 16&times;32 grid, it can count columns, and &mdash; the part I didn't expect &mdash; it writes down what it is trying to do before it does it. The comment above each sprite in the source is the model's own, and reads like: <em>"the glass is ICE with a diagonal highlight so it reads as a pane and not as fog."</em></p>
+
+  <p>For bigger pieces, typing the rows out stops scaling. Those are painted instead: allocate a blank grid, then write code that fills it &mdash; loops for the carcass edges, a helper for each glass pane. Same characters, same legend, described as shapes rather than typed as text.</p>
+
+  <h2>STYLE AS CONSTRAINTS IN THE FILE</h2>
+
+  <p>What made ten batches cohere wasn't a better prompt. It was writing four rules into the source, where they stay:</p>
+
+  <ul>
+    <li>1px outline in a darker shade of the material, never pure black</li>
+    <li>light from the top-left: light tone top and left, shadow bottom and right</li>
+    <li>two-tone shading per material, three to six colours per sprite</li>
+    <li>top-down 3/4 perspective, legs as short dark stubs</li>
+  </ul>
+
+  <p>The tenth batch still matches the first.</p>
+
+  <h2>CLOSING THE LOOP</h2>
+
+  <p>Text output alone gets you plausible arrays that render as mush. What made it work was giving the model eyes: one script renders every sprite into a single contact sheet &mdash; 6&times; scale, dark checkerboard, 8px gaps &mdash; and the model opens the PNG and looks at it.</p>
+
+  <figure>
+    <img src="../assets/contact-sheet-top.png" alt="A contact sheet of pixel-art furniture sprites rendered at 6x scale on a dark checkerboard background: desks, chairs, monitors, a server rack, a fish tank, rugs, bookshelves, a corkboard, an arcade machine and more." width="1504" height="1500" loading="lazy">
+    <figcaption>The top of the sheet the model looks at. <a href="../assets/contact-sheet-full.png">Full sheet</a> (1504&times;7680).</figcaption>
+  </figure>
+
+  <p>That's the loop. Write the grids, render the sheet, look, fix, render again. Almost every real improvement came from the looking step, not the writing.</p>
+
+  <h2>WHAT BROKE</h2>
+
+  <p>Rotations. Mirroring is the free move, and it is what the app still does for the characters &mdash; the left-facing walk cycle is the right-facing one flipped, and nobody can tell.</p>
+
+  <p>Furniture in 3/4 perspective doesn't survive it. Flip an L-shaped desk and you don't get the same desk seen from the other side, you get a different piece of furniture:</p>
+
+  <figure>
+    <div class="rot">
+      <div class="flip">
+        <img src="../assets/sprites/desk_l_right.png" alt="The right-facing L-desk sprite flipped horizontally: the L opens the wrong way." width="128" height="192">
+        <span>the right-facing sprite, flipped</span>
+      </div>
+      <div>
+        <img src="../assets/sprites/desk_l_left.png" alt="The left-facing L-desk sprite, drawn as a real quarter turn." width="128" height="192">
+        <span>the left-facing sprite, drawn</span>
+      </div>
+    </div>
+    <figcaption>Same desk, same palette. The flip is one CSS transform on the right-facing PNG &mdash; and it is a different object.</figcaption>
+  </figure>
+
+  <p>Every non-symmetric piece had to be drawn again as a real quarter turn.</p>
+
+  <p>The second-order problem was worse. A quarter turn can swap a footprint from 2&times;1 to 1&times;2, so rotating in the editor is not a sprite swap &mdash; the placement rules have to re-validate, pivot around the item's centre, fall back to its original corner, and refuse the rotation if neither fits.</p>
+
+  <h2>WHERE IT GOT TO</h2>
+
+  <p>Day one was 38 sprites and 7 floor patterns &mdash; enough to cut the private pack loose. It is now 122 catalogue entries across nine batches: furniture, walls, floors, an outdoor campus, and a few pieces you can only unlock by using the app. All MIT, all in the repo as source you can read and re-run.</p>
+
+  <p>One caveat, since the history is public anyway: the <em>characters</em> aren't from this pipeline. They came from the project I forked, written back in February &mdash; also by a Claude agent, but months before any of this existed. What I am describing here is everything except the people.</p>
+
+  <footer>
+    Code: <a href="https://github.com/mateovalle/agent-campus/tree/main/scripts/asset-gen">scripts/asset-gen</a> &middot;
+    the app: <a href="../">Agent Campus</a> &middot;
+    MIT
+  </footer>
+</div>
+</body>
+</html>
