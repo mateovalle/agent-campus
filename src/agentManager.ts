@@ -22,7 +22,7 @@ export function getProjectDirPath(cwd?: string): string | null {
   if (!workspacePath) return null;
   const dirName = workspacePath.replace(/[^a-zA-Z0-9-]/g, '-');
   const projectDir = path.join(os.homedir(), '.claude', 'projects', dirName);
-  console.log(`[Pixel Agents] Project dir: ${workspacePath} → ${dirName}`);
+  console.log(`[Agent Campus] Project dir: ${workspacePath} → ${dirName}`);
   return projectDir;
 }
 
@@ -39,7 +39,7 @@ export async function launchNewTerminal(
   // an orphan terminal running claude with no agent attached to it.
   const projectDir = getProjectDirPath(cwd);
   if (!projectDir) {
-    console.log(`[Pixel Agents] No project dir, cannot track agent`);
+    console.log(`[Agent Campus] No project dir, cannot track agent`);
     return;
   }
 
@@ -71,7 +71,7 @@ export async function launchNewTerminal(
   ctx.agents.set(id, agent);
   ctx.activeAgentId.current = id;
   ctx.persistAgents();
-  console.log(`[Pixel Agents] Agent ${id}: created for terminal ${terminal.name}`);
+  console.log(`[Agent Campus] Agent ${id}: created for terminal ${terminal.name}`);
   ctx.send({ type: 'agentCreated', id, folderName });
 
   ensureProjectScan(ctx, projectDir);
@@ -90,7 +90,7 @@ function pollForJsonlFile(ctx: HostContext, agentId: number, skipToEnd: boolean)
     try {
       if (fs.existsSync(agent.jsonlFile)) {
         console.log(
-          `[Pixel Agents] Agent ${agentId}: found JSONL file ${path.basename(agent.jsonlFile)}`,
+          `[Agent Campus] Agent ${agentId}: found JSONL file ${path.basename(agent.jsonlFile)}`,
         );
         clearInterval(pollTimer);
         ctx.jsonlPollTimers.delete(agentId);
@@ -181,7 +181,7 @@ export function restoreAgents(
     };
     ctx.agents.set(p.id, agent);
     ctx.knownJsonlFiles.add(p.jsonlFile);
-    console.log(`[Pixel Agents] Restored agent ${p.id} → terminal "${p.terminalName}"`);
+    console.log(`[Agent Campus] Restored agent ${p.id} → terminal "${p.terminalName}"`);
 
     restoredProjectDirs.add(p.projectDir);
 
@@ -240,7 +240,7 @@ export function restoreAgents(
     return { dispose: () => {} };
   }
 
-  console.log(`[Pixel Agents] ${pending.size} persisted agent(s) awaiting terminal restore`);
+  console.log(`[Agent Campus] ${pending.size} persisted agent(s) awaiting terminal restore`);
 
   const openListener = vscode.window.onDidOpenTerminal((terminal) => {
     const p = pending.get(terminal.name);
@@ -257,7 +257,7 @@ export function restoreAgents(
   const graceTimer = setTimeout(() => {
     if (pending.size > 0) {
       console.log(
-        `[Pixel Agents] Pruning ${pending.size} persisted agent(s) whose terminals never restored`,
+        `[Agent Campus] Pruning ${pending.size} persisted agent(s) whose terminals never restored`,
       );
     }
     cleanup();
@@ -295,7 +295,7 @@ export function sendExistingAgents(ctx: HostContext, context: vscode.ExtensionCo
     }
   }
   console.log(
-    `[Pixel Agents] sendExistingAgents: agents=${JSON.stringify(agentIds)}, meta=${JSON.stringify(agentMeta)}`,
+    `[Agent Campus] sendExistingAgents: agents=${JSON.stringify(agentIds)}, meta=${JSON.stringify(agentMeta)}`,
   );
 
   ctx.send({

@@ -33,7 +33,7 @@ export function AchievementToast({ queue, onDismiss }: AchievementToastProps) {
   return (
     <>
       <style>{`
-        @keyframes pixel-agents-achievement-slide {
+        @keyframes agent-campus-achievement-slide {
           from { transform: translate(-50%, -120%); opacity: 0; }
           to { transform: translate(-50%, 0); opacity: 1; }
         }
@@ -56,7 +56,7 @@ export function AchievementToast({ queue, onDismiss }: AchievementToastProps) {
           cursor: 'pointer',
           textAlign: 'center',
           whiteSpace: 'nowrap',
-          animation: `pixel-agents-achievement-slide ${ACHIEVEMENT_TOAST_SLIDE_SEC}s ease-out`,
+          animation: `agent-campus-achievement-slide ${ACHIEVEMENT_TOAST_SLIDE_SEC}s ease-out`,
         }}
         title="Click to dismiss"
       >

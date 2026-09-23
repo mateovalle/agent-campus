@@ -71,7 +71,7 @@ function scanForNewJsonlFiles(ctx: HostContext, projectDir: string): void {
       if (ctx.activeAgentId.current !== null) {
         // Active agent focused → /clear reassignment
         console.log(
-          `[Pixel Agents] New JSONL detected: ${path.basename(file)}, reassigning to agent ${ctx.activeAgentId.current}`,
+          `[Agent Campus] New JSONL detected: ${path.basename(file)}, reassigning to agent ${ctx.activeAgentId.current}`,
         );
         reassignAgentToFile(ctx, ctx.activeAgentId.current, file);
       } else {
@@ -111,7 +111,7 @@ function adoptTerminalForFile(
   ctx.persistAgents();
 
   console.log(
-    `[Pixel Agents] Agent ${id}: adopted terminal "${terminal.name}" for ${path.basename(jsonlFile)}`,
+    `[Agent Campus] Agent ${id}: adopted terminal "${terminal.name}" for ${path.basename(jsonlFile)}`,
   );
   ctx.send({ type: 'agentCreated', id });
 

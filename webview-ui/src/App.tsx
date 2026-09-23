@@ -424,11 +424,11 @@ function App() {
       }}
     >
       <style>{`
-        @keyframes pixel-agents-pulse {
+        @keyframes agent-campus-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
         }
-        .pixel-agents-pulse { animation: pixel-agents-pulse ${PULSE_ANIMATION_DURATION_SEC}s ease-in-out infinite; }
+        .agent-campus-pulse { animation: agent-campus-pulse ${PULSE_ANIMATION_DURATION_SEC}s ease-in-out infinite; }
       `}</style>
 
       {/* Office area */}

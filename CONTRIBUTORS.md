@@ -1,6 +1,6 @@
-# Contributing to Pixel Agents
+# Contributing to Agent Campus
 
-Thanks for your interest in contributing to Pixel Agents! All contributions are welcome — features, bug fixes, documentation improvements, refactors, and more.
+Thanks for your interest in contributing to Agent Campus! All contributions are welcome — features, bug fixes, documentation improvements, refactors, and more.
 
 This project is licensed under the [MIT License](LICENSE), so your contributions will be too. No CLA or DCO is required.
 
@@ -14,8 +14,8 @@ This project is licensed under the [MIT License](LICENSE), so your contributions
 ### Setup
 
 ```bash
-git clone https://github.com/pablodelucca/pixel-agents.git
-cd pixel-agents
+git clone https://github.com/mateovalle/agent-campus.git
+cd agent-campus
 npm install
 cd webview-ui && npm install && cd ..
 npm run build
@@ -78,7 +78,7 @@ The project uses a pixel art aesthetic. All overlays should use:
 
 ## Reporting Bugs
 
-[Open an issue](https://github.com/pablodelucca/pixel-agents/issues) with:
+[Open an issue](https://github.com/mateovalle/agent-campus/issues) with:
 
 - What you expected to happen
 - What actually happened
@@ -87,7 +87,7 @@ The project uses a pixel art aesthetic. All overlays should use:
 
 ## Feature Requests
 
-Have an idea? [Open an issue](https://github.com/pablodelucca/pixel-agents/issues) to discuss it before building. This helps avoid duplicate work and ensures the feature fits the project's direction.
+Have an idea? [Open an issue](https://github.com/mateovalle/agent-campus/issues) to discuss it before building. This helps avoid duplicate work and ensures the feature fits the project's direction.
 
 ## Code of Conduct
 

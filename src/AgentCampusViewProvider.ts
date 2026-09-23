@@ -41,7 +41,7 @@ import {
 } from './layoutPersistence.js';
 import type { AgentState, HostContext } from './types.js';
 
-export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
+export class AgentCampusViewProvider implements vscode.WebviewViewProvider {
   webviewView: vscode.WebviewView | undefined;
 
   /** All agent-tracking state, threaded through the core/host functions. */
@@ -157,7 +157,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       }
     } else if (message.type === 'saveAgentSeats') {
       // Store seat assignments in a separate key (never touched by persistAgents)
-      console.log(`[Pixel Agents] saveAgentSeats:`, JSON.stringify(message.seats));
+      console.log(`[Agent Campus] saveAgentSeats:`, JSON.stringify(message.seats));
       this.context.workspaceState.update(WORKSPACE_KEY_AGENT_SEATS, message.seats);
     } else if (message.type === 'saveLayout') {
       if (isValidLayout(message.layout)) {
@@ -273,19 +273,19 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   private async exportLayout(): Promise<void> {
     const layout = readLayoutFromFile();
     if (!layout) {
-      vscode.window.showWarningMessage('Pixel Agents: No saved layout to export.');
+      vscode.window.showWarningMessage('Agent Campus: No saved layout to export.');
       return;
     }
     const uri = await vscode.window.showSaveDialog({
       filters: { 'JSON Files': ['json'] },
-      defaultUri: vscode.Uri.file(path.join(os.homedir(), 'pixel-agents-layout.json')),
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), 'agent-campus-layout.json')),
     });
     if (uri) {
       try {
         fs.writeFileSync(uri.fsPath, JSON.stringify(layout, null, 2), 'utf-8');
-        vscode.window.showInformationMessage('Pixel Agents: Layout exported successfully.');
+        vscode.window.showInformationMessage('Agent Campus: Layout exported successfully.');
       } catch (err) {
-        vscode.window.showErrorMessage(`Pixel Agents: Failed to export layout: ${err}`);
+        vscode.window.showErrorMessage(`Agent Campus: Failed to export layout: ${err}`);
       }
     }
   }
@@ -300,15 +300,15 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       const raw = fs.readFileSync(uris[0].fsPath, 'utf-8');
       const imported = JSON.parse(raw) as Record<string, unknown>;
       if (!isValidLayout(imported)) {
-        vscode.window.showErrorMessage('Pixel Agents: Invalid layout file.');
+        vscode.window.showErrorMessage('Agent Campus: Invalid layout file.');
         return;
       }
       this.layoutWatcher?.markOwnWrite();
       writeLayoutToFile(imported);
       this.ctx.send({ type: 'layoutLoaded', layout: imported });
-      vscode.window.showInformationMessage('Pixel Agents: Layout imported successfully.');
+      vscode.window.showInformationMessage('Agent Campus: Layout imported successfully.');
     } catch {
-      vscode.window.showErrorMessage('Pixel Agents: Failed to read or parse layout file.');
+      vscode.window.showErrorMessage('Agent Campus: Failed to read or parse layout file.');
     }
   }
 
@@ -316,12 +316,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   exportDefaultLayout(): void {
     const layout = readLayoutFromFile();
     if (!layout) {
-      vscode.window.showWarningMessage('Pixel Agents: No saved layout found.');
+      vscode.window.showWarningMessage('Agent Campus: No saved layout found.');
       return;
     }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
-      vscode.window.showErrorMessage('Pixel Agents: No workspace folder found.');
+      vscode.window.showErrorMessage('Agent Campus: No workspace folder found.');
       return;
     }
     const targetPath = path.join(
@@ -335,17 +335,17 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       const json = JSON.stringify(layout, null, 2);
       fs.writeFileSync(targetPath, json, 'utf-8');
       vscode.window.showInformationMessage(
-        `Pixel Agents: Default layout exported to ${targetPath}`,
+        `Agent Campus: Default layout exported to ${targetPath}`,
       );
     } catch (err) {
-      vscode.window.showErrorMessage(`Pixel Agents: Failed to export default layout: ${err}`);
+      vscode.window.showErrorMessage(`Agent Campus: Failed to export default layout: ${err}`);
     }
   }
 
   private startLayoutWatcher(): void {
     if (this.layoutWatcher) return;
     this.layoutWatcher = watchLayoutFile((layout) => {
-      console.log('[Pixel Agents] External layout change — pushing to webview');
+      console.log('[Agent Campus] External layout change — pushing to webview');
       this.ctx.send({ type: 'layoutLoaded', layout });
     });
   }
@@ -374,8 +374,8 @@ export function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.
   try {
     html = fs.readFileSync(indexPath, 'utf-8');
   } catch (err) {
-    console.error('[Pixel Agents] Failed to read webview bundle:', err);
-    return `<!DOCTYPE html><html><body><p>Pixel Agents: webview bundle missing — run the build first.</p></body></html>`;
+    console.error('[Agent Campus] Failed to read webview bundle:', err);
+    return `<!DOCTYPE html><html><body><p>Agent Campus: webview bundle missing — run the build first.</p></body></html>`;
   }
 
   html = html.replace(/(href|src)="\.\/([^"]+)"/g, (_match, attr, filePath) => {

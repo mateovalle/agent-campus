@@ -210,7 +210,7 @@ function save(): void {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     fs.writeFileSync(FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Pixel Agents] Failed to save achievements:', err);
+    console.error('[Agent Campus] Failed to save achievements:', err);
   }
 }
 

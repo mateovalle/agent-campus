@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 
+import { AgentCampusViewProvider } from './AgentCampusViewProvider.js';
 import { COMMAND_EXPORT_DEFAULT_LAYOUT, COMMAND_SHOW_PANEL, VIEW_ID } from './constants.js';
-import { PixelAgentsViewProvider } from './PixelAgentsViewProvider.js';
 
-let providerInstance: PixelAgentsViewProvider | undefined;
+let providerInstance: AgentCampusViewProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
-  const provider = new PixelAgentsViewProvider(context);
+  const provider = new AgentCampusViewProvider(context);
   providerInstance = provider;
 
   context.subscriptions.push(vscode.window.registerWebviewViewProvider(VIEW_ID, provider));

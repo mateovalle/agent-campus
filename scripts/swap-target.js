@@ -15,8 +15,8 @@ const ROOT = path.join(__dirname, '..');
 const PKG = path.join(ROOT, 'package.json');
 
 const TARGETS = {
-  electron: { name: 'pixel-agents-desktop', file: 'package-electron.json' },
-  vscode: { name: 'pixel-agents', file: 'package-vscode.json' },
+  electron: { name: 'agent-campus-desktop', file: 'package-electron.json' },
+  vscode: { name: 'agent-campus', file: 'package-vscode.json' },
 };
 
 const requested = process.argv[2];

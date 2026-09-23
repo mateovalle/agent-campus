@@ -84,7 +84,7 @@ export function WelcomeModal({ auth }: WelcomeModalProps) {
         }}
       >
         <div style={{ fontSize: '26px', color: 'rgba(255,255,255,0.92)', marginBottom: 6 }}>
-          {unavailable ? "Claude Code didn't answer" : 'Welcome to Pixel Agents'}
+          {unavailable ? "Claude Code didn't answer" : 'Welcome to Agent Campus'}
         </div>
 
         {unavailable ? (

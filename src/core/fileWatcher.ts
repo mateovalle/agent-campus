@@ -23,7 +23,7 @@ export function startFileWatching(
     // Without an 'error' listener, an async watcher error (file deleted,
     // dir pruned) is an uncaught exception that kills the host process.
     watcher.on('error', (e) => {
-      console.log(`[Pixel Agents] fs.watch error for agent ${agentId}: ${e}`);
+      console.log(`[Agent Campus] fs.watch error for agent ${agentId}: ${e}`);
       watcher.close();
       if (ctx.fileWatchers.get(agentId) === watcher) {
         ctx.fileWatchers.delete(agentId);
@@ -32,7 +32,7 @@ export function startFileWatching(
     });
     ctx.fileWatchers.set(agentId, watcher);
   } catch (e) {
-    console.log(`[Pixel Agents] fs.watch failed for agent ${agentId}: ${e}`);
+    console.log(`[Agent Campus] fs.watch failed for agent ${agentId}: ${e}`);
   }
 
   // Secondary: fs.watchFile (stat-based polling, reliable on macOS)
@@ -41,7 +41,7 @@ export function startFileWatching(
       readNewLines(ctx, agentId);
     });
   } catch (e) {
-    console.log(`[Pixel Agents] fs.watchFile failed for agent ${agentId}: ${e}`);
+    console.log(`[Agent Campus] fs.watchFile failed for agent ${agentId}: ${e}`);
   }
 
   // Tertiary: manual poll as last resort
@@ -126,6 +126,6 @@ export function readNewLines(ctx: TrackerContext<CoreAgentState>, agentId: numbe
       processTranscriptLine(ctx, agentId, line);
     }
   } catch (e) {
-    console.log(`[Pixel Agents] Read error for agent ${agentId}: ${e}`);
+    console.log(`[Agent Campus] Read error for agent ${agentId}: ${e}`);
   }
 }

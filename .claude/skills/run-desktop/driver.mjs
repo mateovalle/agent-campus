@@ -1,4 +1,4 @@
-// REPL driver for the Pixel Agents Electron app, for agents without a screen.
+// REPL driver for the Agent Campus Electron app, for agents without a screen.
 // Launches the BUILT app (dist-electron + dist/webview) under Playwright with
 // an ISOLATED HOME so the user's real ~/.pixel-agents (layouts, workspaces,
 // schedules) is never read or written. Commands arrive one per line on stdin;

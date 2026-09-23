@@ -10,7 +10,7 @@ const tmpFiles: string[] = [];
 function writeTranscript(lines: unknown[]): string {
   const file = path.join(
     os.tmpdir(),
-    `pixel-agents-test-${Math.random().toString(36).slice(2)}.jsonl`,
+    `agent-campus-test-${Math.random().toString(36).slice(2)}.jsonl`,
   );
   fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   tmpFiles.push(file);

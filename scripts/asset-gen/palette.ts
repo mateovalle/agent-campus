@@ -1,5 +1,5 @@
 /**
- * palette.ts — Curated house palette for Pixel Agents sprite generation.
+ * palette.ts — Curated house palette for Agent Campus sprite generation.
  *
  * Every color below was extracted from the hand-authored furniture/character
  * sprites in webview-ui/src/office/sprites/spriteData.ts. New generated sprites

@@ -1,8 +1,8 @@
-# Pixel Agents
+# Agent Campus
 
 **A pixel-art mission control for your Claude Code agents.** Every project is an office, every agent is a character you can watch work — and you orchestrate all of them from one campus.
 
-![Pixel Agents demo — campus with offices, agents working, task orchestration](docs/assets/demo.gif)
+![Agent Campus demo — campus with offices, agents working, task orchestration](docs/assets/demo.gif)
 
 ## What it does
 
@@ -41,7 +41,7 @@ Grab the installer for your platform from [Releases](../../releases/latest).
 
 1. Click **Done** (not "Move to Trash")
 2. Open **System Settings → Privacy & Security**, scroll down, and click **"Open Anyway"**
-3. Or from a terminal: `xattr -dr com.apple.quarantine "/Applications/Pixel Agents.app"`
+3. Or from a terminal: `xattr -dr com.apple.quarantine "/Applications/Agent Campus.app"`
 
 **Windows:** SmartScreen may show "Windows protected your PC" — click **More info → Run anyway**.
 
@@ -66,4 +66,4 @@ Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Good first is
 
 ## Credits & license
 
-MIT. Started as a fork of [pablodelucca/pixel-agents](https://github.com/pablodelucca/pixel-agents) (the VS Code extension) — the office/character concept and pixel engine grew from that work; the desktop app, Agent SDK integration, campus, tasks and orchestration were built on top.
+MIT. Agent Campus started as a fork of [pablodelucca/pixel-agents](https://github.com/pablodelucca/pixel-agents) (the VS Code extension) — the office/character concept and pixel engine grew from that work; the desktop app, Agent SDK integration, campus, tasks and orchestration were built on top.

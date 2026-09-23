@@ -1,12 +1,12 @@
 {
-  "name": "pixel-agents",
-  "displayName": "Pixel Agents",
-  "description": "Pixel art office where your Claude Code agents come to life as animated characters",
-  "version": "1.0.2",
-  "publisher": "pablodelucca",
+  "name": "agent-campus",
+  "displayName": "Agent Campus",
+  "description": "A campus of pixel-art offices for your Claude Code agents — watch them work, assign tasks, and orchestrate them from one map",
+  "version": "0.2.0",
+  "publisher": "mateovalle",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pablodelucca/pixel-agents"
+    "url": "https://github.com/mateovalle/agent-campus"
   },
   "icon": "icon.png",
   "license": "MIT",
@@ -14,6 +14,8 @@
     "vscode": "^1.107.0"
   },
   "categories": [
+    "AI",
+    "Visualization",
     "Other"
   ],
   "activationEvents": [],
@@ -21,29 +23,29 @@
   "contributes": {
     "commands": [
       {
-        "command": "pixel-agents.showPanel",
-        "title": "Pixel Agents: Show Panel"
+        "command": "agent-campus.showPanel",
+        "title": "Agent Campus: Show Panel"
       },
       {
-        "command": "pixel-agents.exportDefaultLayout",
-        "title": "Pixel Agents: Export Layout as Default"
+        "command": "agent-campus.exportDefaultLayout",
+        "title": "Agent Campus: Export Layout as Default"
       }
     ],
     "viewsContainers": {
       "panel": [
         {
-          "id": "pixel-agents-panel",
-          "title": "Pixel Agents",
+          "id": "agent-campus-panel",
+          "title": "Agent Campus",
           "icon": "$(window)"
         }
       ]
     },
     "views": {
-      "pixel-agents-panel": [
+      "agent-campus-panel": [
         {
           "type": "webview",
-          "id": "pixel-agents.panelView",
-          "name": "Pixel Agents"
+          "id": "agent-campus.panelView",
+          "name": "Agent Campus"
         }
       ]
     }
@@ -92,5 +94,13 @@
     "webview-ui/src/**/*.{ts,tsx}": "eslint --fix",
     "*.{ts,tsx,js,mjs,css,json,md}": "prettier --write",
     "webview-ui/**/*.{ts,tsx,js,css,json}": "prettier --write"
-  }
+  },
+  "homepage": "https://mateovalle.github.io/agent-campus/",
+  "keywords": [
+    "claude",
+    "claude code",
+    "ai agents",
+    "agent orchestration",
+    "pixel art"
+  ]
 }

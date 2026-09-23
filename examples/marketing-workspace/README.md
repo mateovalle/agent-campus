@@ -1,6 +1,6 @@
 # Marketing workspace template
 
-A non-code workspace for Pixel Agents: a marketing "office" where agents write
+A non-code workspace for Agent Campus: a marketing "office" where agents write
 plans, scripts and copy as files. Copy this folder somewhere (e.g.
 `~/company/marketing`), fill in `CLAUDE.md`, and add it as a workspace in the
 campus (+ Workspace).

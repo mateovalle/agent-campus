@@ -36,7 +36,7 @@ function save(): void {
       'utf-8',
     );
   } catch (err) {
-    console.error('[Pixel Agents] Failed to save workspaces:', err);
+    console.error('[Agent Campus] Failed to save workspaces:', err);
   }
 }
 
