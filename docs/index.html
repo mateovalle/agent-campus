@@ -516,11 +516,35 @@
   .turn { margin: 0 0 92px; font-size: 15px; color: var(--paper); border-left: 2px solid var(--green);
           padding-left: 20px; max-width: 640px; line-height: 1.85; }
 
-  /* the receipt for the money beat — the app's own cost line */
-  .receipt { margin-top: 22px; border: 2px solid var(--line); background: var(--panel);
-             box-shadow: 4px 4px 0 var(--void); padding: 16px 18px; font-size: 13px; color: var(--muted); }
-  .receipt b { color: var(--paper); font-weight: 400; }
-  .receipt .row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; }
+  /* the night shift: the office keeps running with one light on */
+  .night { margin-top: 22px; border: 2px solid var(--line); box-shadow: 4px 4px 0 var(--void);
+           background: repeating-conic-gradient(#221d16 0% 25%, #272016 0% 50%) 0 48px / 24px 24px;
+           overflow: hidden; height: 216px; position: relative; }
+  .night-room { position: absolute; left: 50%; top: 0; width: 288px; height: 72px;
+                margin-left: -432px; transform: scale(3); transform-origin: top left; }
+  .night-room > *, .dim > * { position: absolute; }
+  .night .dim { position: absolute; inset: 0; filter: brightness(.42) saturate(.7); }
+  .night .lit { z-index: 2; }
+  .night .lamp { left: 60px; top: 14px; width: 48px; height: 40px; z-index: 1;
+                 background: radial-gradient(ellipse at 50% 60%, rgba(120,170,255,.22), transparent 70%); }
+
+  /* what the day cost, by project and by day */
+  .spend { margin: 22px 0 0; border: 2px solid var(--line); background: var(--panel);
+           box-shadow: 4px 4px 0 var(--void); padding: 18px 20px 14px; }
+  .spend-hero { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+  .spend-hero b { font-family: var(--display); font-size: 22px; color: var(--green); font-weight: 400; }
+  .spend-hero span { font-size: 12px; color: var(--muted); }
+  .spend-list { list-style: none; margin: 0 0 20px; padding: 0; }
+  .spend-list li { display: grid; grid-template-columns: 96px 1fr 58px; align-items: center;
+                   gap: 12px; padding: 3px 0; font-size: 12px; }
+  .spend-list .n { color: var(--muted); }
+  .spend-list .bar { height: 10px; background: var(--green); display: block; }
+  .spend-list .v { color: var(--paper); text-align: right; }
+  .spend-days { display: flex; align-items: flex-end; gap: 4px; height: 46px; }
+  .spend-days i { flex: 1; background: #6a6a84; display: block; min-height: 2px; }
+  .spend-days i.now { background: var(--green); }
+  .spend figcaption { display: flex; justify-content: space-between; margin-top: 6px;
+                      font-size: 11px; color: var(--muted); }
 
   /* coda */
   .coda { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 640px; margin-top: 8px; }
@@ -672,29 +696,49 @@
 
         <div class="beat" data-time="09:31" data-act="read">
           <h3>You hand over the backlog.</h3>
-          <p>One board across every office. Press <b>Assign</b> on a task and an agent spawns to do it &mdash; and if the task is tagged <b>[qa]</b> or <b>[marketing]</b>, it spawns with that charter, that tool policy and that character skin.</p>
+          <p>One board across every office. Press <b>Assign</b> on a task and an agent spawns to do it &mdash; and if the task is tagged <b>[qa]</b> or <b>[marketing]</b>, it spawns with that charter, that tool policy and that character skin. The review roles cannot edit at all, so a <b>[security]</b> task comes back as a verdict rather than a silent fix.</p>
           <img class="shot" src="assets/shots/board.png" alt="The board: a Backlog column with tagged tasks and Assign buttons, a Needs You column, and a Done column." width="1100" height="445" loading="lazy">
         </div>
 
         <div class="beat" data-time="10:05" data-act="ask">
-          <h3>It asks before it touches anything.</h3>
-          <p>An amber bubble appears over their head and the request lands in the chat with Allow and Deny. The review roles cannot edit at all &mdash; ask for a security pass and you get a verdict, not a silent fix.</p>
+          <h3>You can tell who is blocked from across the campus.</h3>
+          <p>Claude Code always asks before it writes. What changes here is how you find out: an amber bubble goes up over that character's head and they move into the board's <b>Needs You</b> column, with the buttons to unblock them. You read it off the map instead of alt-tabbing to look.</p>
           <img class="shot" src="assets/shots/permission.png" alt="A permission request in the chat panel: Allow Write? launch-note.md, with Allow and Deny buttons." width="1100" height="177" loading="lazy">
         </div>
 
         <div class="beat" data-time="14:47" data-act="idle">
           <h3>You see exactly what it cost.</h3>
           <p>Not an estimate &mdash; the number the SDK reports, per turn, per day and per project, sitting on each office label.</p>
-          <div class="receipt">
-            <div class="row"><span>acme-launch &mdash; draft the launch note</span><b>$0.3639 &middot; 139.8s</b></div>
-            <div class="row"><span>pixel-tools &mdash; count colours per row</span><b>$0.1204 &middot; 42.1s</b></div>
-            <div class="row" style="border-top:1px solid var(--line); margin-top:8px; padding-top:10px"><span>today, across 2 offices</span><b>$0.48</b></div>
-          </div>
+          <figure class="spend">
+            <div class="spend-hero"><b>$4.21</b><span>today, across 3 offices</span></div>
+            <ul class="spend-list">
+              <li><span class="n">acme-launch</span><span class="bar" style="width:100%"></span><span class="v">$2.44</span></li>
+              <li><span class="n">pixel-tools</span><span class="bar" style="width:49%"></span><span class="v">$1.19</span></li>
+              <li><span class="n">docs-site</span><span class="bar" style="width:24%"></span><span class="v">$0.58</span></li>
+            </ul>
+            <div class="spend-days">
+              <i style="height:21%"></i><i style="height:70%"></i><i style="height:44%"></i><i style="height:2%"></i><i style="height:100%"></i><i style="height:64%"></i><i class="now" style="height:86%"></i>
+            </div>
+            <figcaption><span>7 days ago</span><span>today</span></figcaption>
+          </figure>
         </div>
 
         <div class="beat" data-time="03:00" data-act="night">
           <h3>They work while you're asleep.</h3>
           <p>Schedules run daily, weekly, or every few minutes, and they fire with the window closed. Whatever was missed while the app was off is offered to you in the morning, to run or to skip.</p>
+          <div class="night" aria-hidden="true">
+            <div class="night-room">
+              <div class="dim">
+                <img class="px" src="assets/sprites/coffee_machine.png" style="left:8px; top:40px" width="16" height="16" alt="">
+                <img class="px" src="assets/sprites/plant_monstera.png" style="left:236px; top:24px" width="16" height="32" alt="">
+                <img class="px" src="assets/sprites/cat_sleeping.png" style="left:168px; top:48px" width="16" height="16" alt="">
+                <div class="char p3 typing-up" style="left:76px; top:12px"></div>
+                <img class="px" src="assets/sprites/desk_double.png" style="left:60px; top:32px" width="48" height="32" alt="">
+              </div>
+              <div class="lamp"></div>
+              <img class="px lit" src="assets/sprites/monitor_dual.png" style="left:68px; top:24px" width="32" height="16" alt="">
+            </div>
+          </div>
         </div>
 
         <div class="beat" data-time="17:40" data-act="idle">
