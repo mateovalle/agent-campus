@@ -27,9 +27,7 @@
     "prepare": "husky",
     "postinstall": "electron-rebuild",
     "rebuild": "electron-rebuild",
-    "package": "npm run build && npx electron-builder",
-    "use:vscode": "node scripts/swap-target.js vscode",
-    "use:electron": "node scripts/swap-target.js electron"
+    "package": "npm run build && npx electron-builder"
   },
   "build": {
     "appId": "com.agentcampus.desktop",
@@ -64,7 +62,6 @@
     "@electron/rebuild": "^4.0.1",
     "@types/node": "22.x",
     "@types/pngjs": "^6.0.5",
-    "@types/vscode": "^1.107.0",
     "concurrently": "^9.1.2",
     "electron": "^43.2.0",
     "electron-builder": "^26.0.12",
