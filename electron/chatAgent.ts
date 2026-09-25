@@ -185,6 +185,8 @@ export interface ChatSession {
   mode: ChatPermissionMode;
   /** Latest TodoWrite plan (resent on webviewReady). */
   latestTodos: AgentTodo[];
+  /** Latest predicted next prompt from the SDK (resent on chatReady). */
+  latestSuggestion: string | null;
   send(text: string, images?: ChatImageAttachment[]): void;
   interrupt(): void;
   setMode(mode: ChatPermissionMode): void;
@@ -253,6 +255,7 @@ export function startChatSession(opts: {
     lastInputAt: Date.now(),
     mode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
     latestTodos: [],
+    latestSuggestion: null,
 
     send(text: string, images?: ChatImageAttachment[]): void {
       if (disposed) return;
@@ -263,6 +266,9 @@ export function startChatSession(opts: {
         text,
         ...(validImages.length > 0 ? { imageCount: validImages.length } : {}),
       });
+      // Whatever was predicted is about to be answered (accepted, edited or
+      // ignored) — a stale offer must not outlive the prompt it followed.
+      setSuggestion(null);
       setBusy(true);
       input.push({
         type: 'user',
@@ -364,6 +370,12 @@ export function startChatSession(opts: {
     send({ type: 'chat-busy', agentId, busy });
   }
 
+  function setSuggestion(suggestion: string | null): void {
+    if (session.latestSuggestion === suggestion) return;
+    session.latestSuggestion = suggestion;
+    send({ type: 'chat-suggestion', agentId, suggestion });
+  }
+
   function handleMessage(msg: SDKMessage): void {
     if (msg.type === 'stream_event') {
       const event = msg.event;
@@ -422,6 +434,10 @@ export function startChatSession(opts: {
         durationMs,
         isError: msg.is_error,
       });
+    } else if (msg.type === 'prompt_suggestion') {
+      // Arrives AFTER the turn's result message (hence the loop that keeps
+      // iterating past it), at most once per turn.
+      setSuggestion(msg.suggestion);
     } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
       emit({ kind: 'status', text: 'Context compacted' });
     } else if (msg.type === 'system' && msg.subtype === 'init') {
@@ -444,6 +460,13 @@ export function startChatSession(opts: {
     // accepted; without the setting, sessions START in 'default'.
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    // Predicted next prompt after each turn, offered in the composer the way
+    // the CLI offers it. The CLI's own opt-outs still win (the
+    // CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION env var, promptSuggestionEnabled
+    // in settings.json), and the SDK suppresses them on the first turn, in
+    // plan mode, after API errors and at the plan's usage limit. They ride
+    // the parent turn's prompt cache, so the cost is negligible.
+    promptSuggestions: true,
     // AskUserQuestion is answered THROUGH the permission bridge (the
     // QuestionCard returns answers via updatedInput). Auto-allow rules and
     // bypassPermissions would skip canUseTool entirely — the question would

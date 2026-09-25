@@ -1218,6 +1218,13 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       // later (closed panel, recreated tab, webview reload) — re-send the
       // authoritative mode so the selector doesn't stay stuck on 'default'
       ctx.send({ type: 'chat-mode', agentId: msg.id, mode: session.mode });
+      // Same reason as the mode: the offer lives outside the replayed
+      // transcript, so a reloaded webview would otherwise lose it.
+      ctx.send({
+        type: 'chat-suggestion',
+        agentId: msg.id,
+        suggestion: session.latestSuggestion,
+      });
       // A question/permission may still be parked from before the reload
       session.replayPendingPermissions();
     }

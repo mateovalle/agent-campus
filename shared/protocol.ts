@@ -318,6 +318,13 @@ export type HostToWebviewMessage =
   | { type: 'chat-replay'; agentId: number; events: ChatEvent[] }
   /** The agent is mid-turn (composer should show Stop instead of Send). */
   | { type: 'chat-busy'; agentId: number; busy: boolean }
+  /**
+   * The model's predicted next prompt, offered in the composer (Tab accepts).
+   * `null` clears it. Session state rather than a ChatEvent: it is a live
+   * offer, not transcript, so it must not replay into the message list — the
+   * host re-sends the current value on chatReady instead.
+   */
+  | { type: 'chat-suggestion'; agentId: number; suggestion: string | null }
   | {
       type: 'chat-permission-request';
       agentId: number;

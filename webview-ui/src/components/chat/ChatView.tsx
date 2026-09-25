@@ -267,6 +267,38 @@ const userImageChipStyle: React.CSSProperties = {
   color: 'var(--pixel-text-dim)',
 };
 
+const suggestionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '6px 10px',
+  borderTop: '2px solid var(--pixel-border)',
+  background: 'var(--pixel-bg)',
+};
+
+const suggestionBtnStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  textAlign: 'left',
+  fontSize: CHAT_BODY_FONT_SIZE_PX,
+  lineHeight: `${CHAT_COMPOSER_LINE_HEIGHT_PX}px`,
+  color: 'var(--pixel-text-dim)',
+  background: 'transparent',
+  border: '2px dashed var(--pixel-border)',
+  borderRadius: 0,
+  padding: '4px 8px',
+  cursor: 'pointer',
+};
+
+const suggestionKeyStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontSize: CHAT_BODY_FONT_SIZE_PX,
+  color: 'var(--pixel-text-dim)',
+  border: '2px solid var(--pixel-border)',
+  borderRadius: 0,
+  padding: '2px 6px',
+};
+
 const composerRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-end',
@@ -572,6 +604,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [dragActive, setDragActive] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const nearBottomRef = useRef(true);
   const replayedRef = useRef(false);
@@ -622,6 +655,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-mode') {
         if (msg.agentId !== agentId) return;
         setMode(msg.mode);
+      } else if (msg.type === 'chat-suggestion') {
+        if (msg.agentId !== agentId) return;
+        setSuggestion(msg.suggestion);
       }
     };
 
@@ -816,7 +852,16 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
     }
     setDraft('');
     setAttachments([]);
+    setSuggestion(null);
   }, [agentId, draft, attachments]);
+
+  /** Tab (or a click) drops the predicted prompt into the composer to edit or send. */
+  const acceptSuggestion = useCallback(() => {
+    if (!suggestion) return;
+    setDraft(suggestion);
+    setSuggestion(null);
+    textareaRef.current?.focus();
+  }, [suggestion]);
 
   const handleStop = useCallback(() => {
     vscode.postMessage({ type: 'chatInterrupt', id: agentId });
@@ -851,6 +896,33 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   );
 
   const ended = model.ended;
+
+  // Esc interrupts the running turn — the Claude Code gesture, same effect as
+  // the Stop button. Bound to this subtree (React events bubble from whichever
+  // descendant holds focus, and the composer is focused whenever the tab
+  // becomes visible) rather than to window: background chat tabs stay mounted,
+  // so a global listener would interrupt the wrong agent. The overlays that
+  // own Escape (Board, Tasks, office popup) listen in the CAPTURE phase and
+  // stop it there, so they still win while they're open.
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== 'Escape' || ended) return;
+      // Mid-turn Escape interrupts; otherwise it dismisses a pending
+      // suggestion. With neither in play the key is left alone, so the
+      // overlays and the layout editor keep their own Escape behaviour.
+      if (busy) handleStop();
+      else if (suggestion) setSuggestion(null);
+      else return;
+      e.preventDefault();
+      e.stopPropagation(); // also stops the native bubble (edit-mode shortcuts)
+    },
+    [busy, ended, suggestion, handleStop],
+  );
+
+  // Offered only on an empty composer: with a draft in progress the row would
+  // compete with what the user is already writing, and Tab must stay Tab.
+  const suggestionVisible = suggestion !== null && draft === '' && !busy && !ended;
+
   const sendDisabled = ended || (draft.trim() === '' && attachments.length === 0);
 
   // AskUserQuestion requests anchor to their tool card and render inline in
@@ -881,6 +953,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
         background: 'var(--pixel-bg)',
         position: 'relative',
       }}
+      onKeyDown={handleKeyDown}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -977,6 +1050,19 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
         </div>
       )}
 
+      {suggestionVisible && (
+        <div style={suggestionRowStyle}>
+          <button
+            style={suggestionBtnStyle}
+            onClick={acceptSuggestion}
+            title="Use this suggested prompt (Tab)"
+          >
+            {suggestion}
+          </button>
+          <span style={suggestionKeyStyle}>Tab</span>
+        </div>
+      )}
+
       <div style={composerRowStyle}>
         <ModeSelector mode={mode} onSelect={handleModeSelect} />
         <textarea
@@ -990,6 +1076,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSend();
+            } else if (e.key === 'Tab' && !e.shiftKey && suggestionVisible) {
+              e.preventDefault(); // otherwise Tab leaves the composer
+              acceptSuggestion();
             }
           }}
           placeholder={ended ? CHAT_COMPOSER_ENDED_PLACEHOLDER : CHAT_COMPOSER_PLACEHOLDER}
@@ -997,7 +1086,11 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
           style={textareaStyle}
         />
         {busy && !ended ? (
-          <button style={stopBtnStyle} onClick={handleStop} title="Interrupt the current turn">
+          <button
+            style={stopBtnStyle}
+            onClick={handleStop}
+            title="Interrupt the current turn (Esc)"
+          >
             Stop
           </button>
         ) : (
