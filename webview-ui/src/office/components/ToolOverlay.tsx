@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { AgentActionSuggestion } from '../../../../shared/protocol.js';
-import { CHARACTER_SITTING_OFFSET_PX, TOOL_OVERLAY_VERTICAL_OFFSET } from '../../constants.js';
+import {
+  CHARACTER_SITTING_OFFSET_PX,
+  TOOL_OVERLAY_BUBBLE_GAP_PX,
+  TOOL_OVERLAY_TOP_OFFSET_PX,
+  TOOL_OVERLAY_VERTICAL_OFFSET,
+} from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import type { CampusState } from '../engine/campusState.js';
+import { bubbleSpriteFor, bubbleTopPoint } from '../engine/renderer.js';
 import type { ToolActivity } from '../types.js';
 import { BubbleKind, CharacterState, TILE_SIZE } from '../types.js';
 
@@ -158,6 +164,27 @@ export function ToolOverlay({
         const secondaryText =
           [displayName ? activityText : null, ch.folderName].filter(Boolean).join(' · ') || null;
 
+        // A persistent bubble sits between the head and the overlay, and the
+        // overlay is opaque — left alone it hides the very thing it is
+        // reporting on. When one is up, stack the box above it: anchor at the
+        // bubble's top edge and flip the box onto its own bottom with
+        // translateY(-100%), which needs no height measurement and so cannot
+        // lag a frame behind as the character walks.
+        const bubbleSprite = bubbleSpriteFor(ch);
+        const bubbleTopCss = bubbleSprite
+          ? bubbleTopPoint(
+              ch,
+              deviceOffsetX + originX * zoom,
+              deviceOffsetY + originY * zoom,
+              zoom,
+              bubbleSprite.length,
+            ).y / dpr
+          : null;
+        const topCss =
+          bubbleTopCss === null
+            ? screenY - TOOL_OVERLAY_TOP_OFFSET_PX
+            : bubbleTopCss - TOOL_OVERLAY_BUBBLE_GAP_PX;
+
         // Determine dot color
         const tools = agentTools[id];
         const hasPermission = subHasPermission || tools?.some((t) => t.permissionWait && !t.done);
@@ -177,8 +204,8 @@ export function ToolOverlay({
             style={{
               position: 'absolute',
               left: screenX,
-              top: screenY - 24,
-              transform: 'translateX(-50%)',
+              top: topCss,
+              transform: bubbleTopCss === null ? 'translateX(-50%)' : 'translate(-50%, -100%)',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',

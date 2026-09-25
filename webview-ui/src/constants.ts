@@ -279,4 +279,8 @@ export const AUTO_ON_SIDE_DEPTH = 2;
 export const CHARACTER_HIT_HALF_WIDTH = 8;
 export const CHARACTER_HIT_HEIGHT = 24;
 export const TOOL_OVERLAY_VERTICAL_OFFSET = 32;
+/** How far above its anchor the overlay box starts when no bubble is showing. */
+export const TOOL_OVERLAY_TOP_OFFSET_PX = 24;
+/** Clearance kept between the overlay's bottom edge and a bubble's top edge. */
+export const TOOL_OVERLAY_BUBBLE_GAP_PX = 4;
 export const PULSE_ANIMATION_DURATION_SEC = 1.5;
