@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { WorkspaceInfo } from '../../../shared/protocol.js';
-import { OFFICE_POPUP_WIDTH_PX } from '../constants.js';
+import { OFFICE_POPUP_MARGIN_PX, OFFICE_POPUP_WIDTH_PX } from '../constants.js';
 import { vscode } from '../vscodeApi.js';
 
 interface OfficePopupProps {
   workspace: WorkspaceInfo;
-  /** CSS position within the office container (already clamped by the caller). */
+  /**
+   * CSS position within the office container. The caller clamps x and the top
+   * edge only; the bottom is handled here (see liftY).
+   */
   x: number;
   y: number;
   /** Number of open human todos in this workspace (shown on the Tasks button). */
@@ -30,7 +33,8 @@ const btnStyle: React.CSSProperties = {
 
 /**
  * Pixel-styled action popup for a workspace's office, opened by clicking its
- * floor: [+ Agent] [Resume] [Remove]. Closes on Esc / outside click.
+ * floor: [+ Agent] [+ Terminal] [Tasks] [Resume] [Remove]. Closes on Esc /
+ * outside click.
  */
 export function OfficePopup({
   workspace,
@@ -67,6 +71,21 @@ export function OfficePopup({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [onClose]);
 
+  // The caller never clamps the bottom edge, so a popup opened low in the
+  // office ran off-screen — five actions tall since '+ Terminal' joined, it
+  // does so easily. Measure the rendered height and lift it just enough to
+  // fit, never past the top margin. Held in state rather than written to the
+  // node directly so the lift survives the re-renders hover triggers; the
+  // layout effect runs before paint, so the extra render never flashes.
+  const [liftY, setLiftY] = useState(0);
+  useLayoutEffect(() => {
+    const el = popupRef.current;
+    if (!el) return;
+    const available = el.offsetParent?.clientHeight ?? window.innerHeight;
+    const overflow = y + el.offsetHeight + OFFICE_POPUP_MARGIN_PX - available;
+    setLiftY(overflow > 0 ? Math.max(0, Math.min(overflow, y - OFFICE_POPUP_MARGIN_PX)) : 0);
+  }, [y]);
+
   const hoverBg = (key: string, base: string) =>
     hovered === key ? 'var(--pixel-btn-hover-bg)' : base;
 
@@ -76,7 +95,7 @@ export function OfficePopup({
       style={{
         position: 'absolute',
         left: x,
-        top: y,
+        top: y - liftY,
         width: OFFICE_POPUP_WIDTH_PX,
         zIndex: 'var(--pixel-controls-z)',
         background: 'var(--pixel-bg)',
@@ -119,6 +138,18 @@ export function OfficePopup({
         title="Open a chat agent in this workspace"
       >
         + Agent
+      </button>
+      <button
+        style={{ ...btnStyle, background: hoverBg('terminal', 'var(--pixel-btn-bg)') }}
+        onMouseEnter={() => setHovered('terminal')}
+        onMouseLeave={() => setHovered(null)}
+        onClick={() => {
+          vscode.postMessage({ type: 'openClaude', folderPath: workspace.path });
+          onClose();
+        }}
+        title="Open the Claude Code CLI in a terminal tab — slash commands, Esc to interrupt"
+      >
+        + Terminal
       </button>
       <button
         style={{ ...btnStyle, background: hoverBg('tasks', 'var(--pixel-btn-bg)') }}
