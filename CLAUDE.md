@@ -3,12 +3,11 @@
 Electron desktop app: a pixel-art campus where AI agents (Claude Code sessions) are animated
 characters. Every project is an office; agents are characters you watch work and dispatch.
 
-This used to be a dual-target repo that also built a VS Code extension out of `src/`. That target
-was deleted: it had fallen ~2 months behind (no chat, campus, Board, tasks, schedules,
-achievements or cost — 17 handled message types against Electron's ~70) and the webview has no
-per-host gating, so its Electron-only toolbar rendered buttons that did nothing. `src/core/`
-survives as the host-agnostic backend and `shared/protocol.ts` as the message contract; the
-project it was forked from still ships the extension, and is the place to look for one.
+Single target. This was once a dual-target repo that also built a VS Code extension out of
+`src/`; that target was deleted in `55ede0a` for falling ~2 months behind. What survives is
+`src/core/` (host-agnostic backend) and `shared/protocol.ts` (the message contract) — still
+split that way because the split is good structure, not because a second host is coming. The
+upstream project it was forked from still ships an extension.
 
 ## Architecture
 
@@ -35,7 +34,11 @@ src/core/                     — Host-agnostic backend core (no vscode/electron
   fileWatcher.ts              — startFileWatching/stopFileWatching/readNewLines (fs.watch + watchFile +
                                 poll, byte-level UTF-8-safe line carry, truncation reset, error handlers)
   assetLoader.ts              — PNG parsing, sprite conversion, asset/layout loading, sendX(send, ...) helpers
-  layoutPersistence.ts        — Layout file I/O (~/.pixel-agents/layout.json), isValidLayout, cross-window watcher
+  layoutPersistence.ts        — Atomic layout file I/O (.tmp + rename), isValidLayout, hybrid
+                                fs.watch+poll watcher. NOTE: getLayoutFilePath() points at the
+                                LEGACY single-office ~/.pixel-agents/layout.json, not the
+                                per-workspace layouts/ dir the campus actually uses — see the
+                                officeTemplate.ts note
 
 electron/                     — Electron desktop host (imports src/core; tsconfig rootDir=.. →
                                 dist-electron/electron/main.js + dist-electron/src/core/)
@@ -60,11 +63,13 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 its own. Absent by default → the bundled default-layout.json.
                                 Written only on purpose: Settings' "Use This Office For New
                                 Workspaces", an import, or editing the detached (workspace-less)
-                                office; "Reset Starter Office" deletes it. ~/.pixel-agents/layout.json is no
-                                longer read at all — it predates the campus and kept seeding new
-                                offices by accident, with furniture ids retired months earlier.
-                                It was the VS Code host's single office; that host is gone, so
-                                the file is now purely vestigial
+                                office; "Reset Starter Office" deletes it. ~/.pixel-agents/layout.json
+                                is the VS Code host's old single office and no longer SEEDS
+                                anything, but it is NOT fully dead: main.ts still exports from it
+                                (exportLayout, :1550) and still watches it (:1649, pushing a
+                                workspace-less layoutLoaded that lands as the campus default).
+                                Both are leftovers worth deleting — a months-old file full of
+                                retired furniture ids can still reach the UI through either
   claudeAuth.ts               — First-run gate: `claude auth status --json` on the RESOLVED bundled
                                 executable (not ~/.claude — on macOS the credentials live in the
                                 login Keychain, so a file probe reports "logged out" on every Mac).
@@ -113,10 +118,12 @@ electron/                     — Electron desktop host (imports src/core; tscon
 webview-ui/src/               — React + TypeScript (Vite)
   vscodeApi.ts                — Electron IPC bridge (typed by protocol). Name is historical
   components/TerminalPanel.tsx / TerminalInstance.tsx / TerminalTabs.tsx / TerminalSplitter.tsx
-                              — Electron-only bottom panel: mixed terminal (xterm.js) + chat tabs
+                              — Bottom panel: mixed terminal (xterm.js) + chat tabs
                                 (hidden-not-unmounted, replay-gated output)
-  office/engine/campusState.ts — CAMPUS: one OfficeState per workspace at grid origins; per-office
-                                layouts (default + overrides); office popup (+ Agent/Tasks/Resume/Remove)
+  office/engine/campusState.ts — CAMPUS: one OfficeState per workspace at grid origins;
+                                per-office layouts (default + overrides); routeOffice() /
+                                recomputeOrigins() / adoptLayoutFromActive(); per-office spend
+                                for the label plate (setTodayUsage / getTodayUsd)
   components/TasksDrawer.tsx  — per-workspace human todos (assignable to agents) + live agent TodoWrite plans
   components/BoardPanel.tsx   — campus-wide kanban overlay (Board button in toolbar): Backlog (open
                                 todos, ▶ Assign) / In Progress (working agents + activity + plan) /
@@ -129,8 +136,12 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 → human review on the Board → budget-capped dispatch on approval.
                                 Clicking whiteboard furniture in the office also opens the Board
                                 (OfficeCanvas onBoardFurnitureClick)
-  components/chat/            — Rich chat UI for SDK agents: ChatView (event reducer + message list +
-                                composer + permission cards), ToolCard (collapsible, Edit diffs),
+  components/chat/            — Rich chat UI for SDK agents. chatModel.ts is the pure
+                                ChatEvent[] → ChatItem[] reducer (stable monotonic React keys);
+                                ChatView (message list + composer + image attachments + permission
+                                mode picker + prompt-suggestion row); PermissionCard; ResumePicker;
+                                ToolGroup / toolIcons / toolMeta (grouped tool cards);
+                                ToolCard (collapsible, Edit diffs),
                                 QuestionCard (AskUserQuestion: interactive option picker rendered
                                 INLINE on its tool card — matched by toolUseId on the permission
                                 request; single-question single-select answers on click, answers
@@ -145,7 +156,14 @@ webview-ui/src/               — React + TypeScript (Vite)
     useEditorActions.ts       — Editor state + callbacks
     useEditorKeyboard.ts      — Keyboard shortcut effect
   components/
-    BottomToolbar.tsx          — + Agent, Layout toggle, Settings button
+    BottomToolbar.tsx          — Right-edge icon rail: Assistant, Board, + Workspace, Layout,
+                                 Settings (see "Floating toolbar")
+    OfficePopup.tsx            — Per-office action popup opened by clicking an office floor:
+                                 + Agent / + Terminal / Tasks (with open-todo count) / Resume /
+                                 ✕ Remove (two-step confirm). Lifts itself when it would open
+                                 past the bottom of the viewport
+    AchievementToast.tsx       — Unlock toast fed by the achievementUnlocked queue
+    MissedRunsModal.tsx        — Pick-and-run list of schedule runs missed while the app was closed
     ZoomControls.tsx           — +/- zoom (top-right)
     SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug toggle
     WelcomeModal.tsx           — First-run panel when Claude Code is logged out or unreachable:
@@ -177,9 +195,20 @@ webview-ui/src/               — React + TypeScript (Vite)
       matrixEffect.ts         — Matrix-style spawn/despawn digital rain effect
     components/
       OfficeCanvas.tsx        — Canvas, resize, DPR, mouse hit-testing, edit interactions, drag-to-move
-      ToolOverlay.tsx          — Activity status label above hovered/selected character + close button
+      ToolOverlay.tsx          — Label above the hovered/selected character: agent NAME on top,
+                                 activity demoted to the subtitle (unnamed agents keep the old
+                                 activity-first layout), role picker, suggestion buttons, close
+                                 button. When a bubble is up the box anchors by its BOTTOM edge
+                                 just above it (translateY(-100%)) so it never covers the signal
+                                 it is reporting on
 
-scripts/                      — 7-stage asset extraction pipeline
+scripts/                      — Asset extraction pipeline (stages 0-5) + the art generators
+  asset-gen/                  — Where all shipped art is GENERATED: sprites.ts…sprites9.ts
+                                (furniture batches), floors.ts, palette.ts, avatar.ts,
+                                export.ts (CATALOG_META → furniture-catalog.json),
+                                default-layout.ts (the bundled starter scene), render-sheet.ts
+  export-characters.ts        — Bakes CHARACTER_PALETTES into the 6 base character PNGs
+  jsonl-viewer.html           — Browser viewer for session transcripts
   0-import-tileset.ts         — Interactive CLI wrapper
   1-detect-assets.ts          — Flood-fill asset detection
   2-asset-editor.html         — Browser UI for position/bounds editing
@@ -187,27 +216,49 @@ scripts/                      — 7-stage asset extraction pipeline
   4-review-metadata.html      — Browser UI for metadata review
   5-export-assets.ts          — Export PNGs + furniture-catalog.json
   asset-manager.html          — Unified editor (Stage 2+4 combined), Save/Save As via File System Access API
-examples/
-  marketing-workspace/        — Non-code workspace template (copy anywhere, add as campus workspace):
-                                CLAUDE.md brand brief + .claude/skills (video-script, monthly-plan);
-                                deliverables land as files, [marketing] Board tasks dispatch that role
   generate-walls.js           — Generate walls.png (4×4 grid of 16×32 auto-tile pieces)
   export-role-characters.ts   — Role skins (gstack-style team roles): base char PNG + lightness-
                                 preserving garment recolors + procedural accessories (hat/glasses/
                                 sunglasses/tie/stripe) → scripts/asset-gen/roles/*.png + preview.html
                                 (review artifacts; copy to assets/characters/roles/ once approved)
   wall-tile-editor.html       — Browser UI for editing wall tile appearance
+examples/
+  marketing-workspace/        — Non-code workspace template (copy anywhere, add as campus workspace):
+                                CLAUDE.md brand brief + .claude/skills (video-script, monthly-plan);
+                                deliverables land as files, [marketing] Board tasks dispatch that role
+docs/                         — GitHub Pages landing (index.html) + sprites/ writeup on how the
+                                art is generated; assets/demo.gif
 ```
 
 ## Core Concepts
 
-**Vocabulary**: Terminal = PTY tab running Claude. Session = JSONL conversation file. Agent = webview character bound 1:1 to a terminal.
+**Vocabulary**: Session = JSONL conversation file. Agent = webview character bound 1:1 to a
+session — either a `chat` agent (Agent SDK, rich chat tab, what "+ Agent" creates) or a
+`terminal` agent (PTY running `claude`, xterm tab, what "+ Terminal" creates). Both register a
+transcript watcher, so the office animates them identically.
 
-**Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in `shared/protocol.ts` (`HostToWebviewMessage` / `WebviewToHostMessage`) — add new message types THERE first; all three targets typecheck against it. Key messages: `openClaude`, `agentCreated/Closed`, `focusAgent`, `agentToolStart/Done/Clear`, `agentStatus`, `existingAgents`, `layoutLoaded`, `furnitureAssetsLoaded`, `floorTilesLoaded`, `wallTilesLoaded`, `saveLayout`, `saveAgentSeats`, `exportLayout`, `importLayout`, `settingsLoaded`, `setSoundEnabled`, `agentSuggestions`/`runAgentAction` (action buttons), plus Electron-only `pty-*` terminal messages.
+**Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in
+`shared/protocol.ts` (`HostToWebviewMessage` ~50 variants / `WebviewToHostMessage` ~37) — add new
+message types THERE first; `electron/`, `webview-ui/` and `src/` all typecheck against it. The
+union is the index: read it rather than trusting any list here. Families: agent lifecycle
+(`agentCreated/Closed/Label/Selected`, `existingAgents`, `focusAgent`), tool activity
+(`agentToolStart/Done/Clear`, `agentToolPermission[Clear]`, `agentStatus`, `subagent*`),
+assets/layout (`layoutLoaded`, `*TilesLoaded`, `furnitureAssetsLoaded`, `saveLayout`,
+`saveAgentSeats`, `export/importLayout`), chat (`chat-created/focus/event/replay/busy/mode/
+suggestion/permission-request/-resolved`), terminals (`pty-*`), and campus data
+(`workspacesLoaded`, `workspaceTodos`, `agent-todos`, `sessionList`, `usageSummary`,
+`schedulesLoaded`, `missedSchedules`, `achievements*`, `claudeAuth`, `settingsLoaded`).
 
-**One-agent-per-terminal**: Each "+ Agent" click → new terminal (`claude --session-id <uuid>`) → immediate agent creation → 1s poll for `<uuid>.jsonl` → file watching starts.
+**Agent creation**: the host mints the session id up front, so the agent and its transcript
+watcher exist before the session does. "+ Agent" → `openChatAgent` → `launchChatAgent()` (SDK
+session + chat tab). "+ Terminal" → `openClaude` → a PTY running
+`claude --session-id <uuid>` (plus `--dangerously-skip-permissions` when the Settings toggle is
+on), then a 1s poll for `<uuid>.jsonl`.
 
-**Terminal adoption**: Project-level 1s scan detects unknown JSONL files. If active terminal has no agent → adopt. If focused agent exists → reassign (`/clear` handling).
+**INTERNAL SESSIONS ONLY**: there is no adoption of sessions the app did not spawn. The 1s scan
+(`scanForNewJsonlFiles`) only looks inside the project dirs of agents it already owns, and exists
+purely for `/clear`: a new JSONL there is reassigned to whichever of that dir's agents most
+recently received input.
 
 ## Agent Status Tracking
 
@@ -217,7 +268,9 @@ JSONL transcripts at `~/.claude/projects/<project-hash>/<session-id>.jsonl`. Pro
 
 **File watching**: Hybrid `fs.watch` + 2s polling backup. Partial line buffering for mid-write reads. Tool done messages delayed 300ms to prevent flicker.
 
-**Extension state per agent**: `id, terminalRef, projectDir, jsonlFile, fileOffset, lineBuffer, activeToolIds, activeToolStatuses, activeSubagentToolNames, isWaiting`.
+**Host state per agent** (`electron/main.ts`, on top of `CoreAgentState`): `id, kind, sessionId,
+cwd, label/autoNamed, projectDir, jsonlFile, fileOffset, lineBuffer, activeToolIds,
+activeToolStatuses, activeSubagentToolNames, turnStats, isWaiting`.
 
 **Persistence**: Seats, palettes, hue shifts and roles are persisted by SESSION id (see
 `saveAgentSeats`). Layouts are per-workspace files under `~/.pixel-agents/layouts/`, written
@@ -236,7 +289,7 @@ the user's next save; no-op until the dynamic catalog is ready.
 
 ## Office UI
 
-**Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.round(2 * devicePixelRatio)`. Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan.
+**Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.max(ZOOM_MIN, Math.round(ZOOM_DEFAULT_DPR_FACTOR * devicePixelRatio))`. Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan.
 
 **UI styling**: Pixel art aesthetic — all overlays use sharp corners (`borderRadius: 0`), solid backgrounds (`#1e1e2e`), `2px solid` borders, hard offset shadows (`2px 2px 0px #0a0a14`, no blur). CSS variables defined in `index.css` `:root` (`--pixel-bg`, `--pixel-border`, `--pixel-accent`, etc.). Pixel font: FS Pixel Sans (`webview-ui/src/fonts/`), loaded via `@font-face` in `index.css`, applied globally.
 
@@ -244,19 +297,69 @@ the user's next save; no-op until the dynamic catalog is ready.
 
 **Spawn/despawn effect**: Matrix-style digital rain animation (0.3s). 16 vertical columns sweep top-to-bottom with staggered timing (per-column random seeds). Spawn: green rain reveals character pixels behind the sweep. Despawn: character pixels consumed by green rain trails. `matrixEffect` field on Character (`'spawn'`/`'despawn'`/`null`). Normal FSM is paused during effect. Despawning characters skip hit-testing. Restored agents (`existingAgents`) use `skipSpawnEffect: true` to appear instantly. `matrixEffect.ts` contains `renderMatrixEffect()` (per-pixel rendering) called from renderer instead of cached sprite draw.
 
-**Role skins**: Optional per-agent character sheets (gstack-style team roles: ceo, eng-manager, qa, security, designer, release, debugger, writer, marketing). Assets in `assets/characters/roles/char_role_<id>.png` (same 112×96 layout as base chars; generated by `scripts/export-role-characters.ts`; registry = `ROLE_SKIN_DEFS` in core constants). Loaded by `loadRoleSprites()` → `roleSpritesLoaded` message → `setRoleSprites()`. `getCharacterSprites(palette, hueShift, role?)` prefers the role sheet (cache key `role|palette:hueShift`); missing sheets degrade to the base look. Assigned manually via the "No role ▾" picker in the selected character's overlay; persisted as `AgentSeatMeta.role` (flows through existing seat persistence in both hosts). `officeState.setAgentRole()` mutates the character; hue shift still applies on top.
+**Role skins**: Optional per-agent character sheets (gstack-style team roles: ceo, eng-manager, qa, security, designer, release, debugger, writer, marketing). Assets in `assets/characters/roles/char_role_<id>.png` (same 112×96 layout as base chars; generated by `scripts/export-role-characters.ts`; registry = `ROLE_SKIN_DEFS` in core constants). Loaded by `loadRoleSprites()` → `roleSpritesLoaded` message → `setRoleSprites()`. `getCharacterSprites(palette, hueShift, role?)` prefers the role sheet (cache key `role|palette:hueShift`); missing sheets degrade to the base look. Assigned manually via the "No role ▾" picker in the selected character's overlay; persisted as `AgentSeatMeta.role` (flows through the normal seat persistence). `officeState.setAgentRole()` mutates the character; hue shift still applies on top.
 
-**Dispatch roles** (Electron): roles are functional at agent creation, not just cosmetic. `launchChatAgent(cwd, resume?, prompt?, roleId?)` looks up `AGENT_ROLE_DEFS` (`src/core/roles.ts`) and passes charter → `systemPromptAppend` + `disallowedTools` to the SDK session (qa/security can't Edit/Write — verdicts, not fixes), and `role` on `agentCreated` so the character spawns with the skin (persists via the normal seat-save path). Role sources: Board ▶ Assign parses the task's leading `[tag]` (`roleForTaskText`; the Assistant's planning procedure writes these tags), and the Assistant's `create_agent` tool takes an optional `role` enum param. **Typed sub-agents**: Task `subagent_type` → `roleForSubagentType` keyword match → `subagentRole` on `agentToolStart` (stored in `activeTaskSubagentRoles` for webview-reload replay) → sub-agent character spawns with the skin (cosmetic only — the parent session owns sub-agent prompts/tools).
+**Dispatch roles**: roles are functional at agent creation, not just cosmetic. `launchChatAgent(cwd, resume?, prompt?, roleId?)` looks up `AGENT_ROLE_DEFS` (`src/core/roles.ts`) and passes charter → `systemPromptAppend` + `disallowedTools` to the SDK session (qa/security can't Edit/Write — verdicts, not fixes), and `role` on `agentCreated` so the character spawns with the skin (persists via the normal seat-save path). Role sources: Board ▶ Assign parses the task's leading `[tag]` (`roleForTaskText`; the Assistant's planning procedure writes these tags), and the Assistant's `create_agent` tool takes an optional `role` enum param. **Typed sub-agents**: Task `subagent_type` → `roleForSubagentType` keyword match → `subagentRole` on `agentToolStart` (stored in `activeTaskSubagentRoles` for webview-reload replay) → sub-agent character spawns with the skin (cosmetic only — the parent session owns sub-agent prompts/tools).
 
 **Floating toolbar**: `BottomToolbar.tsx` renders right-edge vertical icon bubbles (order = usage frequency: Assistant, Board, + Workspace, Layout, Settings). Icons are 12×12 pixel grids in `toolbarIcons.ts` ('X' fg / 'A' accent), drawn by `PixelIcon.tsx` to a pixelated canvas. Hover shows a custom pixel tooltip (label + description) to the left. Settings still mounts the centered `SettingsModal`.
 
 **Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix. Same palette + hueShift as parent. Click focuses parent terminal. Not persisted. Spawn at closest free seat to parent (Manhattan distance); fallback: closest walkable tile. **Sub-agent permission detection**: when a sub-agent runs a non-exempt tool, `startPermissionTimer` fires on the parent agent; if 5s elapse with no data, permission bubbles appear on both parent and sub-agent characters. `activeSubagentToolNames` (parentToolId → subToolId → toolName) tracks which sub-tools are active for the exempt check. Cleared when data resumes or Task completes.
 
-**Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2s. Sprites in `spriteData.ts`.
+**Speech bubbles**: the office's attention channel, and the design rule is strict — **a bubble
+always means "there is something here for you"; ordinary work carries no bubble at all**. The
+premise is that nobody watches agents work: you leave and come back, so the office must
+ACCUMULATE state rather than flash it. Three kinds (`BubbleKind`, `office/types.ts`):
+
+- **`blocked`** ("..." dots) — the agent cannot continue without you: a tool permission OR an
+  AskUserQuestion. Persists until actually RESOLVED; **a click will not dismiss it**, because
+  hiding it would leave the office claiming nothing is wrong while the agent is still stuck.
+  It ages: `bubbleAgeSec` drives 3 colour tiers (amber → orange → red at `BUBBLE_AGE_WARN_SEC`
+  60s and `BUBBLE_AGE_URGENT_SEC` 300s) and a pulse that speeds up with the wait, so the oldest
+  block is what catches your eye.
+- **`done`** (green check) — the turn finished and you have not looked yet. An UNREAD BADGE: it
+  does not auto-fade (the old 2s flash was removed on purpose — it was useless to anyone who
+  stepped away). Cleared by `acknowledgeAgent()` when you open the agent, or by a click.
+- **`error`** (red "!") — the turn ended with repeated tool errors. Raised from the
+  `investigate` suggestion `kind`, the only surviving trace of the `TurnStats.errorCount` that
+  `transcriptParser` otherwise discards.
+
+`blocked` outranks the unread kinds (`showBubble` refuses to downgrade one). Any new tool start
+or `agentStatus: 'active'` clears everything — work resumed, so nothing is pending for you.
+Bubbles are a **UI layer, not world objects**: `bubbleScale()` keeps them at a constant on-screen
+size (never below `BUBBLE_MIN_SCALE × dpr`) so a blocked agent stays legible at campus zoom where
+the character is a few pixels tall. Once characters pack closer together than a bubble is wide,
+`shouldClusterBubbles()` replaces them with ONE aggregated marker per office above its label
+plate (`summarizeBubbles` / `renderBubbleCluster`, most-urgent-first, with an `xN` tally).
+`renderOffscreenMarkers()` pins viewport-edge arrows at blocked agents whose BUBBLE (not
+character — an agent can sit just inside the top edge with its bubble clipped away) is off
+screen. Sprites are built by `makeBubbleSprite(accent, cells)` in `spriteData.ts`.
+
+**Agent names**: the host auto-derives a display name from an agent's first prompt, sends it as
+`agentLabel`, and persists it as `AgentSeatMeta.name` (session-keyed, so it survives resume).
+The webview mirrors it onto the character (`setAgentName`) and into React (`agentNames`), so the
+office, Board and Tasks drawer read `fix-auth-timeout` rather than `Agent 3`.
+
+**Prompt suggestions**: the SDK emits a `prompt_suggestion` after a turn's result; chat tabs
+offer it as a dashed row above the composer (Tab or click to accept into the draft, Esc to
+dismiss), shown only on an empty composer so Tab keeps meaning Tab. It is SESSION STATE, not a
+`ChatEvent`: a live offer is not transcript, so it must never replay into the message list — the
+host holds `session.latestSuggestion` and re-sends `chat-suggestion` on `chatReady`, the same way
+it re-sends the permission mode. Cleared the moment a prompt is sent. Esc inside a chat tab
+means: interrupt the running turn → else drop the suggestion → else stay out of the way; it is
+bound to the subtree rather than the window because background tabs stay mounted.
+
+**Chat permission modes**: `default | acceptEdits | plan | bypassPermissions` per session
+(`chatSetPermissionMode` → `chat-mode` echo), separate from the global "new agents start with
+permissions bypassed" setting in Settings.
 
 **Action suggestion buttons**: On `turn_duration`, core sends `agentSuggestions` derived from the turn's TurnStats (`actionSuggestions.ts` heuristics: edits → Review/Test, clean tests → Commit, ≥3 tool errors → Investigate). ToolOverlay renders them as buttons under the selected character's status pill (hidden while active). Clicking sends `runAgentAction` — the host writes the command to the PTY (text, then `\r` after `PTY_ACTION_ENTER_DELAY_MS`) or calls `ChatSession.send()`. Commands are plain-language prompts (not slash commands) so they work without any skills installed. Suggestions cleared on new user prompt (empty array), agent close, and optimistically on click.
 
-**Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` called on canvas mousedown to ensure context is resumed (webviews start suspended). Toggled via "Sound Notifications" checkbox in Settings modal. Enabled by default; persisted in extension `globalState` key `agent-campus.soundEnabled`, sent to webview as `settingsLoaded` on init.
+**Sound notifications**: ascending two-note chime (E5 → E6) via Web Audio API, played by
+`playDoneSound()` alongside the `done` bubble on `agentStatus: 'waiting'`. `notificationSound.ts`
+manages the AudioContext; `unlockAudio()` on canvas mousedown resumes it (webviews start
+suspended). Enabled by default, toggled in Settings, persisted in `~/.pixel-agents/settings.json`
+(`loadSettings`/`saveSettings`, alongside `bypassPermissions`) and echoed back as
+`settingsLoaded`.
 
 **Seats**: Derived from chair furniture. `layoutToSeats()` creates a seat at every footprint tile of every chair. Multi-tile chairs (e.g. 2-tile couches) produce multiple seats keyed `uid` / `uid:1` / `uid:2`. Facing direction priority: 1) chair `orientation` from catalog (front→DOWN, back→UP, left→LEFT, right→RIGHT), 2) adjacent desk direction, 3) forward (DOWN). Click character → select (white outline) → click available seat → reassign.
 
@@ -278,7 +381,8 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 **Grid expansion**: In floor/wall/erase tools, a ghost border (dashed outline) appears 1 tile outside the grid. Clicking a ghost tile calls `expandLayout()` to grow the grid by 1 tile in that direction (left/right/up/down). New tiles are VOID. Furniture positions and character positions shift when expanding left/up. Max grid size: `MAX_COLS`×`MAX_ROWS` (64×64). Default: `DEFAULT_COLS`×`DEFAULT_ROWS` (20×11). Characters outside bounds after resize are relocated to random walkable tiles.
 
-**Layout model**: `{ version: 1, cols, rows, tiles: TileType[], furniture: PlacedFurniture[], tileColors?: FloorColor[] }`. Grid dimensions are dynamic (not fixed constants). Persisted via debounced saveLayout message → `writeLayoutToFile()` → `~/.pixel-agents/layout.json`.
+**Layout model**: `{ version: 1, cols, rows, tiles: TileType[], furniture: PlacedFurniture[], tileColors?: FloorColor[] }`. Grid dimensions are dynamic (not fixed constants). Persisted via a debounced `saveLayout` message → `~/.pixel-agents/layouts/<sanitized-workspace>.json`
+(atomic `.tmp` + rename), hot-reloaded through the layouts-dir watcher.
 
 ## Asset System
 
@@ -304,9 +408,9 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 **Floor tiles**: `floors.png` (112×16, 7 patterns). Cached by (pattern, h, s, b, c). Migration: old layouts auto-mapped to new patterns.
 
-**Wall tiles**: `walls.png` (64×128, 4×4 grid of 16×32 pieces). 4-bit auto-tile bitmask (N=1, E=2, S=4, W=8). Sprites extend 16px above tile (3D face). Loaded by extension → `wallTilesLoaded` message. `wallTiles.ts` computes bitmask at render time. Colorizable via HSBC sliders (Colorize mode, stored per-tile in `tileColors`). Wall sprites are z-sorted with furniture and characters (`getWallInstances()` builds `FurnitureInstance[]` with `zY = (row+1)*TILE_SIZE`); only the flat base color is rendered in the tile pass. `generate-walls.js` creates the PNG; `wall-tile-editor.html` for visual editing.
+**Wall tiles**: `walls.png` (64×128, 4×4 grid of 16×32 pieces). 4-bit auto-tile bitmask (N=1, E=2, S=4, W=8). Sprites extend 16px above tile (3D face). Loaded by the host → `wallTilesLoaded` message. `wallTiles.ts` computes bitmask at render time. Colorizable via HSBC sliders (Colorize mode, stored per-tile in `tileColors`). Wall sprites are z-sorted with furniture and characters (`getWallInstances()` builds `FurnitureInstance[]` with `zY = (row+1)*TILE_SIZE`); only the flat base color is rendered in the tile pass. `generate-walls.js` creates the PNG; `wall-tile-editor.html` for visual editing.
 
-**Character sprites**: 6 pre-colored PNGs (`assets/characters/char_0.png`–`char_5.png`), one per palette. Each 112×96: 7 frames × 16px wide, 3 direction rows × 32px tall (24px sprite bottom-aligned with 8px top padding). Row 0 = down, Row 1 = up, Row 2 = right. Frame order: walk1, walk2, walk3, type1, type2, read1, read2. No dedicated idle frames — idle uses walk2 (standing pose). Left = flipped right at runtime. Generated by `scripts/export-characters.ts` which bakes `CHARACTER_PALETTES` colors into templates. Loaded by extension → `characterSpritesLoaded` message (array of 6 character sprite sets). `spriteData.ts` uses pre-colored data directly (no palette swapping); hardcoded template fallback when PNGs not loaded. When `hueShift !== 0`, `hueShiftSprites()` applies `adjustSprite()` (HSL hue rotation) to all frames before caching.
+**Character sprites**: 6 pre-colored PNGs (`assets/characters/char_0.png`–`char_5.png`), one per palette. Each 112×96: 7 frames × 16px wide, 3 direction rows × 32px tall (24px sprite bottom-aligned with 8px top padding). Row 0 = down, Row 1 = up, Row 2 = right. Frame order: walk1, walk2, walk3, type1, type2, read1, read2. No dedicated idle frames — idle uses walk2 (standing pose). Left = flipped right at runtime. Generated by `scripts/export-characters.ts` which bakes `CHARACTER_PALETTES` colors into templates. Loaded by the host → `characterSpritesLoaded` message (array of 6 character sprite sets). `spriteData.ts` uses pre-colored data directly (no palette swapping); hardcoded template fallback when PNGs not loaded. When `hueShift !== 0`, `hueShiftSprites()` applies `adjustSprite()` (HSL hue rotation) to all frames before caching.
 
 **Load order**: `characterSpritesLoaded` → `floorTilesLoaded` → `wallTilesLoaded` → `furnitureAssetsLoaded` (catalog built synchronously) → `layoutLoaded`.
 
@@ -329,12 +433,17 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 npm install && cd webview-ui && npm install && cd .. && npm run build
 ```
 
-Electron (default manifest):
 - `npm run dev` — Vite dev server + Electron (wait-on gated); `npm start` — build + run built app
 - `npm run build` — check (types+lint) → tsc electron → vite webview; `npm run package` — electron-builder (dmg/AppImage/nsis)
 - `npm run check-types` covers src/core/, electron/, webview-ui/; `npm run lint` covers src/ + electron/ (webview has its own flat config)
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
-- Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml
+- `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (8 suites:
+  transcriptParser, actionSuggestions, fileWatcher, roles, achievements, claudeAuth, schedules,
+  transcriptHistory). `vitest.config.ts` scopes it; the webview has no test setup
+- Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
+  release: .github/workflows/release.yml
+- `package-electron.json` at the repo root is DEAD (gitignored leftover of the deleted
+  swap-target system; it still declares `use:vscode` and `@types/vscode`). Don't resurrect it
 
 Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKILL.md + Playwright REPL `driver.mjs`, isolated HOME, screenshots/clicks/keys) — use it to verify UI, editor and furniture changes in the real app.
 
@@ -359,11 +468,6 @@ All magic numbers and strings are centralized — never add inline constants to 
 
 - Terminal `cwd` option sets working directory at creation
 - `/add-dir <path>` grants session access to additional directory
-
-## Windows-MCP (Desktop Automation)
-
-- `uvx --python 3.13 windows-mcp` — Tools: Snapshot, Click, Type, Scroll, Move, Shortcut, App, Shell, Wait, Scrape
-- Webview buttons show `(0,0)` in a11y tree — must use `Snapshot(use_vision=true)` for coordinates
 
 ## Key Decisions
 
