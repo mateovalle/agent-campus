@@ -649,6 +649,36 @@ export function SettingsModal({
         </button>
         <button
           onClick={() => {
+            vscode.postMessage({ type: 'exportLayout' });
+            onClose();
+          }}
+          onMouseEnter={() => setHovered('export')}
+          onMouseLeave={() => setHovered(null)}
+          title="Save the starter office to a file you can share"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'export' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Export Layout
+        </button>
+        <button
+          onClick={() => {
+            vscode.postMessage({ type: 'importLayout' });
+            onClose();
+          }}
+          onMouseEnter={() => setHovered('import')}
+          onMouseLeave={() => setHovered(null)}
+          title="Load an office from a file and make it the starter office"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'import' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Import Layout
+        </button>
+        <button
+          onClick={() => {
             vscode.postMessage({ type: 'openSessionsFolder' });
             onClose();
           }}

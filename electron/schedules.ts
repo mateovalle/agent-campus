@@ -11,9 +11,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { MissedScheduleRun, ScheduleEntry } from '../shared/protocol.js';
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 
-const SCHEDULES_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'schedules.json');
+const SCHEDULES_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'schedules.json');
 
 export const SCHEDULER_TICK_MS = 30_000;
 

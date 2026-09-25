@@ -8,9 +8,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { WorkspaceInfo } from '../shared/protocol.js';
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 
-const WORKSPACES_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'workspaces.json');
+const WORKSPACES_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'workspaces.json');
 
 let cache: WorkspaceInfo[] | null = null;
 

@@ -25,18 +25,12 @@ import {
   sendWallTiles,
 } from '../src/core/assetLoader.js';
 import {
+  DATA_DIR_NAME,
   JSONL_POLL_INTERVAL_MS,
-  LAYOUT_FILE_DIR,
   PROJECT_SCAN_INTERVAL_MS,
 } from '../src/core/constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
-import type { LayoutWatcher } from '../src/core/layoutPersistence.js';
-import {
-  isValidLayout,
-  readLayoutFromFile,
-  watchLayoutFile,
-  writeLayoutToFile,
-} from '../src/core/layoutPersistence.js';
+import { isValidLayout } from '../src/core/layoutPersistence.js';
 import { AGENT_ROLE_DEFS, DISPATCH_ROLE_IDS, roleForTaskText } from '../src/core/roles.js';
 import {
   cancelPermissionTimer,
@@ -93,7 +87,7 @@ const RESUMED_SESSION_STATUS = 'Resumed session — previous conversation shown 
 // Appended to terminal launches when the "Bypass Permissions" setting is on
 const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
 
-const DATA_DIR = path.join(os.homedir(), LAYOUT_FILE_DIR);
+const DATA_DIR = path.join(os.homedir(), DATA_DIR_NAME);
 const AGENT_SEATS_FILE = path.join(DATA_DIR, 'agent-seats.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
@@ -132,7 +126,6 @@ let nextTerminalIndex = 1;
 const knownJsonlFiles = new Set<string>();
 const jsonlPollTimers = new Map<number, ReturnType<typeof setInterval>>();
 const projectScanTimers = new Map<string, ReturnType<typeof setInterval>>();
-let layoutWatcher: LayoutWatcher | null = null;
 
 const ctx: TrackerContext<AgentState> = {
   agents: new Map(),
@@ -211,9 +204,8 @@ function getWorkspaceLayoutFile(workspacePath: string): string {
 }
 
 // ── Per-workspace layout hot-reload ──────────────────────────
-// The default layout has its own cross-window watcher (layoutPersistence);
-// this covers the per-workspace override files, so external edits (scripts,
-// other windows) apply live instead of waiting for the next app start.
+// Watches the per-workspace layout files so external edits (scripts, another
+// window) apply live instead of waiting for the next app start.
 const LAYOUTS_DIR = path.join(DATA_DIR, 'layouts');
 let layoutsDirWatcher: fs.FSWatcher | null = null;
 const layoutsOwnWrites = new Map<string, number>(); // file basename → epoch ms
@@ -1545,9 +1537,14 @@ function saveAgentSeats(seatsById: Record<string, AgentSeatMeta> | undefined): v
   saveJsonFile(AGENT_SEATS_FILE, { bySession });
 }
 
+/**
+ * Export the STARTER office — the layout a new workspace is born with — which
+ * is exactly what importLayout() replaces. Falls back to the bundled default
+ * when the user has not set a starter of their own.
+ */
 async function exportLayout(): Promise<void> {
   if (!mainWindow) return;
-  const layout = readLayoutFromFile();
+  const layout = readOfficeTemplate() ?? loadDefaultLayout(getAssetsRoot());
   if (!layout) return;
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'JSON Files', extensions: ['json'] }],
@@ -1625,8 +1622,6 @@ function cleanupAndQuit(): void {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
   }
-  layoutWatcher?.dispose();
-  layoutWatcher = null;
   layoutsDirWatcher?.close();
   layoutsDirWatcher = null;
   for (const timer of layoutsDebounce.values()) clearTimeout(timer);
@@ -1644,11 +1639,7 @@ app.whenReady().then(() => {
   fixPathEnv();
   setupIpcHandlers();
 
-  // Cross-window layout sync (e.g. edits made from a VS Code window)
   watchWorkspaceLayouts();
-  layoutWatcher = watchLayoutFile((layout) => {
-    ctx.send({ type: 'layoutLoaded', layout });
-  });
 
   createWindow();
 

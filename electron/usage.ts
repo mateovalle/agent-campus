@@ -11,9 +11,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { ProjectUsage, UsageSummary } from '../shared/protocol.js';
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 
-const USAGE_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'usage.jsonl');
+const USAGE_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'usage.jsonl');
 const MAX_PROJECTS_IN_SUMMARY = 10;
 
 interface UsageEntry {

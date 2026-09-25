@@ -18,10 +18,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 import { isValidLayout } from '../src/core/layoutPersistence.js';
 
-const TEMPLATE_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'office-template.json');
+const TEMPLATE_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'office-template.json');
 
 /** Path of the starter-office file (exported for logging and tests). */
 export function officeTemplatePath(): string {

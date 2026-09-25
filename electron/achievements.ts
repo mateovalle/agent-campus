@@ -13,9 +13,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { AchievementInfo } from '../shared/protocol.js';
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 
-const FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'achievements.json');
+const FILE = path.join(os.homedir(), DATA_DIR_NAME, 'achievements.json');
 
 export type AchievementEvent =
   | 'agentSpawned'

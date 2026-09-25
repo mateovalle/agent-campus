@@ -7,9 +7,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { TodoItem } from '../shared/protocol.js';
-import { LAYOUT_FILE_DIR } from '../src/core/constants.js';
+import { DATA_DIR_NAME } from '../src/core/constants.js';
 
-const TODOS_FILE = path.join(os.homedir(), LAYOUT_FILE_DIR, 'todos.json');
+const TODOS_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'todos.json');
 
 let cache: Record<string, TodoItem[]> | null = null;
 

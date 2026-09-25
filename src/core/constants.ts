@@ -47,6 +47,9 @@ export const ROLE_SKIN_DEFS = [
 ] as const;
 
 // ── User-Level Layout Persistence ─────────────────────────────
-export const LAYOUT_FILE_DIR = '.pixel-agents';
-export const LAYOUT_FILE_NAME = 'layout.json';
-export const LAYOUT_FILE_POLL_INTERVAL_MS = 2000;
+/**
+ * All user data lives here (~/.pixel-agents/): workspaces, layouts, todos,
+ * usage, achievements, schedules, settings, seats. Named for the app's old
+ * name — moving it would strand everyone's offices, so it stays.
+ */
+export const DATA_DIR_NAME = '.pixel-agents';
