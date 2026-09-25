@@ -34,11 +34,10 @@ src/core/                     — Host-agnostic backend core (no vscode/electron
   fileWatcher.ts              — startFileWatching/stopFileWatching/readNewLines (fs.watch + watchFile +
                                 poll, byte-level UTF-8-safe line carry, truncation reset, error handlers)
   assetLoader.ts              — PNG parsing, sprite conversion, asset/layout loading, sendX(send, ...) helpers
-  layoutPersistence.ts        — Atomic layout file I/O (.tmp + rename), isValidLayout, hybrid
-                                fs.watch+poll watcher. NOTE: getLayoutFilePath() points at the
-                                LEGACY single-office ~/.pixel-agents/layout.json, not the
-                                per-workspace layouts/ dir the campus actually uses — see the
-                                officeTemplate.ts note
+  layoutPersistence.ts        — Just isValidLayout() now. It used to own the VS Code host's single
+                                ~/.pixel-agents/layout.json (atomic write + cross-window watcher);
+                                the campus replaced that with one file per workspace, owned by
+                                electron/main.ts, so the rest was deleted
 
 electron/                     — Electron desktop host (imports src/core; tsconfig rootDir=.. →
                                 dist-electron/electron/main.js + dist-electron/src/core/)
@@ -63,13 +62,9 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 its own. Absent by default → the bundled default-layout.json.
                                 Written only on purpose: Settings' "Use This Office For New
                                 Workspaces", an import, or editing the detached (workspace-less)
-                                office; "Reset Starter Office" deletes it. ~/.pixel-agents/layout.json
-                                is the VS Code host's old single office and no longer SEEDS
-                                anything, but it is NOT fully dead: main.ts still exports from it
-                                (exportLayout, :1550) and still watches it (:1649, pushing a
-                                workspace-less layoutLoaded that lands as the campus default).
-                                Both are leftovers worth deleting — a months-old file full of
-                                retired furniture ids can still reach the UI through either
+                                office; "Reset Starter Office" deletes it. The VS Code host's old single
+                                ~/.pixel-agents/layout.json is now fully dead — nothing reads,
+                                writes or watches it
   claudeAuth.ts               — First-run gate: `claude auth status --json` on the RESOLVED bundled
                                 executable (not ~/.claude — on macOS the credentials live in the
                                 login Keychain, so a file probe reports "logged out" on every Mac).
@@ -285,7 +280,10 @@ declares the scene (tile zones + furniture list) and validates every placement a
 the webview runs `pruneUnknownFurniture()` (furnitureCatalog.ts): items whose type is missing from
 the loaded catalog (ids from retired asset packs) are dropped in memory and disappear from disk on
 the user's next save; no-op until the dynamic catalog is ready.
-**Export/Import**: Settings modal offers Export Layout (save dialog → JSON file) and Import Layout (open dialog → validates `version: 1` + `tiles` array → writes to the layout file + pushes `layoutLoaded` to the webview).
+**Export/Import**: Settings offers Export Layout (save dialog → the STARTER office as JSON, or
+the bundled default when no starter is set) and Import Layout (open dialog → `isValidLayout` →
+becomes the starter office + pushes `layoutLoaded`). The pair is symmetric on purpose: both ends
+are the office a new workspace is born with, not whichever office you happen to be looking at.
 
 ## Office UI
 
@@ -457,7 +455,9 @@ Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKI
 
 All magic numbers and strings are centralized — never add inline constants to source files:
 
-- **Backend (shared)**: `src/core/constants.ts` — timing intervals, display truncation limits, PNG/asset parsing values, layout file names
+- **Backend (shared)**: `src/core/constants.ts` — timing intervals, display truncation limits,
+  PNG/asset parsing values, `DATA_DIR_NAME` (`.pixel-agents`, the user-data dir every host module
+  hangs its file off)
 - **Electron host**: top of `electron/main.ts` — session scan/stale windows, PTY scrollback cap, window geometry
 - **Webview**: `webview-ui/src/constants.ts` — grid/layout sizes, character animation speeds, matrix effect params, rendering offsets/colors, camera, zoom, editor defaults, game logic thresholds
 - **CSS styling**: `webview-ui/src/index.css` `:root` block — `--pixel-*` custom properties for UI colors, backgrounds, borders, z-indices used in React inline styles
