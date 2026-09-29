@@ -12,7 +12,7 @@ import type {
   PlacedFurniture,
   TileType as TileTypeVal,
 } from '../types.js';
-import { MAX_COLS, MAX_ROWS, TILE_SIZE, TileType } from '../types.js';
+import { MAX_COLS, MAX_ROWS, TILE_SIZE, TileType, WALL_FACE_OVERHANG_PX } from '../types.js';
 
 /** Paint a single tile with pattern and color. Returns new layout (immutable). */
 export function paintTile(
@@ -180,6 +180,11 @@ export function isFurnitureVisualHit(item: PlacedFurniture, col: number, row: nu
   const entry = getCatalogEntry(item.type);
   if (!entry) return false;
   if (col < item.col || col >= item.col + entry.footprintW) return false;
+  // Wall art is centred in the wall face, which spans the item's row and the
+  // overhang row above it, whatever the sprite's own height.
+  if (entry.canPlaceOnWalls) {
+    return row >= item.row - WALL_FACE_OVERHANG_PX / TILE_SIZE && row <= item.row;
+  }
   const bottom = item.row + entry.footprintH; // exclusive
   const spriteRows = Math.ceil(entry.sprite.length / TILE_SIZE);
   const top = bottom - Math.max(spriteRows, entry.footprintH);

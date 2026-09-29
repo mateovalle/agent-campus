@@ -51,6 +51,7 @@ import {
   VOID_TILE_OUTLINE_COLOR,
 } from '../../constants.js';
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js';
+import { furnitureSpriteY } from '../layout/layoutSerializer.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
   BUBBLE_BLOCKED_SPRITES,
@@ -357,12 +358,13 @@ export function renderGhostPreview(
   offsetX: number,
   offsetY: number,
   zoom: number,
+  onWall: boolean,
 ): void {
   const cached = getCachedSprite(sprite, zoom);
   const s = TILE_SIZE * zoom;
   const x = offsetX + col * s;
-  // Bottom-anchor: sprite bottom aligns with the footprint's bottom edge
-  const spriteY = offsetY + (row + footprintH) * s - cached.height;
+  // Same anchor the placed item will use, so the preview does not jump on click
+  const spriteY = offsetY + furnitureSpriteY(row, footprintH, sprite.length, onWall) * zoom;
   ctx.save();
   ctx.globalAlpha = GHOST_PREVIEW_SPRITE_ALPHA;
   ctx.drawImage(cached, x, spriteY);
@@ -752,6 +754,8 @@ export interface EditorRenderState {
   ghostFootprintW: number;
   ghostFootprintH: number;
   ghostValid: boolean;
+  /** Ghost item hangs on a wall (anchored to the wall face, not the footprint). */
+  ghostOnWall: boolean;
   selectedCol: number;
   selectedRow: number;
   selectedW: number;
@@ -967,6 +971,7 @@ export function renderFrame(
         offsetX,
         offsetY,
         zoom,
+        editor.ghostOnWall,
       );
     }
     if (editor.hasSelection) {

@@ -14,6 +14,8 @@ import {
   FurnitureType,
   TILE_SIZE,
   TileType,
+  WALL_FACE_HEIGHT_PX,
+  WALL_FACE_OVERHANG_PX,
 } from '../types.js';
 import { getCatalogEntry } from './furnitureCatalog.js';
 
@@ -35,7 +37,22 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
  *  sprites (height > footprintH*TILE_SIZE) overhang upward and the blocked
  *  tiles stay at the item's base. Legacy sprites (height == footprintH*TILE_SIZE)
  *  get the same y as the old top-anchored formula. */
-export function furnitureSpriteY(row: number, footprintH: number, spriteH: number): number {
+export function furnitureSpriteY(
+  row: number,
+  footprintH: number,
+  spriteH: number,
+  onWall = false,
+): number {
+  // Wall art hangs on the face, which is not the same box as the footprint:
+  // a wall tile paints WALL_FACE_HEIGHT_PX starting one tile ABOVE its row.
+  // Bottom-anchoring a short sprite there pins it to the lower half of the
+  // face — the clock looked like it had slid down to the skirting board.
+  // Centring in the face leaves the full-height (2-tile) pieces exactly
+  // where they already were and lifts the 1-tile ones onto the wall proper.
+  if (onWall) {
+    const faceTop = row * TILE_SIZE - WALL_FACE_OVERHANG_PX;
+    return faceTop + Math.round((WALL_FACE_HEIGHT_PX - spriteH) / 2);
+  }
   return (row + footprintH) * TILE_SIZE - spriteH;
 }
 
@@ -62,7 +79,12 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     const entry = getCatalogEntry(item.type);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
-    const y = furnitureSpriteY(item.row, entry.footprintH, entry.sprite.length);
+    const y = furnitureSpriteY(
+      item.row,
+      entry.footprintH,
+      entry.sprite.length,
+      entry.canPlaceOnWalls,
+    );
     // Visual sprite bottom == footprint bottom edge (bottom-anchored)
     let zY = (item.row + entry.footprintH) * TILE_SIZE;
 

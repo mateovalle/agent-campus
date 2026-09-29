@@ -5,6 +5,8 @@ export {
   MAX_COLS,
   MAX_ROWS,
   TILE_SIZE,
+  WALL_FACE_HEIGHT_PX,
+  WALL_FACE_OVERHANG_PX,
 } from '../constants.js';
 
 export const TileType = {

@@ -43,7 +43,7 @@ import {
 } from '../engine/renderer.js';
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js';
 import { formatUsd } from '../toolUtils.js';
-import { BubbleKind, EditTool, TILE_SIZE } from '../types.js';
+import { BubbleKind, EditTool, TILE_SIZE, WALL_FACE_HEIGHT_PX } from '../types.js';
 
 interface OfficeCanvasProps {
   campus: CampusState;
@@ -301,6 +301,7 @@ export function OfficeCanvas({
           ghostFootprintW: 1,
           ghostFootprintH: 1,
           ghostValid: editorState.ghostValid,
+          ghostOnWall: false,
           selectedCol: 0,
           selectedRow: 0,
           selectedW: 0,
@@ -329,6 +330,7 @@ export function OfficeCanvas({
             editorRender.ghostRow = placementRow;
             editorRender.ghostFootprintW = entry.footprintW;
             editorRender.ghostFootprintH = entry.footprintH;
+            editorRender.ghostOnWall = !!entry.canPlaceOnWalls;
             editorRender.ghostValid = canPlaceFurniture(
               officeState.getLayout(),
               editorState.selectedFurnitureType,
@@ -349,6 +351,7 @@ export function OfficeCanvas({
               const ghostCol = editorState.ghostCol - editorState.dragOffsetCol;
               const ghostRow = editorState.ghostRow - editorState.dragOffsetRow;
               editorRender.ghostSprite = entry.sprite;
+              editorRender.ghostOnWall = !!entry.canPlaceOnWalls;
               editorRender.ghostCol = ghostCol;
               editorRender.ghostRow = ghostRow;
               editorRender.ghostFootprintW = entry.footprintW;
@@ -377,7 +380,11 @@ export function OfficeCanvas({
               editorRender.selectedRow = item.row;
               editorRender.selectedW = entry.footprintW;
               editorRender.selectedH = entry.footprintH;
-              editorRender.selectedSpriteH = entry.sprite.length;
+              // Wall art occupies the whole wall face, so the selection box,
+              // delete and rotate buttons track the face rather than the sprite.
+              editorRender.selectedSpriteH = entry.canPlaceOnWalls
+                ? WALL_FACE_HEIGHT_PX
+                : entry.sprite.length;
               editorRender.isRotatable = isRotatable(item.type);
             }
           }

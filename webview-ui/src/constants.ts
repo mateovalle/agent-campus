@@ -7,6 +7,12 @@ export const DEFAULT_ROWS = 11;
 export const MAX_COLS = 64;
 export const MAX_ROWS = 64;
 
+/** A wall tile's sprite is one tile taller than its row: the 3D face extends
+ *  upward from `row * TILE_SIZE - WALL_FACE_OVERHANG_PX`. */
+export const WALL_FACE_OVERHANG_PX = TILE_SIZE;
+/** Total height a wall tile paints — the overhanging face plus its own tile. */
+export const WALL_FACE_HEIGHT_PX = TILE_SIZE * 2;
+
 // ── Character Animation ─────────────────────────────────────
 export const WALK_SPEED_PX_PER_SEC = 48;
 export const WALK_FRAME_DURATION_SEC = 0.15;
