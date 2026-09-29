@@ -53,6 +53,8 @@ export const BUTTON_ICON_SIZE_FACTOR = 0.45;
 export const BUTTON_LINE_WIDTH_MIN = 1.5;
 export const BUTTON_LINE_WIDTH_ZOOM_FACTOR = 0.5;
 export const BUBBLE_FADE_DURATION_SEC = 0.5;
+/** Ambient activity glyphs sit behind attention bubbles in the visual hierarchy. */
+export const ACTIVITY_GLYPH_ALPHA = 0.72;
 export const BUBBLE_SITTING_OFFSET_PX = 10;
 export const BUBBLE_VERTICAL_OFFSET_PX = 24;
 /**

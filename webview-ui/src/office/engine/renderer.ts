@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_GLYPH_ALPHA,
   BUBBLE_AGE_URGENT_SEC,
   BUBBLE_AGE_WARN_SEC,
   BUBBLE_FADE_DURATION_SEC,
@@ -54,11 +55,17 @@ import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTi
 import { furnitureSpriteY } from '../layout/layoutSerializer.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
+  ACTIVITY_DELEGATE_SPRITE,
+  ACTIVITY_EDIT_SPRITE,
+  ACTIVITY_SEARCH_SPRITE,
+  ACTIVITY_SHELL_SPRITE,
+  ACTIVITY_WEB_SPRITE,
   BUBBLE_BLOCKED_SPRITES,
   BUBBLE_DONE_SPRITE,
   BUBBLE_ERROR_SPRITE,
   getCharacterSprites,
 } from '../sprites/spriteData.js';
+import { ActivityKind, activityKindForTool } from '../toolUtils.js';
 import type {
   Character,
   FloorColor,
@@ -523,6 +530,31 @@ export function bubbleSpriteFor(ch: Character): SpriteData | null {
 }
 
 /**
+ * The ambient activity glyph for a character, or null.
+ *
+ * Only for agents actually working: an idle character wandering the office has
+ * nothing to report, and a sub-agent's own glyph is its parent's business too.
+ * Never competes with a real bubble — the caller checks that first.
+ */
+export function activitySpriteFor(ch: Character): SpriteData | null {
+  if (!ch.isActive) return null;
+  switch (activityKindForTool(ch.currentTool)) {
+    case ActivityKind.SHELL:
+      return ACTIVITY_SHELL_SPRITE;
+    case ActivityKind.SEARCH:
+      return ACTIVITY_SEARCH_SPRITE;
+    case ActivityKind.EDIT:
+      return ACTIVITY_EDIT_SPRITE;
+    case ActivityKind.WEB:
+      return ACTIVITY_WEB_SPRITE;
+    case ActivityKind.DELEGATE:
+      return ACTIVITY_DELEGATE_SPRITE;
+    default:
+      return null;
+  }
+}
+
+/**
  * Bubbles are drawn as a UI layer pinned to the character rather than as part
  * of the world: they never shrink below BUBBLE_MIN_SCALE device pixels per
  * sprite pixel, so "this agent needs you" stays readable at campus zoom, where
@@ -565,10 +597,12 @@ export function renderBubbles(
   const nowSec = performance.now() / 1000;
 
   for (const ch of characters) {
-    const sprite = bubbleSpriteFor(ch);
+    // An attention bubble owns the spot; the activity glyph only fills silence.
+    const attention = bubbleSpriteFor(ch);
+    const sprite = attention ?? activitySpriteFor(ch);
     if (!sprite) continue;
 
-    let alpha = 1.0;
+    let alpha = attention ? 1.0 : ACTIVITY_GLYPH_ALPHA;
     // A blocked bubble breathes, and breathes faster the longer it has waited —
     // so the oldest block is the one that catches your eye first.
     if (ch.bubbleType === BubbleKind.BLOCKED) {

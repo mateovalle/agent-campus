@@ -9,7 +9,53 @@ export const STATUS_TO_TOOL: Record<string, string> = {
   Editing: 'Edit',
   Running: 'Bash',
   Task: 'Task',
+  // Sub-agent launches read as "Subtask: <what>" whichever name the CLI uses
+  Subtask: 'Task',
+  'Looking up': 'Grep',
+  Planning: 'Task',
+  Sending: 'Write',
+  Scheduling: 'Write',
 };
+
+/**
+ * Which activity glyph a tool belongs under. Families, not tools: the point is
+ * "is it reading, writing, shelling out, on the network, or delegating" read at
+ * a glance, not an exact tool name — that is what the status label is for.
+ * Unmapped tools get no glyph rather than a meaningless one.
+ */
+export const ActivityKind = {
+  SHELL: 'shell',
+  SEARCH: 'search',
+  EDIT: 'edit',
+  WEB: 'web',
+  DELEGATE: 'delegate',
+} as const;
+export type ActivityKind = (typeof ActivityKind)[keyof typeof ActivityKind];
+
+const TOOL_ACTIVITY: Record<string, ActivityKind> = {
+  Bash: ActivityKind.SHELL,
+  BashOutput: ActivityKind.SHELL,
+  Read: ActivityKind.SEARCH,
+  Grep: ActivityKind.SEARCH,
+  Glob: ActivityKind.SEARCH,
+  ToolSearch: ActivityKind.SEARCH,
+  Edit: ActivityKind.EDIT,
+  Write: ActivityKind.EDIT,
+  NotebookEdit: ActivityKind.EDIT,
+  WebFetch: ActivityKind.WEB,
+  WebSearch: ActivityKind.WEB,
+  Task: ActivityKind.DELEGATE,
+  Agent: ActivityKind.DELEGATE,
+  Skill: ActivityKind.DELEGATE,
+};
+
+/** The glyph family for a tool name, or null when there is nothing to say. */
+export function activityKindForTool(tool: string | null): ActivityKind | null {
+  if (!tool) return null;
+  // MCP tools are almost always network-shaped work under another name.
+  if (tool.startsWith('mcp__')) return ActivityKind.WEB;
+  return TOOL_ACTIVITY[tool] ?? null;
+}
 
 export function extractToolName(status: string): string | null {
   for (const [prefix, tool] of Object.entries(STATUS_TO_TOOL)) {

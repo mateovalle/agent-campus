@@ -326,6 +326,88 @@ export const BUBBLE_ERROR_SPRITE: SpriteData = makeBubbleSprite('#E0483C', [
   [7, 5],
 ])
 
+// ── Activity Glyphs ─────────────────────────────────────────────
+
+/**
+ * Ambient "what it is doing right now" glyphs, drawn in the same plate as the
+ * speech bubbles so the office reads as one system.
+ *
+ * Deliberately a separate concept from BubbleKind: those three mean "this
+ * agent needs you" and drive the off-screen markers, so folding activity into
+ * them would cry wolf on every Bash call. An attention bubble always wins the
+ * spot; activity only fills the silence, in a blue no attention bubble uses.
+ */
+const ACTIVITY_ACCENT = '#5C6BA8';
+
+/** '>' prompt over a cursor rule — shell work. */
+export const ACTIVITY_SHELL_SPRITE: SpriteData = makeBubbleSprite(ACTIVITY_ACCENT, [
+  [3, 3],
+  [4, 4],
+  [5, 3],
+  [6, 5],
+  [6, 6],
+  [6, 7],
+])
+
+/** Magnifier — reading and searching. */
+export const ACTIVITY_SEARCH_SPRITE: SpriteData = makeBubbleSprite(ACTIVITY_ACCENT, [
+  [2, 4],
+  [2, 5],
+  [3, 3],
+  [3, 6],
+  [4, 3],
+  [4, 6],
+  [5, 4],
+  [5, 5],
+  [6, 6],
+  [7, 7],
+])
+
+/** Pencil on the diagonal — writing and editing. */
+export const ACTIVITY_EDIT_SPRITE: SpriteData = makeBubbleSprite(ACTIVITY_ACCENT, [
+  [2, 7],
+  [3, 6],
+  [3, 7],
+  [4, 5],
+  [4, 6],
+  [5, 4],
+  [5, 5],
+  [6, 3],
+  [6, 4],
+  [7, 3],
+])
+
+/** Globe with an equator — fetching from the network. */
+export const ACTIVITY_WEB_SPRITE: SpriteData = makeBubbleSprite(ACTIVITY_ACCENT, [
+  [2, 4],
+  [2, 5],
+  [3, 3],
+  [3, 6],
+  [4, 2],
+  [4, 3],
+  [4, 4],
+  [4, 5],
+  [4, 6],
+  [4, 7],
+  [5, 3],
+  [5, 6],
+  [6, 4],
+  [6, 5],
+])
+
+/** Spark — delegating to a sub-agent, or running a skill. */
+export const ACTIVITY_DELEGATE_SPRITE: SpriteData = makeBubbleSprite(ACTIVITY_ACCENT, [
+  [2, 5],
+  [3, 5],
+  [4, 3],
+  [4, 4],
+  [4, 5],
+  [4, 6],
+  [4, 7],
+  [5, 5],
+  [6, 5],
+])
+
 // ── Character Sprites ───────────────────────────────────────────
 // 16x24 characters with palette substitution
 
