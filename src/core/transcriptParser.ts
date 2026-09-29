@@ -17,10 +17,42 @@ import {
 } from './timerManager.js';
 import { type CoreAgentState, createTurnStats, type TrackerContext } from './types.js';
 
-export const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'AskUserQuestion']);
+/**
+ * Tools that launch a sub-agent.
+ *
+ * Claude Code renamed `Task` to `Agent` (seen from CLI 2.1.x); the input shape
+ * — `description` + `subagent_type` — did not change. Every sub-agent feature
+ * here was gated on the literal 'Task', so the rename silently stopped office
+ * characters from spawning at all. Both names are accepted so the office keeps
+ * working whichever CLI a user has.
+ */
+export const SUBAGENT_TOOL_NAMES = new Set(['Agent', 'Task']);
+
+/**
+ * Tools that never sit waiting on a permission prompt, so a long one must not
+ * raise the "blocked on you" bubble. Launching a sub-agent belongs here: the
+ * parent legitimately sits idle for minutes while the child works.
+ */
+export const PERMISSION_EXEMPT_TOOLS = new Set([...SUBAGENT_TOOL_NAMES, 'AskUserQuestion']);
 
 export function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
+  const cap = (v: unknown, n: number) => {
+    const t = typeof v === 'string' ? v.trim() : '';
+    return t.length > n ? t.slice(0, n) + '…' : t;
+  };
+  // The webview spawns a sub-agent character off this exact "Subtask:" prefix,
+  // so it has to come from one place for every spelling of the tool.
+  if (SUBAGENT_TOOL_NAMES.has(toolName)) {
+    const desc = cap(input.description, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH);
+    return desc ? `Subtask: ${desc}` : 'Running subtask';
+  }
+  // MCP tools arrive as mcp__<server>__<tool> — unreadable raw.
+  if (toolName.startsWith('mcp__')) {
+    const [, server, ...rest] = toolName.split('__');
+    const tool = rest.join('__').replace(/_/g, ' ');
+    return tool ? `${tool} via ${server}` : `Using ${server}`;
+  }
   switch (toolName) {
     case 'Read':
       return `Reading ${base(input.file_path)}`;
@@ -40,12 +72,25 @@ export function formatToolStatus(toolName: string, input: Record<string, unknown
       return 'Fetching web content';
     case 'WebSearch':
       return 'Searching the web';
-    case 'Task': {
-      const desc = typeof input.description === 'string' ? input.description : '';
-      return desc
-        ? `Subtask: ${desc.length > TASK_DESCRIPTION_DISPLAY_MAX_LENGTH ? desc.slice(0, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) + '…' : desc}`
-        : 'Running subtask';
+    case 'Skill': {
+      const skill = cap(input.skill, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH);
+      return skill ? `Running skill: ${skill}` : 'Running a skill';
     }
+    case 'ToolSearch':
+      return 'Looking up tools';
+    case 'TaskCreate': {
+      // activeForm is already present-progressive ("Committing the changes")
+      const label =
+        cap(input.activeForm, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) ||
+        cap(input.subject, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH);
+      return label ? `Planning: ${label}` : 'Planning its work';
+    }
+    case 'TaskUpdate':
+      return 'Planning: updating its list';
+    case 'SendUserFile':
+      return 'Sending you a file';
+    case 'ScheduleWakeup':
+      return 'Scheduling a follow-up';
     case 'AskUserQuestion':
       return 'Waiting for your answer';
     case 'EnterPlanMode':
@@ -105,7 +150,7 @@ export function processTranscriptLine(
             hasNonExemptTool = true;
           }
           let subagentRole: string | undefined;
-          if (toolName === 'Task' && typeof block.input?.subagent_type === 'string') {
+          if (SUBAGENT_TOOL_NAMES.has(toolName) && typeof block.input?.subagent_type === 'string') {
             subagentRole = roleForSubagentType(block.input.subagent_type);
             if (subagentRole) agent.activeTaskSubagentRoles.set(block.id, subagentRole);
           }
@@ -142,8 +187,10 @@ export function processTranscriptLine(
             if (block.is_error) recordToolError(agent.turnStats);
             console.log(`[Agent Campus] Agent ${agentId} tool done: ${block.tool_use_id}`);
             const completedToolId = block.tool_use_id;
-            // If the completed tool was a Task, clear its subagent tools
-            if (agent.activeToolNames.get(completedToolId) === 'Task') {
+            // The sub-agent's character lives until its launching tool returns,
+            // so this must accept the same spellings the spawn side does — or
+            // every sub-agent would leak a character that never leaves its seat.
+            if (SUBAGENT_TOOL_NAMES.has(agent.activeToolNames.get(completedToolId) ?? '')) {
               agent.activeSubagentToolIds.delete(completedToolId);
               agent.activeSubagentToolNames.delete(completedToolId);
               agent.activeTaskSubagentRoles.delete(completedToolId);
@@ -243,7 +290,7 @@ function processProgressRecord(
   }
 
   // Verify parent is an active Task tool (agent_progress handling)
-  if (agent.activeToolNames.get(parentToolId) !== 'Task') return;
+  if (!SUBAGENT_TOOL_NAMES.has(agent.activeToolNames.get(parentToolId) ?? '')) return;
 
   const msg = data.message as Record<string, unknown> | undefined;
   if (!msg) return;

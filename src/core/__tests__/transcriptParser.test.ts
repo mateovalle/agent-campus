@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { HostToWebviewMessage } from '../../../shared/protocol.js';
-import { formatToolStatus, processTranscriptLine } from '../transcriptParser.js';
+import {
+  formatToolStatus,
+  PERMISSION_EXEMPT_TOOLS,
+  processTranscriptLine,
+  SUBAGENT_TOOL_NAMES,
+} from '../transcriptParser.js';
 import { type CoreAgentState, createCoreAgentState, type TrackerContext } from '../types.js';
 
 function makeCtx(): {
@@ -62,6 +67,65 @@ describe('processTranscriptLine', () => {
     const { ctx } = makeCtx();
     processTranscriptLine(ctx, 1, toolUseLine('t1', 'Task'));
     expect(ctx.permissionTimers.has(1)).toBe(false);
+  });
+
+  it('does not arm the permission timer for exempt tools (Agent, the current name)', () => {
+    // Claude Code renamed Task to Agent. While the exemption missed the new
+    // name, every sub-agent launch raised a false "blocked on you" bubble 5s in.
+    const { ctx } = makeCtx();
+    processTranscriptLine(ctx, 1, toolUseLine('t1', 'Agent'));
+    expect(ctx.permissionTimers.has(1)).toBe(false);
+  });
+
+  it('spawns a sub-agent character for a launch under either name', () => {
+    // The webview keys the character off this exact prefix, so it is a contract.
+    for (const name of SUBAGENT_TOOL_NAMES) {
+      const { ctx, sent } = makeCtx();
+      processTranscriptLine(
+        ctx,
+        1,
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 't1',
+                name,
+                input: { description: 'Trace spawn path', subagent_type: 'Explore' },
+              },
+            ],
+          },
+        }),
+      );
+      const start = sent.find((m) => m.type === 'agentToolStart');
+      expect(start, name).toBeDefined();
+      expect(start && 'status' in start && start.status).toBe('Subtask: Trace spawn path');
+    }
+  });
+
+  it('clears the sub-agent character when the launch returns', () => {
+    const { ctx, sent } = makeCtx();
+    processTranscriptLine(
+      ctx,
+      1,
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 't1', name: 'Agent', input: { description: 'x' } }],
+        },
+      }),
+    );
+    processTranscriptLine(
+      ctx,
+      1,
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+      }),
+    );
+    // Without this the character would sit in its seat forever.
+    expect(sent.some((m) => m.type === 'subagentClear' && m.parentToolId === 't1')).toBe(true);
   });
 
   it('completes tools via tool_result and delays the done message', () => {
@@ -137,5 +201,49 @@ describe('formatToolStatus', () => {
 
   it('uses basename for file tools', () => {
     expect(formatToolStatus('Edit', { file_path: '/deep/path/file.ts' })).toBe('Editing file.ts');
+  });
+
+  it('labels a sub-agent launch under either name', () => {
+    for (const name of SUBAGENT_TOOL_NAMES) {
+      expect(formatToolStatus(name, { description: 'Trace spawn path' })).toBe(
+        'Subtask: Trace spawn path',
+      );
+    }
+  });
+
+  it('falls back when a launch carries no description', () => {
+    expect(formatToolStatus('Agent', {})).toBe('Running subtask');
+  });
+
+  it('exempts every sub-agent spelling from the permission bubble', () => {
+    for (const name of SUBAGENT_TOOL_NAMES) {
+      expect(PERMISSION_EXEMPT_TOOLS.has(name)).toBe(true);
+    }
+  });
+
+  it('reads out MCP server and tool instead of the raw id', () => {
+    expect(formatToolStatus('mcp__claude-in-chrome__browser_batch', {})).toBe(
+      'browser batch via claude-in-chrome',
+    );
+    expect(formatToolStatus('mcp__someserver', {})).toBe('Using someserver');
+  });
+
+  it('describes the newer built-ins', () => {
+    expect(formatToolStatus('Skill', { skill: 'run-desktop' })).toBe('Running skill: run-desktop');
+    expect(formatToolStatus('ToolSearch', { query: 'select:Read' })).toBe('Looking up tools');
+    expect(formatToolStatus('SendUserFile', { files: [] })).toBe('Sending you a file');
+  });
+
+  it('prefers TaskCreate.activeForm, which is already present-progressive', () => {
+    expect(
+      formatToolStatus('TaskCreate', { subject: 'Hygiene commit', activeForm: 'Committing it' }),
+    ).toBe('Planning: Committing it');
+    expect(formatToolStatus('TaskCreate', { subject: 'Hygiene commit' })).toBe(
+      'Planning: Hygiene commit',
+    );
+  });
+
+  it('describes an unknown tool rather than dropping it', () => {
+    expect(formatToolStatus('SomethingNew', {})).toBe('Using SomethingNew');
   });
 });
