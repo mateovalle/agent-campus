@@ -103,6 +103,21 @@ export function resolveClaudeExecutable(): string | undefined {
   return undefined;
 }
 
+/**
+ * This turn's cost, from the session running total the SDK reports.
+ *
+ * `total_cost_usd` on a result is cumulative: "each result carries the
+ * running total so far, so read the latest result rather than summing across
+ * results". A ledger that sums the raw field grows quadratically — N turns of
+ * cost c record c*N*(N+1)/2. A total that went DOWN means the counter
+ * restarted (a mid-session /clear resets it; resumed sessions start fresh),
+ * in which case the new total is itself the turn's cost.
+ */
+export function turnCostFromRunningTotal(runningTotal: number, previousTotal: number): number {
+  if (!(runningTotal > 0)) return 0;
+  return runningTotal >= previousTotal ? runningTotal - previousTotal : runningTotal;
+}
+
 /** Human-readable (capped) rendering of a tool input/result value. */
 export function summarizeToolValue(value: unknown): string {
   let text: string;
@@ -228,8 +243,8 @@ export function startChatSession(opts: {
   disallowedTools?: readonly string[];
   /** Start the session in bypassPermissions mode (Settings toggle). */
   bypassPermissions?: boolean;
-  /** Called once per completed turn with the SDK's exact cost/duration. */
-  onTurnComplete?: (costUsd: number, durationMs: number) => void;
+  /** Called once per completed turn with THIS turn's cost (not the running total). */
+  onTurnComplete?: (costUsd: number, durationMs: number, sessionId: string) => void;
 }): ChatSession {
   const { agentId, sessionId, cwd, send } = opts;
   const input = createInputStream();
@@ -364,6 +379,9 @@ export function startChatSession(opts: {
     send({ type: 'chat-event', agentId, event });
   }
 
+  /** Running total the last `result` reported — the base for the next delta. */
+  let sessionCostUsd = 0;
+
   function setBusy(busy: boolean): void {
     if (session.busy === busy) return;
     session.busy = busy;
@@ -425,9 +443,12 @@ export function startChatSession(opts: {
       }
     } else if (msg.type === 'result') {
       setBusy(false);
-      const costUsd = msg.total_cost_usd ?? 0;
+      // total_cost_usd is the session running total, not this turn's cost
+      const runningTotalUsd = msg.total_cost_usd ?? 0;
+      const costUsd = turnCostFromRunningTotal(runningTotalUsd, sessionCostUsd);
+      sessionCostUsd = runningTotalUsd;
       const durationMs = msg.duration_ms ?? 0;
-      opts.onTurnComplete?.(costUsd, durationMs);
+      opts.onTurnComplete?.(costUsd, durationMs, sessionId);
       emit({
         kind: 'turn-complete',
         costUsd,

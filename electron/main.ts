@@ -535,8 +535,8 @@ function launchChatAgent(
         return true;
       },
     },
-    onTurnComplete: (costUsd, durationMs) => {
-      recordTurnUsage(cwd, costUsd, durationMs);
+    onTurnComplete: (costUsd, durationMs, turnSessionId) => {
+      recordTurnUsage(cwd, costUsd, durationMs, turnSessionId);
       ctx.send({ type: 'usageSummary', summary: summarizeUsage() });
       trackAchievement('turnCompleted');
     },
@@ -962,8 +962,8 @@ function openAssistant(): void {
         'mcp__campus__remove_schedule',
       ],
     }),
-    onTurnComplete: (costUsd, durationMs) => {
-      recordTurnUsage(os.homedir(), costUsd, durationMs);
+    onTurnComplete: (costUsd, durationMs, turnSessionId) => {
+      recordTurnUsage(os.homedir(), costUsd, durationMs, turnSessionId);
     },
     onExit: () => {
       // Same as launchChatAgent: keep the inert session for tab replay

@@ -2,8 +2,18 @@
  * Persistent per-turn usage tracking for chat agents.
  *
  * Every completed SDK turn appends one JSONL line to
- * ~/.pixel-agents/usage.jsonl; summaries are aggregated on read. Costs are
- * the SDK's exact total_cost_usd figures (API-equivalent pricing).
+ * ~/.pixel-agents/usage.jsonl; summaries are aggregated on read.
+ *
+ * Each entry holds THIS TURN's cost — the delta the caller derives from the
+ * SDK's running `total_cost_usd`, never that running total itself, which
+ * would make the sums here grow quadratically with turns per session.
+ *
+ * The figures are API-equivalent list pricing ("an estimate, not a billing
+ * statement" per the SDK). On a Claude subscription nothing here is charged
+ * in dollars at all: usage goes against the plan's rate limits.
+ *
+ * Entries written before Sep 2026 carry no session id and hold running
+ * totals rather than deltas, so historical sums read high.
  */
 
 import * as fs from 'fs';
@@ -19,17 +29,30 @@ const MAX_PROJECTS_IN_SUMMARY = 10;
 interface UsageEntry {
   /** Epoch ms of turn completion. */
   t: number;
-  /** Cost in USD. */
+  /** This turn's cost in USD (a delta, not a session running total). */
   c: number;
   /** Turn duration in ms. */
   d: number;
   /** Project cwd. */
   p: string;
+  /** Session that produced the turn. Absent on entries written before it was recorded. */
+  s?: string;
 }
 
-export function recordTurnUsage(cwd: string, costUsd: number, durationMs: number): void {
+export function recordTurnUsage(
+  cwd: string,
+  costUsd: number,
+  durationMs: number,
+  sessionId?: string,
+): void {
   if (!(costUsd > 0) && !(durationMs > 0)) return;
-  const entry: UsageEntry = { t: Date.now(), c: costUsd, d: durationMs, p: cwd };
+  const entry: UsageEntry = {
+    t: Date.now(),
+    c: costUsd,
+    d: durationMs,
+    p: cwd,
+    ...(sessionId ? { s: sessionId } : {}),
+  };
   try {
     fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
     fs.appendFileSync(USAGE_FILE, JSON.stringify(entry) + '\n', 'utf-8');

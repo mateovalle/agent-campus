@@ -25,6 +25,13 @@ import { formatUsd } from '../office/toolUtils.js';
 import { DAY_ABBREV, describeCadence, workspaceBasename } from '../scheduleUtils.js';
 import { vscode } from '../vscodeApi.js';
 
+const usageNoteStyle: React.CSSProperties = {
+  padding: '0 10px 3px',
+  fontSize: '15px',
+  lineHeight: 1.3,
+  color: 'rgba(255, 255, 255, 0.45)',
+};
+
 const usageRowStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
@@ -128,6 +135,10 @@ function UsageSection({ liveSummary }: { liveSummary: UsageSummary | null }) {
     <div style={{ borderTop: '1px solid var(--pixel-border)', marginTop: 4, paddingTop: 4 }}>
       <div style={{ ...usageRowStyle, color: 'rgba(255, 255, 255, 0.9)', fontSize: '20px' }}>
         <span>Chat Usage</span>
+      </div>
+      <div style={usageNoteStyle}>
+        Estimate at API list prices, not a bill. A Claude subscription charges none of it — that
+        usage comes out of the plan&apos;s limits. Terminal agents are not counted.
       </div>
       <DailyBarChart days={summary.days} />
       <div style={usageRowStyle}>
