@@ -509,6 +509,7 @@ function launchChatAgent(
   // The chat equivalent of terminal scrollback replay: rebuild the previous
   // conversation from the transcript so a resumed tab doesn't start blank.
   const resumedHistory = resumeSessionId ? loadTranscriptHistory(agent.jsonlFile) : [];
+  const persistedModel = loadSeatMetaBySession()[sessionId]?.model ?? null;
 
   const session = startChatSession({
     agentId: agent.id,
@@ -521,6 +522,9 @@ function launchChatAgent(
       : {}),
     send: ctx.send,
     bypassPermissions: loadSettings().bypassPermissions,
+    // Model is per SESSION, not global: a resumed agent comes back on the
+    // model it was last switched to (see chatSetModel)
+    ...(persistedModel ? { model: persistedModel } : {}),
     ...(role ? { systemPromptAppend: role.charter, disallowedTools: role.disallowedTools } : {}),
     taskHandlers: {
       list: () => getTodos(cwd),
@@ -1210,6 +1214,13 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       // later (closed panel, recreated tab, webview reload) — re-send the
       // authoritative mode so the selector doesn't stay stuck on 'default'
       ctx.send({ type: 'chat-mode', agentId: msg.id, mode: session.mode });
+      // Same one-shot problem as the mode: the model list arrives at SDK init
+      ctx.send({
+        type: 'chat-models',
+        agentId: msg.id,
+        models: session.models,
+        current: session.model,
+      });
       // Same reason as the mode: the offer lives outside the replayed
       // transcript, so a reloaded webview would otherwise lose it.
       ctx.send({
@@ -1226,6 +1237,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       ?.respondPermission(msg.requestId, msg.allow, msg.message, msg.updatedInput);
   } else if (msg.type === 'chatSetPermissionMode') {
     chatSessions.get(msg.id)?.setMode(msg.mode);
+  } else if (msg.type === 'chatSetModel') {
+    chatSessions.get(msg.id)?.setModel(msg.model);
+    persistAgentModel(msg.id, msg.model);
   } else if (msg.type === 'listResumableSessions') {
     void (async () => {
       const cwd = await resolveAgentCwd(msg.folderPath);
@@ -1522,6 +1536,18 @@ function onWebviewReady(): void {
   }
 }
 
+/**
+ * Remembers a chat agent's model by SESSION id, so resuming it (or reloading
+ * the window) comes back on the same model. null clears the choice.
+ */
+function persistAgentModel(agentId: number, model: string | null): void {
+  const agent = ctx.agents.get(agentId);
+  if (!agent) return;
+  const bySession = loadSeatMetaBySession();
+  bySession[agent.sessionId] = { ...bySession[agent.sessionId], model };
+  saveJsonFile(AGENT_SEATS_FILE, { bySession });
+}
+
 function saveAgentSeats(seatsById: Record<string, AgentSeatMeta> | undefined): void {
   if (!seatsById) return;
   // Re-key by session id so the metadata survives window reloads (agent ids don't)
@@ -1529,9 +1555,16 @@ function saveAgentSeats(seatsById: Record<string, AgentSeatMeta> | undefined): v
   for (const [idStr, meta] of Object.entries(seatsById)) {
     const agent = ctx.agents.get(Number(idStr));
     if (agent) {
-      // The webview doesn't track names — preserve the host-written one
-      const name = meta.name ?? bySession[agent.sessionId]?.name;
-      bySession[agent.sessionId] = { ...meta, ...(name ? { name } : {}) };
+      // The webview tracks neither names nor models — preserve the
+      // host-written ones instead of letting a seat save drop them
+      const prev = bySession[agent.sessionId];
+      const name = meta.name ?? prev?.name;
+      const model = meta.model ?? prev?.model;
+      bySession[agent.sessionId] = {
+        ...meta,
+        ...(name ? { name } : {}),
+        ...(model ? { model } : {}),
+      };
     }
   }
   saveJsonFile(AGENT_SEATS_FILE, { bySession });

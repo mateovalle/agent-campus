@@ -140,6 +140,10 @@ export const CHAT_MS_PER_SEC = 1000;
 export const CHAT_COPY_FEEDBACK_MS = 1200;
 export const CHAT_DOT_STAGGER_SEC = 0.2;
 export const CHAT_MODE_MENU_MIN_WIDTH_PX = 140;
+export const CHAT_MODEL_MENU_MIN_WIDTH_PX = 240;
+export const CHAT_MODEL_MENU_MAX_HEIGHT_PX = 280;
+/** Model names are long; the composer button truncates past this. */
+export const CHAT_MODEL_LABEL_MAX_CHARS = 16;
 export const CHAT_RESUME_MODAL_WIDTH_PX = 380;
 export const CHAT_RESUME_LIST_MAX_HEIGHT_PX = 360;
 export const CHAT_RESUME_PREVIEW_MAX_LINES = 2;

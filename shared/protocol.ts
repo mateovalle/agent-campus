@@ -50,6 +50,8 @@ export interface AgentSeatMeta {
   role?: string | null;
   /** Display name (auto-derived from the first prompt); survives resume via session-keyed persistence. */
   name?: string;
+  /** Model this session last ran on (alias or explicit id); absent = CLI default. */
+  model?: string | null;
 }
 
 /** A recurring agent dispatch (Electron scheduler, ~/.pixel-agents/schedules.json). */
@@ -133,6 +135,20 @@ export interface ChatImageAttachment {
 
 /** Permission modes exposed in the chat UI (subset of Claude Code's modes). */
 export type ChatPermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+/**
+ * A model a chat session can switch to. Mirrors the SDK's ModelInfo (trimmed):
+ * the list is fetched from the running CLI, never hardcoded here, so new models
+ * appear without an app release.
+ */
+export interface ChatModelOption {
+  /** Identifier handed back to the SDK — an alias ('sonnet') or an explicit id. */
+  value: string;
+  /** Canonical wire id `value` resolves to; lets the UI mark the active row. */
+  resolvedModel?: string;
+  displayName: string;
+  description?: string;
+}
 
 /** A past session that can be resumed as a chat agent. */
 export interface ResumableSession {
@@ -348,6 +364,14 @@ export type HostToWebviewMessage =
   | { type: 'workspacesLoaded'; workspaces: WorkspaceInfo[] }
   /** Current permission mode of a chat session (sent on init and change). */
   | { type: 'chat-mode'; agentId: number; mode: ChatPermissionMode }
+  /** Models a chat session can switch to + the active one (init, change, chatReady). */
+  | {
+      type: 'chat-models';
+      agentId: number;
+      models: ChatModelOption[];
+      /** Active model id, or null while the session has not reported one. */
+      current: string | null;
+    }
   /** Resumable sessions for a folder the user picked (reply to listResumableSessions). */
   | { type: 'sessionList'; folderPath: string; sessions: ResumableSession[] }
   // Usage
@@ -429,6 +453,8 @@ export type WebviewToHostMessage =
   | { type: 'getUsageSummary' }
   /** Switch a chat session's permission mode (host echoes 'chat-mode'). */
   | { type: 'chatSetPermissionMode'; id: number; mode: ChatPermissionMode }
+  /** Switch a chat session's model (host echoes 'chat-models'); null = CLI default. */
+  | { type: 'chatSetModel'; id: number; model: string | null }
   /** List resumable sessions (host replies 'sessionList'); shows a folder picker when folderPath is omitted. */
   | { type: 'listResumableSessions'; folderPath?: string }
   /** Register a new workspace via folder picker (host replies 'workspacesLoaded'). */

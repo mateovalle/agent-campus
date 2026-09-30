@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { ChatPermissionMode, HostToWebviewMessage } from '../../../../shared/protocol.js';
+import type {
+  ChatModelOption,
+  ChatPermissionMode,
+  HostToWebviewMessage,
+} from '../../../../shared/protocol.js';
 import {
   CHAT_ACCEPTED_IMAGE_TYPES,
   CHAT_ATTACH_THUMB_PX,
@@ -18,6 +22,9 @@ import {
   CHAT_MAX_IMAGE_BYTES,
   CHAT_MAX_IMAGE_MB,
   CHAT_MODE_MENU_MIN_WIDTH_PX,
+  CHAT_MODEL_LABEL_MAX_CHARS,
+  CHAT_MODEL_MENU_MAX_HEIGHT_PX,
+  CHAT_MODEL_MENU_MIN_WIDTH_PX,
   CHAT_MS_PER_SEC,
   CHAT_NEAR_BOTTOM_PX,
   CHAT_TOOL_GROUP_MIN,
@@ -473,6 +480,132 @@ function ModeSelector({
   );
 }
 
+const modelMenuStyle: React.CSSProperties = {
+  ...modeMenuStyle,
+  minWidth: CHAT_MODEL_MENU_MIN_WIDTH_PX,
+  maxHeight: CHAT_MODEL_MENU_MAX_HEIGHT_PX,
+  overflowY: 'auto',
+};
+
+const modelMenuDescStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: CHAT_BODY_FONT_SIZE_PX - 3,
+  color: 'var(--pixel-text-dim)',
+  whiteSpace: 'normal',
+};
+
+/** The row that hands the model choice back to the CLI default. */
+const MODEL_DEFAULT_LABEL = 'Default';
+/** Hover key for that row — model values are ids, so it needs one of its own. */
+const MODEL_DEFAULT_KEY = '\u0000default';
+
+function truncateModelLabel(name: string): string {
+  return name.length > CHAT_MODEL_LABEL_MAX_CHARS
+    ? `${name.slice(0, CHAT_MODEL_LABEL_MAX_CHARS - 1)}…`
+    : name;
+}
+
+/**
+ * Per-session model selector, twin of ModeSelector. The options come from the
+ * running CLI ('chat-models'), never from a hardcoded list, so the picker
+ * hides itself when the CLI is too old to report any.
+ */
+function ModelPicker({
+  models,
+  active,
+  onSelect,
+}: {
+  models: ChatModelOption[];
+  active: string | null;
+  onSelect: (model: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Close the popup on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [open]);
+
+  if (models.length === 0) return null;
+
+  // An alias row ('sonnet') covers the explicit id the session reports back
+  const current = models.find((m) => m.value === active || m.resolvedModel === active);
+  const label = current ? truncateModelLabel(current.displayName) : MODEL_DEFAULT_LABEL;
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        style={{ ...modeBtnStyle, color: 'var(--pixel-text-dim)' }}
+        onClick={() => setOpen((v) => !v)}
+        title={current ? `Model: ${current.displayName}` : 'Model'}
+      >
+        {label} {open ? '▾' : '▴'}
+      </button>
+      {open && (
+        <div style={modelMenuStyle}>
+          <button
+            style={{
+              ...modeMenuItemStyle,
+              color: 'var(--pixel-text-dim)',
+              background: !current
+                ? 'var(--pixel-active-bg)'
+                : hovered === MODEL_DEFAULT_KEY
+                  ? 'var(--pixel-btn-hover-bg)'
+                  : 'transparent',
+            }}
+            onClick={() => {
+              setOpen(false);
+              onSelect(null);
+            }}
+            onMouseEnter={() => setHovered(MODEL_DEFAULT_KEY)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            {!current ? '▸ ' : ''}
+            {MODEL_DEFAULT_LABEL}
+            <span style={modelMenuDescStyle}>Whatever Claude Code is configured to use</span>
+          </button>
+          {models.map((option) => {
+            const isActive = option === current;
+            return (
+              <button
+                key={option.value}
+                style={{
+                  ...modeMenuItemStyle,
+                  color: 'var(--pixel-text)',
+                  background: isActive
+                    ? 'var(--pixel-active-bg)'
+                    : hovered === option.value
+                      ? 'var(--pixel-btn-hover-bg)'
+                      : 'transparent',
+                }}
+                onClick={() => {
+                  setOpen(false);
+                  onSelect(option.value);
+                }}
+                onMouseEnter={() => setHovered(option.value)}
+                onMouseLeave={() => setHovered(null)}
+              >
+                {isActive ? '▸ ' : ''}
+                {option.displayName}
+                {option.description && <span style={modelMenuDescStyle}>{option.description}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThinkingItem({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -599,6 +732,10 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [draft, setDraft] = useState('');
   // Host is the source of truth ('chat-mode'); updated optimistically on click
   const [mode, setMode] = useState<ChatPermissionMode>('default');
+  // Model options come from the CLI ('chat-models'); `model` above is the
+  // chat transcript reducer, hence the longer names here
+  const [modelOptions, setModelOptions] = useState<ChatModelOption[]>([]);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachWarning, setAttachWarning] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -655,6 +792,10 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-mode') {
         if (msg.agentId !== agentId) return;
         setMode(msg.mode);
+      } else if (msg.type === 'chat-models') {
+        if (msg.agentId !== agentId) return;
+        setModelOptions(msg.models);
+        setActiveModel(msg.current);
       } else if (msg.type === 'chat-suggestion') {
         if (msg.agentId !== agentId) return;
         setSuggestion(msg.suggestion);
@@ -875,6 +1016,14 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
     [agentId],
   );
 
+  const handleModelSelect = useCallback(
+    (next: string | null) => {
+      setActiveModel(next); // optimistic; 'chat-models' echoes the real one
+      vscode.postMessage({ type: 'chatSetModel', id: agentId, model: next });
+    },
+    [agentId],
+  );
+
   const handlePermissionResponse = useCallback(
     (
       requestId: string,
@@ -1065,6 +1214,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
 
       <div style={composerRowStyle}>
         <ModeSelector mode={mode} onSelect={handleModeSelect} />
+        <ModelPicker models={modelOptions} active={activeModel} onSelect={handleModelSelect} />
         <textarea
           ref={textareaRef}
           className="pixel-chat-body"

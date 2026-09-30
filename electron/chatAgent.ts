@@ -24,6 +24,7 @@ import type {
   AgentTodo,
   ChatEvent,
   ChatImageAttachment,
+  ChatModelOption,
   ChatPermissionMode,
   HostToWebviewMessage,
 } from '../shared/protocol.js';
@@ -198,6 +199,10 @@ export interface ChatSession {
   /** Last time the user sent a prompt — used for /clear attribution. */
   lastInputAt: number;
   mode: ChatPermissionMode;
+  /** Models this session can switch to, as reported by the CLI (empty until init). */
+  models: ChatModelOption[];
+  /** Active model id, or null until the CLI reports one. */
+  model: string | null;
   /** Latest TodoWrite plan (resent on webviewReady). */
   latestTodos: AgentTodo[];
   /** Latest predicted next prompt from the SDK (resent on chatReady). */
@@ -205,6 +210,8 @@ export interface ChatSession {
   send(text: string, images?: ChatImageAttachment[]): void;
   interrupt(): void;
   setMode(mode: ChatPermissionMode): void;
+  /** Switch the model for subsequent turns; null restores the CLI default. */
+  setModel(model: string | null): void;
   respondPermission(
     requestId: string,
     allow: boolean,
@@ -243,6 +250,8 @@ export function startChatSession(opts: {
   disallowedTools?: readonly string[];
   /** Start the session in bypassPermissions mode (Settings toggle). */
   bypassPermissions?: boolean;
+  /** Model to start on (persisted per session); omitted/null = the CLI default. */
+  model?: string | null;
   /** Called once per completed turn with THIS turn's cost (not the running total). */
   onTurnComplete?: (costUsd: number, durationMs: number, sessionId: string) => void;
 }): ChatSession {
@@ -269,6 +278,8 @@ export function startChatSession(opts: {
     ended: false,
     lastInputAt: Date.now(),
     mode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
+    models: [],
+    model: opts.model ?? null,
     latestTodos: [],
     latestSuggestion: null,
 
@@ -324,6 +335,21 @@ export function startChatSession(opts: {
         }
         // Echo the authoritative mode either way so the UI reconciles
         send({ type: 'chat-mode', agentId, mode: session.mode });
+      })();
+    },
+
+    setModel(model: string | null): void {
+      if (disposed) return;
+      void (async () => {
+        try {
+          // undefined (not null) is the SDK's "use the default model" signal
+          await query?.setModel(model ?? undefined);
+          session.model = model;
+        } catch (err) {
+          console.error(`[Agent Campus] Chat ${agentId}: setModel failed`, err);
+        }
+        // Echo the authoritative model either way so the picker reconciles
+        sendModels();
       })();
     },
 
@@ -392,6 +418,31 @@ export function startChatSession(opts: {
     if (session.latestSuggestion === suggestion) return;
     session.latestSuggestion = suggestion;
     send({ type: 'chat-suggestion', agentId, suggestion });
+  }
+
+  function sendModels(): void {
+    send({ type: 'chat-models', agentId, models: session.models, current: session.model });
+  }
+
+  /**
+   * Asks the running CLI which models it offers. The list is never hardcoded
+   * (model line-ups change between CLI releases), and a CLI too old to answer
+   * simply leaves it empty — the picker then hides itself.
+   */
+  async function loadModels(): Promise<void> {
+    try {
+      const models = await query?.supportedModels();
+      if (disposed || !models) return;
+      session.models = models.map((m) => ({
+        value: m.value,
+        ...(m.resolvedModel ? { resolvedModel: m.resolvedModel } : {}),
+        displayName: m.displayName,
+        ...(m.description ? { description: m.description } : {}),
+      }));
+      sendModels();
+    } catch (err) {
+      console.error(`[Agent Campus] Chat ${agentId}: supportedModels failed`, err);
+    }
   }
 
   function handleMessage(msg: SDKMessage): void {
@@ -464,6 +515,11 @@ export function startChatSession(opts: {
     } else if (msg.type === 'system' && msg.subtype === 'init') {
       initialized = true;
       send({ type: 'chat-mode', agentId, mode: session.mode });
+      // init carries the model the CLI actually resolved — authoritative over
+      // whatever we asked for (an alias, or nothing at all)
+      session.model = msg.model ?? session.model;
+      sendModels();
+      void loadModels();
     }
   }
 
@@ -476,6 +532,8 @@ export function startChatSession(opts: {
     // Resuming continues the same session id (no fork), so the transcript
     // watcher registered on this id keeps working in both cases.
     ...(opts.resume ? { resume: sessionId } : { sessionId }),
+    // Per-session model choice (persisted by session id); absent = CLI default
+    ...(opts.model ? { model: opts.model } : {}),
     permissionMode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
     // Required for the Bypass option (initial mode or mode selector) to be
     // accepted; without the setting, sessions START in 'default'.

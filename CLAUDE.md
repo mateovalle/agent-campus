@@ -350,6 +350,20 @@ bound to the subtree rather than the window because background tabs stay mounted
 (`chatSetPermissionMode` → `chat-mode` echo), separate from the global "new agents start with
 permissions bypassed" setting in Settings.
 
+**Chat model picker**: per-SESSION model choice, never a global setting — a dropdown in the
+composer next to the permission-mode picker. The option list is NOT hardcoded: `chatAgent.ts`
+asks the running CLI (`query.supportedModels()`) once at SDK init and ships it as `chat-models`
+(with the model `system init` reports, which is authoritative over whatever we asked for), so new
+models appear without an app release and a CLI too old to answer leaves the list empty — the
+picker then hides itself. Switching sends `chatSetModel` → `query.setModel()` (live, mid-session)
+→ `chat-models` echo; "Default" (null) hands the choice back to the CLI. Persisted as
+`AgentSeatMeta.model` by session id, so a resumed agent comes back on its model and
+`launchChatAgent` seeds `Options.model` at startup. Like `name`, it is HOST-written: `saveAgentSeats`
+must preserve it, since the webview doesn't track it and would otherwise drop it on the next seat
+save. Alias rows ('sonnet') are matched to the explicit id the session reports via
+`ModelInfo.resolvedModel`. Re-sent on `chatReady` for the same reason as `chat-mode`. Terminal
+agents are unaffected — they have the CLI's own `/model`.
+
 **Action suggestion buttons**: On `turn_duration`, core sends `agentSuggestions` derived from the turn's TurnStats (`actionSuggestions.ts` heuristics: edits → Review/Test, clean tests → Commit, ≥3 tool errors → Investigate). ToolOverlay renders them as buttons under the selected character's status pill (hidden while active). Clicking sends `runAgentAction` — the host writes the command to the PTY (text, then `\r` after `PTY_ACTION_ENTER_DELAY_MS`) or calls `ChatSession.send()`. Commands are plain-language prompts (not slash commands) so they work without any skills installed. Suggestions cleared on new user prompt (empty array), agent close, and optimistically on click.
 
 **Sound notifications**: ascending two-note chime (E5 → E6) via Web Audio API, played by
