@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import type {
   AgentSeatMeta,
+  RestorableAgent,
   ResumableSession,
   ScheduleEntry,
   WebviewToHostMessage,
@@ -51,6 +52,12 @@ import {
   readOfficeTemplate,
   writeOfficeTemplate,
 } from './officeTemplate.js';
+import {
+  forgetOpenAgents,
+  loadOpenAgents,
+  restorableAgents,
+  saveOpenAgents,
+} from './openAgents.js';
 import {
   addSchedule,
   collectDueSchedules,
@@ -106,6 +113,10 @@ interface AgentState extends CoreAgentState {
   label: string;
   /** True once the label was auto-derived (or restored) — stops further renames. */
   autoNamed: boolean;
+  /** Dispatch role, when created with one — replayed if the agent is restored. */
+  role?: string;
+  /** When this agent was opened, for ordering the restore offer. */
+  openedAtMs: number;
 }
 
 interface PtyRecord {
@@ -383,10 +394,40 @@ function registerAgent(
     cwd,
     label: storedName ?? label,
     autoNamed: !!storedName,
+    openedAtMs: Date.now(),
   };
   ctx.agents.set(id, agent);
   pollForJsonlFile(id, skipToEnd);
+  snapshotOpenAgents();
   return agent;
+}
+
+/**
+ * Record the agents currently open, so the next launch can offer them back.
+ *
+ * Skipped while shutting down: quitting removes every agent, and a snapshot
+ * taken then would write the empty list over the very thing being saved.
+ */
+function snapshotOpenAgents(): void {
+  if (shuttingDown) return;
+  const meta = loadSeatMetaBySession();
+  const records: RestorableAgent[] = [...ctx.agents.values()]
+    .sort((a, b) => a.openedAtMs - b.openedAtMs)
+    .map((agent) => {
+      // The role reaches disk through the seat-save path, which may not have
+      // run yet for a just-created agent — prefer what we were launched with.
+      const role = agent.role ?? meta[agent.sessionId]?.role ?? undefined;
+      return {
+        sessionId: agent.sessionId,
+        cwd: agent.cwd,
+        folderName: path.basename(agent.cwd),
+        kind: agent.kind,
+        label: agent.label,
+        ...(role ? { role } : {}),
+        openedAtMs: agent.openedAtMs,
+      };
+    });
+  saveOpenAgents(records);
 }
 
 /**
@@ -460,12 +501,21 @@ function startClaudeLogin(): void {
   console.log('[Agent Campus] Opened a Claude Code login terminal');
 }
 
-function launchAgent(cwd: string): void {
-  const sessionId = crypto.randomUUID();
-  const agent = registerAgent('terminal', cwd, sessionId, `Agent ${nextTerminalIndex++}`);
+function launchAgent(cwd: string, resumeSessionId?: string): void {
+  const sessionId = resumeSessionId ?? crypto.randomUUID();
+  const agent = registerAgent(
+    'terminal',
+    cwd,
+    sessionId,
+    `Agent ${nextTerminalIndex++}`,
+    !!resumeSessionId,
+  );
+  // Resuming continues the same session id, so the transcript watcher
+  // registered on it keeps working exactly as for a fresh one.
+  const sessionFlag = resumeSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
   const ptyId = spawnPty({
     cwd,
-    command: `claude --session-id ${sessionId}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
+    command: `claude ${sessionFlag}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
     sessionId,
     label: agent.label,
   });
@@ -505,6 +555,10 @@ function launchChatAgent(
   // Placeholder until the first prompt names the tab; roles make a better one
   const defaultLabel = role ? role.id : `Agent ${nextTerminalIndex++}`;
   const agent = registerAgent('chat', cwd, sessionId, defaultLabel, !!resumeSessionId);
+  if (roleId) {
+    agent.role = roleId;
+    snapshotOpenAgents(); // the role arrived after registration
+  }
 
   // The chat equivalent of terminal scrollback replay: rebuild the previous
   // conversation from the transcript so a resumed tab doesn't start blank.
@@ -633,6 +687,9 @@ function removeAgent(agentId: number): void {
     ptyToAgent.delete(ptyId);
   }
   ctx.agents.delete(agentId);
+  // A closed agent stops being offered on restart; during shutdown the list is
+  // left exactly as it was, which is the whole point of keeping it.
+  snapshotOpenAgents();
 
   // Stop scanning project dirs no other agent uses
   let dirStillUsed = false;
@@ -1353,6 +1410,20 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       if (s) dispatchSchedule(s);
     }
     sendSchedules();
+  } else if (msg.type === 'restoreAgents') {
+    const byId = new Map(loadOpenAgents().map((r) => [r.sessionId, r]));
+    // Forget the whole offer first: a declined agent must not be offered
+    // again, and a restored one re-registers itself (rewriting this list).
+    forgetOpenAgents([...msg.sessionIds, ...msg.skipIds]);
+    for (const sessionId of msg.sessionIds) {
+      const record = byId.get(sessionId);
+      if (!record) continue;
+      if (record.kind === 'terminal') {
+        launchAgent(record.cwd, sessionId);
+      } else {
+        launchChatAgent(record.cwd, sessionId, undefined, record.role);
+      }
+    }
   } else if (msg.type === 'closeAgent') {
     const id = msg.id;
     const chat = chatSessions.get(id);
@@ -1498,6 +1569,20 @@ function onWebviewReady(): void {
   const missed = collectMissedSchedules();
   if (missed.length > 0) {
     ctx.send({ type: 'missedSchedules', missed });
+  }
+
+  // Same shape, one layer up: agents that were open when the app last quit.
+  // Filtered against the live set, so a webview reload (where every agent is
+  // already running) offers nothing.
+  const liveSessions = new Set([...ctx.agents.values()].map((a) => a.sessionId));
+  const restorable = restorableAgents(
+    loadOpenAgents(),
+    (record) =>
+      fs.existsSync(path.join(getProjectDirPath(record.cwd), `${record.sessionId}.jsonl`)),
+    (sessionId) => liveSessions.has(sessionId),
+  );
+  if (restorable.length > 0) {
+    ctx.send({ type: 'restorableAgents', agents: restorable });
   }
 
   // Send registered workspaces (offices)
@@ -1650,7 +1735,14 @@ function createWindow(): void {
 }
 
 // ── App Lifecycle ────────────────────────────────────────────
+/**
+ * True once shutdown began. Quitting tears down every agent, and the open-agent
+ * snapshot must not follow it down to an empty list.
+ */
+let shuttingDown = false;
+
 function cleanupAndQuit(): void {
+  shuttingDown = true;
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;

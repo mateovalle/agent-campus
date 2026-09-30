@@ -13,6 +13,7 @@ import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
 import { MissedRunsModal } from './components/MissedRunsModal.js';
 import { OfficePopup } from './components/OfficePopup.js';
+import { RestoreAgentsModal } from './components/RestoreAgentsModal.js';
 import type { AgentTaskGroup } from './components/TasksDrawer.js';
 import { TasksDrawer } from './components/TasksDrawer.js';
 import { TerminalPanel } from './components/TerminalPanel.js';
@@ -180,6 +181,8 @@ function App() {
     bypassPermissions,
     missedRuns,
     clearMissedRuns,
+    restorableAgents,
+    clearRestorableAgents,
   } = useExtensionMessages(campus, editor.setLastSavedLayout, isEditDirty);
 
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -507,6 +510,7 @@ function App() {
         <WelcomeModal auth={claudeAuth} />
 
         <MissedRunsModal missed={missedRuns} onResolved={clearMissedRuns} />
+        <RestoreAgentsModal agents={restorableAgents} onResolved={clearRestorableAgents} />
 
         {editor.isEditMode && editor.isDirty && (
           <EditActionBar editor={editor} editorState={editorState} />

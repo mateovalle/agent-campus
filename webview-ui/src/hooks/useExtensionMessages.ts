@@ -7,6 +7,7 @@ import type {
   ClaudeAuthState,
   HostToWebviewMessage,
   MissedScheduleRun,
+  RestorableAgent,
   ScheduleEntry,
   TodoItem,
   UsageSummary,
@@ -100,8 +101,10 @@ export interface ExtensionMessageState {
   bypassPermissions: boolean;
   /** Daily/weekly runs missed while the app was closed (pick-and-run prompt). */
   missedRuns: MissedScheduleRun[];
+  restorableAgents: RestorableAgent[];
   /** Clears the missed-runs prompt after it's resolved. */
   clearMissedRuns: () => void;
+  clearRestorableAgents: () => void;
 }
 
 /** Aggregate seat assignments across every office on the campus and persist. */
@@ -160,6 +163,8 @@ export function useExtensionMessages(
   const [bypassPermissions, setBypassPermissions] = useState(false);
   const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
   const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
+  const [restorable, setRestorable] = useState<RestorableAgent[]>([]);
+  const clearRestorableAgents = useCallback(() => setRestorable([]), []);
 
   const dismissUnlock = useCallback(() => {
     setUnlockQueue((prev) => prev.slice(1));
@@ -634,6 +639,8 @@ export function useExtensionMessages(
         setBypassPermissions(msg.bypassPermissions ?? false);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
+      } else if (msg.type === 'restorableAgents') {
+        setRestorable(msg.agents);
       } else if (msg.type === 'missedSchedules') {
         setMissedRuns(msg.missed);
       } else if (msg.type === 'usageSummary') {
@@ -703,5 +710,7 @@ export function useExtensionMessages(
     bypassPermissions,
     missedRuns,
     clearMissedRuns,
+    restorableAgents: restorable,
+    clearRestorableAgents,
   };
 }

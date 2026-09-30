@@ -56,7 +56,18 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 webviewReady AND hot-reloaded via a layouts-dir watcher (debounced,
                                 own-write suppression) — external edits apply without restart
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
-                                task lists, per-turn cost ledger
+                                task lists, per-turn cost ledger (per-turn DELTAS derived from the
+                                SDK's cumulative total_cost_usd — summing that field raw inflates
+                                spend quadratically; figures are API-list estimates, not plan spend)
+  openAgents.ts               — Which agents were open, so a restart can offer them back
+                                (~/.pixel-agents/open-agents.json). Written on every open and close,
+                                not at quit, so a crash can't lose the list and every platform behaves
+                                alike. Pure `restorableAgents()` (tested) drops malformed, duplicate,
+                                already-live and transcript-less records → `restorableAgents` message
+                                → RestoreAgentsModal (pre-ticked checkboxes) → `restoreAgents`
+                                relaunches picks (`claude --resume` / launchChatAgent resume) and
+                                forgets the whole offer, so a declined agent is never re-offered.
+                                Asks rather than auto-restoring: each one is a real session spawning
   officeTemplate.ts           — The STARTER office (~/.pixel-agents/office-template.json): the
                                 layout a workspace's office is born with when it has no design of
                                 its own. Absent by default → the bundled default-layout.json.

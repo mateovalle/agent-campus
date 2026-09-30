@@ -150,6 +150,26 @@ export interface ChatModelOption {
   description?: string;
 }
 
+/**
+ * An agent that was open when the app last ran, offered back on restart.
+ * Carries only what relaunching needs — the conversation itself is resumed
+ * from the session's transcript.
+ */
+export interface RestorableAgent {
+  sessionId: string;
+  /** Workspace the agent was working in. */
+  cwd: string;
+  /** basename(cwd), for display. */
+  folderName: string;
+  kind: 'terminal' | 'chat';
+  /** The name the agent had earned (auto-derived from its first prompt). */
+  label: string;
+  /** Dispatch role, so a restored agent keeps its charter and skin. */
+  role?: string;
+  /** When it was last opened — the list is shown newest last. */
+  openedAtMs: number;
+}
+
 /** A past session that can be resumed as a chat agent. */
 export interface ResumableSession {
   sessionId: string;
@@ -303,6 +323,11 @@ export type HostToWebviewMessage =
   // Sent on webview ready when daily/weekly occurrences were missed while the
   // app was closed; the user picks which to run via resolveMissedSchedules.
   | { type: 'missedSchedules'; missed: MissedScheduleRun[] }
+  /**
+   * Agents that were open when the app last quit and are not running now.
+   * The user picks which to bring back via restoreAgents.
+   */
+  | { type: 'restorableAgents'; agents: RestorableAgent[] }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   // agentId/workspacePath/folderName let the tab bar group tabs per workspace
@@ -446,6 +471,9 @@ export type WebviewToHostMessage =
   // Resolves a missedSchedules prompt: dispatch runIds now, mark ALL listed
   // ids as handled so the same occurrences aren't re-offered next launch.
   | { type: 'resolveMissedSchedules'; runIds: string[]; skipIds: string[] }
+  // Resolves a restorableAgents offer: relaunch sessionIds, forget skipIds so
+  // neither set is offered again.
+  | { type: 'restoreAgents'; sessionIds: string[]; skipIds: string[] }
   | { type: 'openSessionsFolder' }
   | { type: 'exportLayout' }
   | { type: 'importLayout' }
