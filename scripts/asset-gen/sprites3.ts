@@ -55,7 +55,7 @@ import {
   WOOD_LIGHT,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, px, validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -199,6 +199,27 @@ const TV_DASHBOARD = (() => {
     },
   );
 })();
+
+/**
+ * Live dashboard: the four bars re-settle to new values every frame and the
+ * header's live dot blinks. The line chart and the frame stay put.
+ */
+const TV_DASHBOARD_ANIM = animate(TV_DASHBOARD, 4, 420, (g, i) => {
+  const bars: [number, number[], string][] = [
+    [18, [3, 4, 5, 4], AMBER],
+    [21, [5, 6, 4, 5], LED_GREEN],
+    [24, [2, 3, 2, 1], RED],
+    [27, [6, 5, 6, 4], SKY],
+  ];
+  for (const [x, hs, color] of bars) {
+    for (let y = 4; y <= 10; y++) {
+      const c = y > 10 - hs[i] ? color : SCREEN_BLUE;
+      px(g, x, y, c);
+      px(g, x + 1, y, c);
+    }
+  }
+  px(g, 27, 3, i % 2 ? SCREEN_SHADOW : LED_GREEN);
+});
 
 // ════════════════════════════════════════════════════════════════
 // 3. desk_lamp — small articulated lamp, 16x16, on-surface
@@ -720,7 +741,7 @@ export const SPRITES3: GeneratedSprite[] = [
     heightPx: 16,
     footprintW: 2,
     footprintH: 1,
-    sprite: TV_DASHBOARD,
+    ...TV_DASHBOARD_ANIM,
     groupId: 'tv_dashboard',
     orientation: 'front',
   },

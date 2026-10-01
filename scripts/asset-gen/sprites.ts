@@ -60,6 +60,14 @@ export interface GeneratedSprite {
   groupId?: string;
   /** 'front' | 'back' | 'left' | 'right' (with groupId). */
   orientation?: string;
+  /**
+   * Animation: the frames AFTER `sprite` (which is frame 0 and what every
+   * non-animating consumer sees). Same widthPx × heightPx each. Exported as
+   * `<id>@1.png`, `<id>@2.png`, … and looped by the renderer.
+   */
+  frames?: string[][][];
+  /** Milliseconds per frame (default FURNITURE_FRAME_MS in the webview). */
+  frameMs?: number;
 }
 
 type Legend = Record<string, string>;
@@ -79,6 +87,61 @@ function fromAscii(rows: string[], legend: Legend): string[][] {
 /** Repeat a char n times (readability helper for long rows). */
 function rep(ch: string, n: number): string {
   return ch.repeat(n);
+}
+
+// ════════════════════════════════════════════════════════════════
+// Animation helpers (shared by every batch file that animates a piece)
+// ════════════════════════════════════════════════════════════════
+
+/** A still (frame 0) plus the frames after it, ready to spread into a GeneratedSprite. */
+export interface Animation {
+  sprite: string[][];
+  frames: string[][][];
+  frameMs: number;
+}
+
+/**
+ * Build a looping animation from a still. `paint(g, i)` gets a fresh copy of
+ * `base` for every frame i in 0..n-1 and redraws ONLY the animated region.
+ * Frame 0 is painted too, so the still and the loop come out of the same
+ * code and cannot drift apart — and frame n-1 → frame 0 is just one more step
+ * of the same cycle, never a jump.
+ */
+export function animate(
+  base: string[][],
+  n: number,
+  frameMs: number,
+  paint: (g: string[][], i: number) => void,
+): Animation {
+  const all = Array.from({ length: n }, (_, i) => {
+    const g = base.map((r) => [...r]);
+    paint(g, i);
+    return g;
+  });
+  return { sprite: all[0], frames: all.slice(1), frameMs };
+}
+
+/** Set one pixel of a hex grid (out-of-range writes are ignored). */
+export function px(g: string[][], x: number, y: number, color: string): void {
+  if (y >= 0 && y < g.length && x >= 0 && x < g[0].length) g[y][x] = color;
+}
+
+/** Recolour every `from` pixel inside the box [x0,y0]..[x1,y1] (inclusive). */
+export function recolor(
+  g: string[][],
+  box: [number, number, number, number],
+  from: string,
+  to: string,
+): void {
+  const [x0, y0, x1, y1] = box;
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) if (g[y]?.[x] === from) g[y][x] = to;
+}
+
+/** Same animation for a mirrored variant (e.g. a 'left' made from the 'right'). */
+export function mirrorAnimation(a: Animation): Animation {
+  const flip = (s: string[][]) => s.map((r) => [...r].reverse());
+  return { sprite: flip(a.sprite), frames: a.frames.map(flip), frameMs: a.frameMs };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -279,6 +342,28 @@ const SERVER_RACK = (() => {
   });
 })();
 
+/**
+ * Server rack LEDs: disk-activity blinking. One string per LED, one char per
+ * frame (G green / A amber / R red / '-' off — the unit face shows through).
+ * Column 0 of each string is the still above, so frame 0 is unchanged.
+ */
+const SERVER_RACK_LEDS: [string, string][] = [
+  ['G-GG-G', 'GGG-G-'],
+  ['GG-G-G', 'AAAAAA'],
+  ['GGG-G-', 'G-GGG-'],
+  ['AAAAAA', 'GG-G-G'],
+  ['G-G-GG', 'RRR---'],
+  ['GG-GG-', 'G-G-GG'],
+  ['AAAAAA', 'AA-AA-'],
+];
+const SERVER_RACK_ANIM = animate(SERVER_RACK, 6, 160, (g, i) => {
+  const color: Record<string, string> = { G: LED_GREEN, A: AMBER, R: RED, '-': IRON };
+  SERVER_RACK_LEDS.forEach(([a, b], u) => {
+    px(g, 10, 7 + 5 * u, color[a[i]]);
+    px(g, 11, 7 + 5 * u, color[b[i]]);
+  });
+});
+
 // ════════════════════════════════════════════════════════════════
 // 5. plant_monstera — big leafy plant in pot, 16x32, 1x1
 //    Three large lobed leaves with slits (transparent cuts), dark
@@ -419,6 +504,31 @@ const FISH_TANK = (() => {
     L: WOOD_LIGHT,
   });
 })();
+
+/**
+ * Fish tank: two columns of bubbles rising 1px a frame (spaced one loop
+ * apart, so the column never jumps) and two fish idling — each nudges a pixel
+ * forward and back, half a loop out of step with the other. Fish swim behind
+ * the plants (they only paint over open water).
+ */
+const FISH_TANK_ANIM = animate(FISH_TANK, 4, 280, (g, i) => {
+  const box: [number, number, number, number] = [3, 2, 29, 12];
+  recolor(g, box, ICE, BLUE);
+  recolor(g, box, ORANGE, BLUE);
+  const water = (x: number, y: number, c: string) => {
+    if (g[y]?.[x] === BLUE) g[y][x] = c;
+  };
+  const fish = (x: number, y: number) => {
+    for (let dx = 1; dx <= 3; dx++) water(x + dx, y, ORANGE);
+    for (let dx = 0; dx <= 3; dx++) water(x + dx, y + 1, ORANGE);
+  };
+  fish(10 - [0, 1, 1, 0][i], 5);
+  fish(17 + [0, 0, 1, 1][i], 9);
+  for (let y = 2; y <= 7; y++) {
+    if ((y + i) % 4 === 1) water(26, y, ICE);
+    if ((y + i) % 4 === 3) water(19 - (y % 2), y, ICE);
+  }
+});
 
 // ════════════════════════════════════════════════════════════════
 // 8. rug_large — patterned rug, 48x32, 3x2, walkable decor
@@ -653,7 +763,7 @@ export const SPRITES: GeneratedSprite[] = [
     heightPx: 48,
     footprintW: 1,
     footprintH: 1,
-    sprite: SERVER_RACK,
+    ...SERVER_RACK_ANIM,
     groupId: 'server_rack',
     orientation: 'front',
   },
@@ -685,7 +795,7 @@ export const SPRITES: GeneratedSprite[] = [
     heightPx: 32,
     footprintW: 2,
     footprintH: 1,
-    sprite: FISH_TANK,
+    ...FISH_TANK_ANIM,
     groupId: 'fish_tank',
     orientation: 'front',
   },
@@ -732,6 +842,11 @@ export function validateSprites(sprites: GeneratedSprite[]): void {
     s.sprite.forEach((row, r) => {
       if (row.length !== s.widthPx) {
         throw new Error(`${s.id}: row ${r} width ${row.length} !== declared ${s.widthPx}`);
+      }
+    });
+    (s.frames ?? []).forEach((f, i) => {
+      if (f.length !== s.heightPx || f.some((row) => row.length !== s.widthPx)) {
+        throw new Error(`${s.id}: frame ${i + 1} is not ${s.widthPx}x${s.heightPx}`);
       }
     });
   }

@@ -20,7 +20,6 @@ import {
   CHAR_FRAME_W,
   CHAR_FRAMES_PER_ROW,
   CHARACTER_DIRECTIONS,
-  FLOOR_PATTERN_COUNT,
   FLOOR_TILE_SIZE,
   PNG_ALPHA_THRESHOLD,
   ROLE_SKIN_DEFS,
@@ -79,6 +78,16 @@ export async function loadFurnitureAssets(workspaceRoot: string): Promise<Loaded
         const spriteData = pngToSpriteData(pngBuffer, asset.width, asset.height);
 
         sprites.set(asset.id, spriteData);
+
+        // Animation frames 1..n-1 sit beside frame 0 as <id>@<k>.png
+        for (let k = 1; k < (asset.frames ?? 1); k++) {
+          const framePath = assetPath.replace(/\.png$/, `@${k}.png`);
+          if (!fs.existsSync(framePath)) break;
+          sprites.set(
+            `${asset.id}@${k}`,
+            pngToSpriteData(fs.readFileSync(framePath), asset.width, asset.height),
+          );
+        }
       } catch (err) {
         console.warn(
           `  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`,
@@ -186,8 +195,9 @@ export interface LoadedWallTiles {
 }
 
 /**
- * Load wall tiles from walls.png (64×128, 4×4 grid of 16×32 pieces).
- * Piece at bitmask M: col = M % 4, row = floor(M / 4).
+ * Load wall tiles from walls.png: one 64×128 sheet (4×4 grid of 16×32 pieces)
+ * per wall style, styles stacked vertically. Piece at bitmask M of style S:
+ * col = M % 4, row = S * 4 + floor(M / 4). Sent flat, 16 sprites per style.
  */
 export async function loadWallTiles(assetsRoot: string): Promise<LoadedWallTiles | null> {
   try {
@@ -201,10 +211,14 @@ export async function loadWallTiles(assetsRoot: string): Promise<LoadedWallTiles
     const pngBuffer = fs.readFileSync(wallPath);
     const png = PNG.sync.read(pngBuffer);
 
+    const sheetHeight = (WALL_BITMASK_COUNT / WALL_GRID_COLS) * WALL_PIECE_HEIGHT;
+    const styleCount = Math.max(1, Math.floor(png.height / sheetHeight));
     const sprites: string[][][] = [];
-    for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
+    for (let piece = 0; piece < styleCount * WALL_BITMASK_COUNT; piece++) {
+      const style = Math.floor(piece / WALL_BITMASK_COUNT);
+      const mask = piece % WALL_BITMASK_COUNT;
       const ox = (mask % WALL_GRID_COLS) * WALL_PIECE_WIDTH;
-      const oy = Math.floor(mask / WALL_GRID_COLS) * WALL_PIECE_HEIGHT;
+      const oy = style * sheetHeight + Math.floor(mask / WALL_GRID_COLS) * WALL_PIECE_HEIGHT;
       const sprite: string[][] = [];
       for (let r = 0; r < WALL_PIECE_HEIGHT; r++) {
         const row: string[] = [];
@@ -227,7 +241,7 @@ export async function loadWallTiles(assetsRoot: string): Promise<LoadedWallTiles
       sprites.push(sprite);
     }
 
-    console.log(`[AssetLoader] ✅ Loaded ${sprites.length} wall tile pieces`);
+    console.log(`[AssetLoader] ✅ Loaded ${styleCount} wall style(s), ${sprites.length} pieces`);
     return { sprites };
   } catch (err) {
     console.error(
@@ -246,11 +260,12 @@ export function sendWallTiles(send: Send, wallTiles: LoadedWallTiles): void {
 }
 
 export interface LoadedFloorTiles {
-  sprites: string[][][]; // 7 sprites, each 16x16 SpriteData
+  sprites: string[][][]; // one 16x16 SpriteData per pattern
 }
 
 /**
- * Load floor tile patterns from floors.png (7 tiles, 16px each, horizontal strip)
+ * Load floor tile patterns from floors.png (16px tiles in a horizontal strip;
+ * the pattern count is the strip's width / 16).
  */
 export async function loadFloorTiles(assetsRoot: string): Promise<LoadedFloorTiles | null> {
   try {
@@ -264,7 +279,8 @@ export async function loadFloorTiles(assetsRoot: string): Promise<LoadedFloorTil
     const pngBuffer = fs.readFileSync(floorPath);
     const png = PNG.sync.read(pngBuffer);
     const sprites: string[][][] = [];
-    for (let t = 0; t < FLOOR_PATTERN_COUNT; t++) {
+    const patternCount = Math.floor(png.width / FLOOR_TILE_SIZE);
+    for (let t = 0; t < patternCount; t++) {
       const sprite: string[][] = [];
       for (let y = 0; y < FLOOR_TILE_SIZE; y++) {
         const row: string[] = [];

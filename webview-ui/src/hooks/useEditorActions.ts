@@ -26,7 +26,13 @@ import type {
   TileType as TileTypeVal,
 } from '../office/types.js';
 import { EditTool } from '../office/types.js';
-import { TileType } from '../office/types.js';
+import {
+  isFloorTile,
+  isWallTile,
+  TileType,
+  wallStyleOf,
+  wallTileForStyle,
+} from '../office/types.js';
 import { vscode } from '../vscodeApi.js';
 
 export interface EditorActions {
@@ -40,6 +46,7 @@ export interface EditorActions {
   handleToggleEditMode: () => void;
   handleToolChange: (tool: EditToolType) => void;
   handleTileTypeChange: (type: TileTypeVal) => void;
+  handleWallStyleChange: (style: number) => void;
   handleFloorColorChange: (color: FloorColor) => void;
   handleWallColorChange: (color: FloorColor) => void;
   handleSelectedFurnitureColorChange: (color: FloorColor | null) => void;
@@ -140,7 +147,7 @@ export function useEditorActions(
         // Initialize wallColor from existing wall tiles so new walls match
         if (layout.tileColors) {
           for (let i = 0; i < layout.tiles.length; i++) {
-            if (layout.tiles[i] === TileType.WALL && layout.tileColors[i]) {
+            if (isWallTile(layout.tiles[i]) && layout.tileColors[i]) {
               editorState.wallColor = { ...layout.tileColors[i]! };
               break;
             }
@@ -182,6 +189,14 @@ export function useEditorActions(
     [editorState],
   );
 
+  const handleWallStyleChange = useCallback(
+    (style: number) => {
+      editorState.selectedWallStyle = style;
+      setEditorTick((n) => n + 1);
+    },
+    [editorState],
+  );
+
   const handleFloorColorChange = useCallback(
     (color: FloorColor) => {
       editorState.floorColor = color;
@@ -201,7 +216,7 @@ export function useEditorActions(
       const newColors = [...existingColors];
       let changed = false;
       for (let i = 0; i < layout.tiles.length; i++) {
-        if (layout.tiles[i] === TileType.WALL) {
+        if (isWallTile(layout.tiles[i])) {
           newColors[i] = { ...color };
           changed = true;
         }
@@ -488,18 +503,18 @@ export function useEditorActions(
         );
       } else if (editorState.activeTool === EditTool.WALL_PAINT) {
         const idx = effectiveRow * layout.cols + effectiveCol;
-        const isWall = layout.tiles[idx] === TileType.WALL;
+        const isWall = isWallTile(layout.tiles[idx]);
+        const wallTile = wallTileForStyle(editorState.selectedWallStyle);
 
-        // First tile of drag sets direction
+        // First tile of drag sets direction: a wall of the selected style is
+        // removed; anything else (floor, or a wall of another style) gets it
         if (editorState.wallDragAdding === null) {
-          editorState.wallDragAdding = !isWall;
+          editorState.wallDragAdding = layout.tiles[idx] !== wallTile;
         }
 
         if (editorState.wallDragAdding) {
-          // Add wall with color
-          commit(
-            paintTile(layout, effectiveCol, effectiveRow, TileType.WALL, editorState.wallColor),
-          );
+          // Add (or restyle) wall with color
+          commit(paintTile(layout, effectiveCol, effectiveRow, wallTile, editorState.wallColor));
         } else if (isWall) {
           // Remove wall → paint floor with current floor settings
           commit(
@@ -562,15 +577,16 @@ export function useEditorActions(
       } else if (editorState.activeTool === EditTool.EYEDROPPER) {
         const idx = row * layout.cols + col;
         const tile = layout.tiles[idx];
-        if (tile !== undefined && tile !== TileType.WALL && tile !== TileType.VOID) {
+        if (tile !== undefined && isFloorTile(tile)) {
           editorState.selectedTileType = tile;
           const color = layout.tileColors?.[idx];
           if (color) {
             editorState.floorColor = { ...color };
           }
           editorState.activeTool = EditTool.TILE_PAINT;
-        } else if (tile === TileType.WALL) {
-          // Pick wall color and switch to wall tool
+        } else if (tile !== undefined && isWallTile(tile)) {
+          // Pick wall style + color and switch to wall tool
+          editorState.selectedWallStyle = wallStyleOf(tile);
           const color = layout.tileColors?.[idx];
           if (color) {
             editorState.wallColor = { ...color };
@@ -614,6 +630,7 @@ export function useEditorActions(
     handleToggleEditMode,
     handleToolChange,
     handleTileTypeChange,
+    handleWallStyleChange,
     handleFloorColorChange,
     handleWallColorChange,
     handleSelectedFurnitureColorChange,

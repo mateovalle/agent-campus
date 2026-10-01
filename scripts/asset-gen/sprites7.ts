@@ -42,7 +42,7 @@ import {
   WOOD_SURFACE,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, recolor, validateSprites } from './sprites.ts';
 import { mirrorSprite, slab } from './sprites6.ts';
 
 type Legend = Record<string, string>;
@@ -662,6 +662,21 @@ const NEON_SIGN = (() => {
   );
 })();
 
+/**
+ * Neon buzz: the sign holds steady for most of a 4s loop, then the '/'
+ * stutters once — dim (strokes drop to leaf green, its halo goes out), back
+ * on, dim again — and settles. A forever-loop that glitched every second
+ * would read as broken; one stutter every few seconds reads as old neon.
+ * The glyphs' column bands don't overlap, so one glyph flickers alone.
+ * (Steady frames are identical copies — cheap at 32x32.)
+ */
+const NEON_SIGN_ANIM = animate(NEON_SIGN, 20, 200, (g, i) => {
+  if (i !== 15 && i !== 17) return;
+  const slash: [number, number, number, number] = [13, 7, 20, 19];
+  recolor(g, slash, LEAF_DARK, IRON_DARK);
+  recolor(g, slash, LED_GREEN, LEAF);
+});
+
 // ════════════════════════════════════════════════════════════════
 // 12. calendar — hanging wall calendar, 16x32, 1x1 wall item (like
 //     POSTER_CODE): red header, paper grid of day dots, one day circled.
@@ -889,7 +904,7 @@ export const SPRITES7: GeneratedSprite[] = [
   entry('fridge_right', 'Fridge (Right)', 16, 48, 1, 1, FRIDGE_RIGHT, 'fridge', 'right'),
   entry('fridge_left', 'Fridge (Left)', 16, 48, 1, 1, mirrorSprite(FRIDGE_RIGHT), 'fridge', 'left'),
   entry('wall_shelf', 'Wall Shelf', 32, 32, 2, 1, WALL_SHELF),
-  entry('neon_sign', 'Neon Sign', 32, 32, 2, 1, NEON_SIGN),
+  { ...entry('neon_sign', 'Neon Sign', 32, 32, 2, 1, NEON_SIGN), ...NEON_SIGN_ANIM },
   entry('calendar', 'Calendar', 16, 32, 1, 1, CALENDAR),
 ];
 

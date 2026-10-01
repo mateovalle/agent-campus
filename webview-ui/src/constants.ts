@@ -39,6 +39,8 @@ export const MATRIX_TRAIL_MID_THRESHOLD = 0.33;
 export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
 
 // ── Rendering ────────────────────────────────────────────────
+/** Animated furniture: ms per frame when the catalog entry gives no frameMs. */
+export const FURNITURE_FRAME_MS = 200;
 export const CHARACTER_SITTING_OFFSET_PX = 6;
 export const CHARACTER_Z_SORT_OFFSET = 0.5;
 export const OUTLINE_Z_SORT_OFFSET = 0.001;
@@ -300,3 +302,35 @@ export const TOOL_OVERLAY_TOP_OFFSET_PX = 24;
 /** Clearance kept between the overlay's bottom edge and a bubble's top edge. */
 export const TOOL_OVERLAY_BUBBLE_GAP_PX = 4;
 export const PULSE_ANIMATION_DURATION_SEC = 1.5;
+
+// ── Furniture interactions ──────────────────────────────────
+// Idle agents walk over to interactable furniture (catalog `interact`) instead
+// of a random tile, stand beside it facing it, and use or look at it a while.
+/** Chance a wander decision goes to a furniture piece instead of a random tile. */
+export const INTERACT_CHANCE = 0.45;
+export const INTERACT_MIN_SEC = 6;
+export const INTERACT_MAX_SEC = 16;
+/** Most characters a single piece can host at once (smaller pieces host fewer). */
+export const INTERACT_MAX_USERS_PER_PIECE = 2;
+/** 'look' pieces: seconds between glances away from the piece. */
+export const INTERACT_GLANCE_INTERVAL_MIN_SEC = 2.5;
+export const INTERACT_GLANCE_INTERVAL_MAX_SEC = 5;
+/** 'look' pieces: how long a glance away lasts. */
+export const INTERACT_GLANCE_SEC = 0.7;
+/**
+ * 'use' pieces: the standing "hands busy" frame is composed from the seated
+ * typing frame's upper body over the standing frame's legs. The cut is where
+ * the legs begin, counted UP from the standing frame's lowest opaque row
+ * (so it holds for any frame padding). Measured on the baked character sheets:
+ * the front typing pose has a 1px-shorter torso, hence the higher cut.
+ */
+export const INTERACT_STAND_USE_LEG_ROWS_DOWN = 7;
+export const INTERACT_STAND_USE_LEG_ROWS_UP = 5;
+export const INTERACT_STAND_USE_LEG_ROWS_SIDE = 5;
+/** Rows above the standing frame's lowest opaque row where its belt sits; standing
+ *  rows between the cut and the belt keep only the belt's columns (drops the
+ *  hanging hands, which the typing upper body already draws reaching forward). */
+export const INTERACT_STAND_USE_BELT_ROWS = 5;
+/** Surface items (coffee machine on a counter): how far along the desk, in tiles
+ *  (row gap + column gap from the item's footprint), a user may stand. */
+export const INTERACT_SURFACE_MAX_REACH = 1;

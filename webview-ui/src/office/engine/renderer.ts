@@ -74,7 +74,14 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { BubbleKind, CharacterState, TILE_SIZE, TileType } from '../types.js';
+import {
+  BubbleKind,
+  CharacterState,
+  floorPatternOf,
+  isWallTile,
+  TILE_SIZE,
+  TileType,
+} from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
@@ -105,9 +112,9 @@ export function renderTileGrid(
       // Skip VOID tiles entirely (transparent)
       if (tile === TileType.VOID) continue;
 
-      if (tile === TileType.WALL || !useSpriteFloors) {
+      if (isWallTile(tile) || !useSpriteFloors) {
         // Wall tiles or fallback: solid color
-        if (tile === TileType.WALL) {
+        if (isWallTile(tile)) {
           const colorIdx = r * layoutCols + c;
           const wallColor = tileColors?.[colorIdx];
           ctx.fillStyle = wallColor ? wallColorToHex(wallColor) : WALL_COLOR;
@@ -121,7 +128,7 @@ export function renderTileGrid(
       // Floor tile: get colorized sprite
       const colorIdx = r * layoutCols + c;
       const color = tileColors?.[colorIdx] ?? { h: 0, s: 0, b: 0, c: 0 };
-      const sprite = getColorizedFloorSprite(tile, color);
+      const sprite = getColorizedFloorSprite(floorPatternOf(tile), color);
       const cached = getCachedSprite(sprite, zoom);
       ctx.drawImage(cached, offsetX + c * s, offsetY + r * s);
     }
@@ -145,9 +152,14 @@ export function renderScene(
 ): void {
   const drawables: ZDrawable[] = [];
 
-  // Furniture
+  // Furniture (animated pieces pick their frame from the clock)
+  const now = performance.now();
   for (const f of furniture) {
-    const cached = getCachedSprite(f.sprite, zoom);
+    const sprite =
+      f.frames && f.frameMs
+        ? f.frames[Math.floor((now + (f.phaseMs ?? 0)) / f.frameMs) % f.frames.length]
+        : f.sprite;
+    const cached = getCachedSprite(sprite, zoom);
     const fx = offsetX + f.x * zoom;
     const fy = offsetY + f.y * zoom;
     drawables.push({

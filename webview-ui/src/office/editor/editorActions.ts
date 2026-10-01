@@ -12,7 +12,14 @@ import type {
   PlacedFurniture,
   TileType as TileTypeVal,
 } from '../types.js';
-import { MAX_COLS, MAX_ROWS, TILE_SIZE, TileType, WALL_FACE_OVERHANG_PX } from '../types.js';
+import {
+  isWallTile,
+  MAX_COLS,
+  MAX_ROWS,
+  TILE_SIZE,
+  TileType,
+  WALL_FACE_OVERHANG_PX,
+} from '../types.js';
 
 /** Paint a single tile with pattern and color. Returns new layout (immutable). */
 export function paintTile(
@@ -28,9 +35,7 @@ export function paintTile(
   const existingColors = layout.tileColors || new Array(layout.tiles.length).fill(null);
   const newColor =
     color ??
-    (tileType === TileType.WALL || tileType === TileType.VOID
-      ? null
-      : { ...DEFAULT_NEUTRAL_COLOR });
+    (isWallTile(tileType) || tileType === TileType.VOID ? null : { ...DEFAULT_NEUTRAL_COLOR });
 
   // Check if anything actually changed
   if (layout.tiles[idx] === tileType) {
@@ -150,7 +155,7 @@ function isAllWallRow(layout: OfficeLayout, col: number, footprintW: number, row
   if (row < 0 || row >= layout.rows) return false;
   if (col < 0 || col + footprintW > layout.cols) return false;
   for (let dc = 0; dc < footprintW; dc++) {
-    if (layout.tiles[row * layout.cols + col + dc] !== TileType.WALL) return false;
+    if (!isWallTile(layout.tiles[row * layout.cols + col + dc])) return false;
   }
   return true;
 }
@@ -270,10 +275,10 @@ export function canPlaceFurniture(
       const idx = (row + dr) * layout.cols + (col + dc);
       const tileVal = layout.tiles[idx];
       if (entry.canPlaceOnWalls) {
-        if (tileVal !== TileType.WALL) return false;
+        if (!isWallTile(tileVal)) return false;
       } else {
         if (tileVal === TileType.VOID) return false; // Cannot place on VOID
-        if (tileVal === TileType.WALL) return false; // Normal items cannot overlap walls
+        if (isWallTile(tileVal)) return false; // Normal items cannot overlap walls
       }
     }
   }

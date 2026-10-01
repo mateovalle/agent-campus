@@ -12,6 +12,8 @@ import {
   PALETTE_COUNT,
 } from '../../constants.js';
 import { getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
+import type { InteractionSpot } from '../layout/interactionSpots.js';
+import { interactionSpots } from '../layout/interactionSpots.js';
 import {
   createDefaultLayout,
   getBlockedTiles,
@@ -36,6 +38,7 @@ import {
   MATRIX_EFFECT_DURATION,
   TILE_SIZE,
 } from '../types.js';
+import type { InteractionHooks } from './characters.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
@@ -56,6 +59,17 @@ export class OfficeState {
   /** Reverse lookup: sub-agent character ID → parent info */
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
+  /** Where idle agents can stand to use furniture (best-first per piece) */
+  interactionSpots: InteractionSpot[] = [];
+  /** Reserved spot tile "col,row" → character id */
+  private spotHolders: Map<string, number> = new Map();
+  /** Furniture uid → characters currently reserving a spot at it */
+  private pieceUsers: Map<string, Set<number>> = new Map();
+  private readonly interactionHooks: InteractionHooks = {
+    claim: (ch) => this.claimInteraction(ch),
+    release: (ch) => this.releaseInteraction(ch),
+    isReserved: (col, row) => this.spotHolders.has(`${col},${row}`),
+  };
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -64,17 +78,137 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(this.layout.furniture);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.computeInteractionSpots();
+  }
+
+  private computeInteractionSpots(): void {
+    const seatTiles = new Set<string>();
+    for (const seat of this.seats.values()) seatTiles.add(`${seat.seatCol},${seat.seatRow}`);
+    this.interactionSpots = interactionSpots(
+      this.layout.furniture,
+      this.tileMap,
+      this.blockedTiles,
+      getCatalogEntry,
+      seatTiles,
+    );
+  }
+
+  /**
+   * Reserve a furniture spot for an idle character: one character per spot,
+   * at most the piece's capacity per piece, preferably not the piece it used last.
+   * Nearer pieces are likelier. Sets `ch.interaction`; false when none is free.
+   */
+  private claimInteraction(ch: Character): boolean {
+    if (ch.isActive || ch.isSubagent || ch.matrixEffect) return false;
+    if (ch.interaction) this.releaseInteraction(ch);
+    // Tiles other characters stand on now, or will stop on (end of their path)
+    const occupied = new Set<string>();
+    for (const other of this.characters.values()) {
+      if (other.id === ch.id) continue;
+      if (other.state === CharacterState.WALK) {
+        const end = other.path[other.path.length - 1];
+        if (end) occupied.add(`${end.col},${end.row}`);
+      } else {
+        occupied.add(`${other.tileCol},${other.tileRow}`);
+      }
+    }
+    // Best free spot per piece (spots arrive best-first within each piece).
+    // The piece used last is only a soft "not again": skipped while another
+    // piece has room, allowed when it is the only one free.
+    const collect = (skipUid: string | null): Map<string, InteractionSpot> => {
+      const best = new Map<string, InteractionSpot>();
+      for (const spot of this.interactionSpots) {
+        if (best.has(spot.uid) || spot.uid === skipUid) continue;
+        const key = `${spot.col},${spot.row}`;
+        if (this.spotHolders.has(key) || occupied.has(key)) continue;
+        if ((this.pieceUsers.get(spot.uid)?.size ?? 0) >= spot.capacity) continue;
+        best.set(spot.uid, spot);
+      }
+      return best;
+    };
+    let best = collect(ch.lastInteractUid);
+    if (best.size === 0 && ch.lastInteractUid !== null) best = collect(null);
+    if (best.size === 0) return false;
+    const options = [...best.values()];
+    const weights = options.map(
+      (s) => 1 / (1 + Math.abs(s.col - ch.tileCol) + Math.abs(s.row - ch.tileRow)),
+    );
+    let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+    let pick = options[options.length - 1];
+    for (let i = 0; i < options.length; i++) {
+      r -= weights[i];
+      if (r <= 0) {
+        pick = options[i];
+        break;
+      }
+    }
+    this.spotHolders.set(`${pick.col},${pick.row}`, ch.id);
+    let users = this.pieceUsers.get(pick.uid);
+    if (!users) {
+      users = new Set();
+      this.pieceUsers.set(pick.uid, users);
+    }
+    users.add(ch.id);
+    ch.interaction = {
+      uid: pick.uid,
+      col: pick.col,
+      row: pick.row,
+      dir: pick.dir,
+      kind: pick.kind,
+    };
+    return true;
+  }
+
+  /** Free a character's furniture reservation (if any) and clear `ch.interaction`. */
+  private releaseInteraction(ch: Character): void {
+    const it = ch.interaction;
+    if (!it) return;
+    const key = `${it.col},${it.row}`;
+    if (this.spotHolders.get(key) === ch.id) this.spotHolders.delete(key);
+    const users = this.pieceUsers.get(it.uid);
+    if (users) {
+      users.delete(ch.id);
+      if (users.size === 0) this.pieceUsers.delete(it.uid);
+    }
+    ch.interaction = null;
+  }
+
+  /**
+   * Abandon a furniture visit because something else now directs the
+   * character (a command, a seat change, a layout change). A character
+   * standing at the piece goes back to plain idle.
+   */
+  private cancelInteraction(ch: Character): void {
+    if (!ch.interaction && ch.state !== CharacterState.USE) return;
+    this.releaseInteraction(ch);
+    if (ch.state === CharacterState.USE) {
+      ch.state = CharacterState.IDLE;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+    }
   }
 
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
+    // Furniture may have moved: every reservation and visit in progress is void
+    for (const ch of this.characters.values()) {
+      if (!ch.interaction && ch.state !== CharacterState.USE) continue;
+      this.cancelInteraction(ch);
+      if (ch.state === CharacterState.WALK) {
+        ch.path = [];
+        ch.moveProgress = 0;
+      }
+    }
+    this.spotHolders.clear();
+    this.pieceUsers.clear();
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = getBlockedTiles(layout.furniture);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.computeInteractionSpots();
 
     // Shift character positions when grid expands left/up
     if (shift && (shift.col !== 0 || shift.row !== 0)) {
@@ -298,6 +432,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch) return;
     if (ch.matrixEffect === 'despawn') return; // already despawning
+    this.releaseInteraction(ch);
     // Free seat and clear selection immediately
     if (ch.seatId) {
       const seat = this.seats.get(ch.seatId);
@@ -324,6 +459,7 @@ export class OfficeState {
   reassignSeat(agentId: number, seatId: string): void {
     const ch = this.characters.get(agentId);
     if (!ch) return;
+    this.cancelInteraction(ch);
     // Unassign old seat
     if (ch.seatId) {
       const old = this.seats.get(ch.seatId);
@@ -362,6 +498,7 @@ export class OfficeState {
     if (!ch || !ch.seatId) return;
     const seat = this.seats.get(ch.seatId);
     if (!seat) return;
+    this.cancelInteraction(ch);
     const path = this.withOwnSeatUnblocked(ch, () =>
       findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
     );
@@ -396,6 +533,7 @@ export class OfficeState {
       findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles),
     );
     if (path.length === 0) return false;
+    this.cancelInteraction(ch);
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
@@ -484,6 +622,7 @@ export class OfficeState {
         this.subagentMeta.delete(id);
         return;
       }
+      this.releaseInteraction(ch);
       if (ch.seatId) {
         const seat = this.seats.get(ch.seatId);
         if (seat) seat.assigned = false;
@@ -515,6 +654,7 @@ export class OfficeState {
             toRemove.push(key);
             continue;
           }
+          this.releaseInteraction(ch);
           if (ch.seatId) {
             const seat = this.seats.get(ch.seatId);
             if (seat) seat.assigned = false;
@@ -545,6 +685,8 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (ch) {
       ch.isActive = active;
+      // Work interrupts a furniture visit at once; the FSM walks them to the seat
+      if (active) this.releaseInteraction(ch);
       if (!active) {
         // Sentinel -1: signals turn just ended, skip next seat rest timer.
         // Prevents the WALK handler from setting a 2-4 min rest on arrival.
@@ -692,7 +834,15 @@ export class OfficeState {
 
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+        updateCharacter(
+          ch,
+          dt,
+          this.walkableTiles,
+          this.seats,
+          this.tileMap,
+          this.blockedTiles,
+          this.interactionHooks,
+        ),
       );
 
       // Age the bubble (drives blocked-bubble escalation) and run any fade-out.

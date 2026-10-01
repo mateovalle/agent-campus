@@ -45,7 +45,7 @@ import {
   WOOD_SURFACE,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, mirrorAnimation, recolor, validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -408,6 +408,39 @@ const FISH_TANK_RIGHT = (() => {
   });
 })();
 
+/**
+ * fish_tank_right animation, in step with the front view: the surface
+ * ripples sway a pixel side to side (neighbours in opposite directions), a
+ * bubble column rises 1px a frame (spaced one loop apart, so it never jumps)
+ * and the fish idles forward and back behind the plants.
+ */
+const FISH_TANK_RIGHT_ANIM = animate(FISH_TANK_RIGHT, 4, 280, (g, i) => {
+  // surface ripples [x, y, length]
+  recolor(g, [2, 3, 14, 14], ICE, SKY);
+  const ripples: [number, number, number][] = [
+    [6, 3, 2],
+    [9, 6, 3],
+    [4, 7, 2],
+    [11, 10, 2],
+    [6, 11, 3],
+  ];
+  ripples.forEach(([x, y, len], k) => {
+    const dx = [0, 1, 1, 0][i] * (k % 2 ? -1 : 1);
+    for (let j = 0; j < len; j++) g[y][x + dx + j] = ICE;
+  });
+  // glass end: open water only (the plants and the glass shine stay put)
+  const box: [number, number, number, number] = [2, 17, 14, 28];
+  recolor(g, box, ICE, BLUE);
+  recolor(g, box, ORANGE, BLUE);
+  const water = (x: number, y: number, c: string) => {
+    if (g[y]?.[x] === BLUE) g[y][x] = c;
+  };
+  const fx = 3 - [0, 1, 1, 0][i];
+  for (let dx = 1; dx <= 3; dx++) water(fx + dx, 21, ORANGE);
+  for (let dx = 0; dx <= 3; dx++) water(fx + dx, 22, ORANGE);
+  for (let y = 17; y <= 23; y++) if ((y + i) % 4 === 2) water(9 + (y % 2), y, ICE);
+});
+
 // ════════════════════════════════════════════════════════════════
 // 9. kitchen_counter_right — the counter turned end-on, 16x48, 1x2.
 //    Countertop (silver rim, lit paper edges, ice surface) now runs 2
@@ -706,7 +739,7 @@ export const SPRITES6: GeneratedSprite[] = [
     heightPx: 48,
     footprintW: 1,
     footprintH: 2,
-    sprite: FISH_TANK_RIGHT,
+    ...FISH_TANK_RIGHT_ANIM,
     groupId: 'fish_tank',
     orientation: 'right',
   },
@@ -718,7 +751,7 @@ export const SPRITES6: GeneratedSprite[] = [
     heightPx: 48,
     footprintW: 1,
     footprintH: 2,
-    sprite: mirrorSprite(FISH_TANK_RIGHT),
+    ...mirrorAnimation(FISH_TANK_RIGHT_ANIM),
     groupId: 'fish_tank',
     orientation: 'left',
   },

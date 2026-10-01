@@ -1,3 +1,4 @@
+import type { FurnitureInteract } from '../../../shared/protocol.js';
 export {
   DEFAULT_COLS,
   DEFAULT_ROWS,
@@ -20,7 +21,42 @@ export const TileType = {
   FLOOR_7: 7,
   VOID: 8,
 } as const;
-export type TileType = (typeof TileType)[keyof typeof TileType];
+/**
+ * A tile value. Beyond the named ones above, the value space is open-ended:
+ *  - floors: pattern p is tile p for p ≤ 7 and p + 1 from pattern 8 on (8 is VOID,
+ *    taken before floors.png grew past seven patterns);
+ *  - walls: style 0 is WALL (0), style s ≥ 1 is WALL_STYLE_BASE + s.
+ * Always go through the helpers below instead of comparing against WALL.
+ */
+export type TileType = number;
+
+const WALL_STYLE_BASE = 100;
+
+export function isWallTile(t: TileType): boolean {
+  return t === TileType.WALL || t > WALL_STYLE_BASE;
+}
+
+export function isFloorTile(t: TileType): boolean {
+  return t !== TileType.VOID && !isWallTile(t);
+}
+
+/** 0-based wall style of a wall tile. */
+export function wallStyleOf(t: TileType): number {
+  return t > WALL_STYLE_BASE ? t - WALL_STYLE_BASE : 0;
+}
+
+export function wallTileForStyle(style: number): TileType {
+  return style <= 0 ? TileType.WALL : WALL_STYLE_BASE + style;
+}
+
+/** 1-based floor pattern (index into floors.png + 1) of a floor tile. */
+export function floorPatternOf(t: TileType): number {
+  return t > TileType.VOID ? t - 1 : t;
+}
+
+export function floorTileForPattern(pattern: number): TileType {
+  return pattern >= TileType.VOID ? pattern + 1 : pattern;
+}
 
 /** Per-tile color settings for floor pattern colorization */
 export interface FloorColor {
@@ -62,6 +98,8 @@ export const CharacterState = {
   IDLE: 'idle',
   WALK: 'walk',
   TYPE: 'type',
+  /** Standing beside an interactable piece, facing it (no sitting offset) */
+  USE: 'use',
 } as const;
 export type CharacterState = (typeof CharacterState)[keyof typeof CharacterState];
 
@@ -96,6 +134,11 @@ export interface FurnitureInstance {
   y: number;
   /** Y value used for depth sorting (typically bottom edge) */
   zY: number;
+  /** Animated pieces: every frame (frames[0] === sprite), looped by the renderer */
+  frames?: SpriteData[];
+  frameMs?: number;
+  /** Per-piece offset into the loop (ms) so identical pieces don't blink in unison */
+  phaseMs?: number;
 }
 
 export interface ToolActivity {
@@ -147,6 +190,12 @@ export interface FurnitureCatalogEntry {
   unlock?: string;
   /** Whether this item can be placed on wall tiles */
   canPlaceOnWalls?: boolean;
+  /** Animation: every frame including frame 0 (=== sprite); absent = static */
+  frames?: SpriteData[];
+  /** Milliseconds per animation frame (default FURNITURE_FRAME_MS) */
+  frameMs?: number;
+  /** Idle agents go and use ('use') or look at ('look') this piece */
+  interact?: FurnitureInteract;
 }
 
 export interface PlacedFurniture {
@@ -237,4 +286,22 @@ export interface Character {
   name?: string;
   /** Role skin id (e.g. 'qa'); undefined = base look */
   role?: string;
+  /**
+   * Reserved furniture interaction spot: set while walking to it and while in
+   * USE. The reservation lives in OfficeState; null = none.
+   */
+  interaction: {
+    uid: string;
+    col: number;
+    row: number;
+    /** Direction to face the piece from the spot */
+    dir: Direction;
+    kind: FurnitureInteract;
+  } | null;
+  /** Seconds left in USE (counts down to 0) */
+  interactTimer: number;
+  /** 'look' glance clock: counts down to the next glance (>0) or the end of one (<0) */
+  glanceTimer: number;
+  /** Uid of the piece used last, so the next pick goes somewhere else */
+  lastInteractUid: string | null;
 }

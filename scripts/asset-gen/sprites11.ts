@@ -187,6 +187,16 @@ function ascii(w: number, h: number, rows: string[], legend: Legend): G {
   return g;
 }
 
+// ── Animation ───────────────────────────────────────────────────
+// An animated piece is a builder `(k) => grid` run once per frame. Only the
+// few pixels that read k differ, so the silhouette and the rest of the piece
+// are pixel-identical across frames by construction; frame 0 is the still
+// every non-animating consumer sees.
+
+/** Run a frame builder n times: [frame 0, frame 1, …]. */
+const frameSet = (n: number, build: (k: number) => G): G[] =>
+  Array.from({ length: n }, (_, k) => build(k));
+
 // ════════════════════════════════════════════════════════════════
 // 1. pool_table — the showpiece, 48x32 3x2 (front) / 32x48 2x3 (right).
 //    Wood rails with cream diamond sights, green felt with a dark
@@ -758,7 +768,8 @@ function consoleFront(g: G, back: boolean): void {
   }
 }
 
-const TV_CONSOLE = (() => {
+/** Animated: the capybara hops (dust only on landing) and the gem's sparkles twinkle. */
+function tvConsole(k: number): G {
   const g = canvas(32, 48);
   consoleFront(g, false);
   // stand neck
@@ -783,8 +794,9 @@ const TV_CONSOLE = (() => {
     T: TEAL,
     d: TEAL_DARK,
   });
-  px(g, 14, 15, PAPER);
-  px(g, 21, 18, PAPER);
+  // its two sparkles take turns
+  if (k < 2) px(g, 14, 15, PAPER);
+  if (k === 0 || k === 3) px(g, 21, 18, PAPER);
   // round tree
   stamp(
     g,
@@ -825,15 +837,20 @@ const TV_CONSOLE = (() => {
     px(g, x, y, CLAY_DARK);
   }
   for (const x of [4, 9, 17, 26]) px(g, x, 24, GREEN); // grass tufts
-  // the hero: a capybara mid-jump (facing right), a puff of dust behind
-  stamp(g, 7, 18, ['......d.', '.llllll.', 'cccccecc', 'cccccccd', '.dccccd.', '.d....d.'], {
+  // the hero: a capybara hopping (facing right), a puff of dust behind
+  // it on the frame it pushes off. Sky is flat SCREEN_BLUE behind it, so
+  // lifting it leaves nothing to repair.
+  const hop = [0, 1, 2, 1][k];
+  stamp(g, 7, 18 - hop, ['......d.', '.llllll.', 'cccccecc', 'cccccccd', '.dccccd.', '.d....d.'], {
     l: WOOD_LIGHT,
     c: WOOD,
     d: WOOD_SHADOW,
     e: INK,
   });
-  px(g, 5, 22, PAPER);
-  px(g, 4, 23, ICE);
+  if (hop === 0) {
+    px(g, 5, 22, PAPER);
+    px(g, 4, 23, ICE);
+  }
   // glare
   px(g, 4, 12, ICE);
   px(g, 3, 13, ICE);
@@ -846,7 +863,8 @@ const TV_CONSOLE = (() => {
   });
   stamp(g, 25, 32, ['ss', 'Rr', 'Pr', 'Rr', 'rr'], { s: SILVER, R: RED, r: BRICK, P: PAPER });
   return g;
-})();
+}
+const TV_CONSOLE_FRAMES = frameSet(4, tvConsole);
 
 const TV_CONSOLE_BACK = (() => {
   const g = canvas(32, 48);
@@ -867,7 +885,8 @@ const TV_CONSOLE_BACK = (() => {
   return g;
 })();
 
-const TV_CONSOLE_RIGHT = (() => {
+/** Animated: the screen's glow spilling off the panel edge shimmers as the picture moves. */
+function tvConsoleRight(k: number): G {
   const g = canvas(16, 48);
   // console top (top-down slab) x2-13 y14-41
   box(g, 2, 14, 13, 41, WOOD_DARK, WOOD_SURFACE, WOOD_LIGHT);
@@ -887,7 +906,7 @@ const TV_CONSOLE_RIGHT = (() => {
   for (const y of [16, 18, 20, 22]) px(g, 4, y, IRON_DARK);
   box(g, 6, 4, 9, 32, INK, IRON_DARK);
   for (let y = 5; y <= 31; y++) px(g, 7, y, IRON);
-  for (let y = 6; y <= 29; y++) px(g, 10, y, y % 5 === 0 ? SKY : SCREEN_BLUE);
+  for (let y = 6; y <= 29; y++) px(g, 10, y, (y + k) % 5 === 0 ? SKY : SCREEN_BLUE);
   px(g, 8, 30, RED); // standby LED
   // controller + soda can on the top
   stamp(g, 9, 35, ['.ss.', 'sSrs', 'sggs', '.ss.'], {
@@ -898,7 +917,8 @@ const TV_CONSOLE_RIGHT = (() => {
   });
   stamp(g, 4, 36, ['ss', 'Rr', 'Pr', 'rr'], { s: SILVER, R: RED, r: BRICK, P: PAPER });
   return g;
-})();
+}
+const TV_CONSOLE_RIGHT_FRAMES = frameSet(5, tvConsoleRight);
 
 // ════════════════════════════════════════════════════════════════
 // 5. jukebox — 16x32, 1x1. Arched neon crown (pink tubes with warm
@@ -906,7 +926,8 @@ const TV_CONSOLE_RIGHT = (() => {
 //    the turntable, a row of cream selector keys, a gold speaker
 //    grille and a chrome kick strip on a wood plinth.
 // ════════════════════════════════════════════════════════════════
-const JUKEBOX = (() => {
+/** Animated: bubbles rise up the neon tubes, side tubes and centre tubes alike. */
+function jukebox(k: number): G {
   const g = ascii(
     16,
     32,
@@ -984,16 +1005,21 @@ const JUKEBOX = (() => {
       else px(g, x, y, x === 6 || x === 11 ? deep : lit);
     }
   }
-  for (const y of [16, 19, 22]) px(g, 5, y, CREAM);
-  for (const y of [15, 18, 21]) px(g, 10, y, CREAM);
+  for (let y = 15; y <= 22; y++) {
+    if ((y + k) % 3 === 1) px(g, 5, y, CREAM);
+    if ((y + k) % 3 === 0) px(g, 10, y, CREAM);
+  }
   px(g, 12, 15, WOOD_SHADOW);
-  // a bubble rising in each neon side tube, at different heights
-  px(g, 2, 11, CREAM);
-  px(g, 2, 18, PINK_LIGHT);
-  px(g, 13, 15, CREAM);
-  px(g, 13, 21, PINK_LIGHT);
+  // bubbles rising in each neon side tube, staggered between the two,
+  // cream low down and cooling to pink-light near the crown
+  for (let y = 8; y <= 22; y++) {
+    const c = y < 14 ? PINK_LIGHT : CREAM;
+    if ((y + k) % 6 === 5) px(g, 2, y, c);
+    if ((y + k) % 6 === 2) px(g, 13, y, c);
+  }
   return g;
-})();
+}
+const JUKEBOX_FRAMES = frameSet(6, jukebox);
 
 // ════════════════════════════════════════════════════════════════
 // 6. dartboard — wall piece, 16x16, 1x1. Black number ring, alternating
@@ -1344,7 +1370,8 @@ const DRUM_KIT = (() => {
 //     vinyl with grooves and a red label, chrome tonearm resting on the
 //     record, the sleeve propped behind it.
 // ════════════════════════════════════════════════════════════════
-const RECORD_PLAYER = (() => {
+/** Animated: a gold mark on the label turns with the record. */
+function recordPlayer(k: number): G {
   const g = canvas(16, 16);
   // sleeve propped at the back
   box(g, 8, 0, 14, 6, PURPLE_DARK, PURPLE);
@@ -1363,6 +1390,17 @@ const RECORD_PLAYER = (() => {
     if (d > 0.45 && d < 0.6) return IRON_DARK;
     return x < 5 && y < 8 && d > 0.3 ? IRON : INK;
   });
+  // the spin: a lighter arc of groove and a gold print mark on the label
+  // both step a quarter turn per frame (the glare above stays put — it's
+  // the room's light, not the record's)
+  const turn = (k * Math.PI) / 2;
+  ellipse(g, 6.5, 8.5, 4.6, 2.9, (d, x, y) => {
+    let a = Math.atan2((y - 8.5) / 2.9, (x - 6.5) / 4.6) - turn;
+    a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    if (d > 0.45 && d < 0.6 && a < Math.PI / 2.5) return IRON;
+    if (d < 0.18 && a >= Math.PI && a < (3 * Math.PI) / 2) return GOLD;
+    return null;
+  });
   px(g, 6, 8, PAPER); // spindle
   // tonearm: pivot top-right, arm down to the record
   px(g, 12, 7, SILVER_LIGHT);
@@ -1371,7 +1409,8 @@ const RECORD_PLAYER = (() => {
   line(g, 12, 8, 10, 10, SILVER_LIGHT);
   px(g, 9, 10, STEEL_DARK);
   return g;
-})();
+}
+const RECORD_PLAYER_FRAMES = frameSet(4, recordPlayer);
 
 // ════════════════════════════════════════════════════════════════
 // 11. board_game — surface item, 16x16, 1x1. A cross-and-circle race
@@ -1418,39 +1457,56 @@ const BOARD_GAME = (() => {
 //     purple liquid with pink wax blobs rising and a pool settled at
 //     the bottom, a lit stripe down the glass.
 // ════════════════════════════════════════════════════════════════
-const LAVA_LAMP = ascii(
-  16,
-  16,
-  [
-    '................',
-    '.......ys.......',
-    '......sSSs......',
-    '......olPo......',
-    '.....olPLpo.....',
-    '.....olPppo.....',
-    '....olPPPPPo....',
-    '....olPLLpPo....',
-    '....olPLppPo....',
-    '....olPpppPo....',
-    '....olPPPPPo....',
-    '....shSSSSSs....',
-    '...shSSSSSSSs...',
-    '...shSSSSSSSs...',
-    '...ssssssssss...',
-    '................',
-  ],
-  {
-    s: STEEL_DARK,
-    S: SILVER,
-    h: SILVER_LIGHT,
-    y: LAMP_WARM, // the cap glows where the bulb heat comes out
-    o: PURPLE_DARK,
-    P: PURPLE,
-    l: PINK_LIGHT, // lit left edge of the glass
-    L: PINK_LIGHT,
-    p: PINK,
-  },
-);
+/** Animated: two wax blobs climb out of the pool and squeeze into the cap, slowly. */
+function lavaLamp(k: number): G {
+  const g = ascii(
+    16,
+    16,
+    [
+      '................',
+      '.......ys.......',
+      '......sSSs......',
+      '......olPo......',
+      '.....olPPPo.....',
+      '.....olPPPo.....',
+      '....olPPPPPo....',
+      '....olPPPPPo....',
+      '....olPPPPPo....',
+      '....olPPPPPo....',
+      '....olpppppo....',
+      '....shSSSSSs....',
+      '...shSSSSSSSs...',
+      '...shSSSSSSSs...',
+      '...ssssssssss...',
+      '................',
+    ],
+    {
+      s: STEEL_DARK,
+      S: SILVER,
+      h: SILVER_LIGHT,
+      y: LAMP_WARM, // the cap glows where the bulb heat comes out
+      o: PURPLE_DARK,
+      P: PURPLE,
+      l: PINK_LIGHT, // lit left edge of the glass
+      L: PINK_LIGHT,
+      p: PINK,
+    },
+  );
+  // the blobs: 2 rows tall, top-left lit, rising a row per frame through the
+  // glass rows 3-9 and wrapping (into the cap at the top, back out of the
+  // pool at the bottom). Painted only over liquid, so the glass clips them.
+  const blob = (x: number, start: number, w: number) => {
+    const y = 3 + ((((start - k) % 7) + 7) % 7);
+    for (let dy = 0; dy < 2; dy++)
+      for (let dx = 0; dx < w; dx++)
+        if (g[y + dy]?.[x + dx] === PURPLE)
+          px(g, x + dx, y + dy, dx === 0 && dy === 0 ? PINK_LIGHT : PINK);
+  };
+  blob(8, 1, 2);
+  blob(6, 4, 3);
+  return g;
+}
+const LAVA_LAMP_FRAMES = frameSet(7, lavaLamp);
 
 // ════════════════════════════════════════════════════════════════
 // 13. popcorn — surface item, 16x16, 1x1. Red-and-white striped bucket
@@ -1497,25 +1553,33 @@ const POPCORN = (() => {
 //     flippers and the ball in play; purple cabinet with side art,
 //     chrome lockdown bar and legs, coin door on the front.
 // ════════════════════════════════════════════════════════════════
-/** Playfield details in field coords: a = from the backbox toward the player, b = across. */
-function playfield(set: (a: number, b: number, c: string) => void, L: number, W: number): void {
+/**
+ * Playfield details in field coords: a = from the backbox toward the player, b = across.
+ * `flash` lights one pop bumper (0-2) as if just hit; -1 = all at rest.
+ */
+function playfield(
+  set: (a: number, b: number, c: string) => void,
+  L: number,
+  W: number,
+  flash = -1,
+): void {
   const mid = Math.floor(W / 2);
   // orbit lane arc near the top
   for (let b = 1; b < W - 1; b++) set(1, b, PINK_DARK);
   set(2, 0, PINK_DARK);
   set(2, W - 1, PINK_DARK);
   // three round pop bumpers in a triangle: gold cap on a red 2x2
-  const bumper = (a: number, b: number) => {
-    set(a - 1, b, GOLD_LIGHT);
-    set(a - 1, b + 1, GOLD_LIGHT);
-    set(a, b, RED);
-    set(a, b + 1, RED);
+  const bumper = (a: number, b: number, lit: boolean) => {
+    set(a - 1, b, lit ? PAPER : GOLD_LIGHT);
+    set(a - 1, b + 1, lit ? PAPER : GOLD_LIGHT);
+    set(a, b, lit ? ORANGE : RED);
+    set(a, b + 1, lit ? ORANGE : RED);
     set(a + 1, b, RED);
     set(a + 1, b + 1, BRICK_DARK);
   };
-  bumper(4, mid - 3);
-  bumper(4, mid + 1);
-  bumper(8, mid - 1);
+  bumper(4, mid - 3, flash === 0);
+  bumper(4, mid + 1, flash === 1);
+  bumper(8, mid - 1, flash === 2);
   // flippers: 2px-thick white diagonals meeting at a 1px drain gap
   const nL = mid - 1;
   const nR = W - 2 - mid;
@@ -1546,21 +1610,24 @@ function playfield(set: (a: number, b: number, c: string) => void, L: number, W:
   if (W % 2 === 0) set(L - 1, mid - 1, INK);
 }
 
-const PINBALL = (() => {
+/** Animated: pop bumpers flash in turn, backbox stars twinkle. */
+function pinball(k: number): G {
   const g = canvas(16, 48);
   // backbox: purple cabinet, outline a shade darker (ink only on the score)
   box(g, 2, 1, 13, 16, PURPLE_DARK, PURPLE);
   rect(g, 3, 2, 12, 2, PINK);
   rect(g, 3, 2, 3, 15, PINK);
   box(g, 4, 3, 12, 11, PURPLE_DARK, NAVY_DARK);
-  for (const [x, y] of [
+  // starfield: one star at a time blinks out, then a beat with all lit
+  const dark = [-1, 0, 2, 1, 3, -1][k];
+  [
     [5, 4],
     [11, 5],
     [5, 9],
     [11, 9],
-  ]) {
-    px(g, x, y, PAPER);
-  }
+  ].forEach(([x, y], i) => {
+    if (i !== dark) px(g, x, y, PAPER);
+  });
   stamp(g, 6, 5, ['..y..', '.yYy.', 'yyYyy', '.y.y.'], { y: GOLD, Y: GOLD_LIGHT });
   // dot-matrix score
   rect(g, 4, 13, 11, 14, INK);
@@ -1573,7 +1640,8 @@ const PINBALL = (() => {
   rect(g, 3, 18, 12, 38, NAVY);
   rect(g, 12, 29, 12, 38, NAVY_DARK); // shooter lane
   px(g, 12, 38, SILVER);
-  playfield((a, b, c) => px(g, 3 + b, 18 + a, c), 21, 9);
+  // a bumper flashes on every other frame, round the triangle
+  playfield((a, b, c) => px(g, 3 + b, 18 + a, c), 21, 9, k % 2 ? (k - 1) / 2 : -1);
   // glass glare
   px(g, 4, 19, ICE);
   px(g, 3, 20, ICE);
@@ -1591,9 +1659,11 @@ const PINBALL = (() => {
     rect(g, lx + 1, 45, lx + 1, 47, IRON_DARK);
   }
   return g;
-})();
+}
+const PINBALL_FRAMES = frameSet(6, pinball);
 
-const PINBALL_RIGHT = (() => {
+/** Animated: pop bumpers flash in turn, the marquee chaser bulbs run. */
+function pinballRight(k: number): G {
   const g = canvas(32, 32);
   // backbox seen from its side, on the left
   box(g, 1, 1, 7, 23, PURPLE_DARK, PURPLE);
@@ -1602,8 +1672,9 @@ const PINBALL_RIGHT = (() => {
   // the lit marquee wraps round onto the backbox's right-facing edge:
   // three staggered rows of chaser bulbs
   for (let y = 4; y <= 9; y++) {
-    px(g, 6, y, y % 2 ? GOLD_LIGHT : ORANGE);
-    if (y % 2 === 0) px(g, 5, y, GOLD_LIGHT);
+    const on = (y + k) % 2 === 0; // the chase steps a bulb per frame
+    px(g, 6, y, on ? ORANGE : GOLD_LIGHT);
+    if (on) px(g, 5, y, GOLD_LIGHT);
   }
   for (let y = 12; y <= 20; y += 2) px(g, 6, y, PINK_DARK); // art edge glow
   // playfield (top, under glass)
@@ -1612,7 +1683,7 @@ const PINBALL_RIGHT = (() => {
   rect(g, 8, 12, 28, 21, NAVY);
   // the far half sits lower in shadow: the playfield slopes toward the player
   rect(g, 8, 12, 17, 21, NAVY_DARK);
-  playfield((a, b, c) => px(g, 8 + a, 12 + b, c), 21, 10);
+  playfield((a, b, c) => px(g, 8 + a, 12 + b, c), 21, 10, k % 2 ? (k - 1) / 2 : -1);
   px(g, 9, 12, ICE);
   px(g, 8, 13, ICE);
   // lockdown bar on the player end
@@ -1627,7 +1698,8 @@ const PINBALL_RIGHT = (() => {
     rect(g, lx + 1, 27, lx + 1, 30, IRON_DARK);
   }
   return g;
-})();
+}
+const PINBALL_RIGHT_FRAMES = frameSet(6, pinballRight);
 
 // ════════════════════════════════════════════════════════════════
 // 15. claw_machine — 16x32, 1x1. Teal cabinet a head taller than an
@@ -1636,7 +1708,8 @@ const PINBALL_RIGHT = (() => {
 //     capybara plush. Joystick and buttons on the ledge, a prize chute
 //     with a star plush peeking out, a coin door.
 // ════════════════════════════════════════════════════════════════
-const CLAW_MACHINE = (() => {
+/** Animated: the marquee chaser bulbs run, the credit LED blinks. */
+function clawMachine(k: number): G {
   const g = ascii(
     16,
     32,
@@ -1684,6 +1757,12 @@ const CLAW_MACHINE = (() => {
       k: IRON_DARK,
     },
   );
+  // chaser bulbs above and below the marquee: lit and unlit swap each
+  // frame, so the lights run round it
+  for (let x = 2; x <= 13; x++) {
+    px(g, x, 2, (x + k) % 2 === 1 ? GOLD_LIGHT : TEAL_LIGHT);
+    px(g, x, 5, (x + k) % 2 === 0 ? GOLD_LIGHT : TEAL);
+  }
   // marquee: a gold star between two pink-lit dots
   stamp(g, 7, 3, ['.Y.', 'YYY'], { Y: GOLD });
   px(g, 4, 3, PINK_LIGHT);
@@ -1715,7 +1794,7 @@ const CLAW_MACHINE = (() => {
   px(g, 4, 18, RED);
   px(g, 4, 19, IRON_DARK);
   px(g, 3, 18, PINK);
-  px(g, 8, 20, LED_GREEN);
+  if (k < 2) px(g, 8, 20, LED_GREEN); // credit LED, blinking
   px(g, 10, 20, GOLD);
   rect(g, 12, 20, 12, 20, INK);
   // prize chute with a star plush peeking out
@@ -1727,7 +1806,8 @@ const CLAW_MACHINE = (() => {
   rect(g, 10, 24, 11, 24, GOLD_DARK);
   px(g, 10, 26, RED);
   return g;
-})();
+}
+const CLAW_MACHINE_FRAMES = frameSet(4, clawMachine);
 
 // ════════════════════════════════════════════════════════════════
 // 16. air_hockey — table mid-rally, 32x32 2x1 (front) / 16x48 1x2
@@ -1897,6 +1977,14 @@ const entry = (
   ...(groupId ? { groupId, orientation } : {}),
 });
 
+/** Attach an animation: frame 0 becomes the still sprite, the rest loop after it. */
+const animated = (e: GeneratedSprite, all: G[], frameMs: number): GeneratedSprite => ({
+  ...e,
+  sprite: all[0],
+  frames: all.slice(1),
+  frameMs,
+});
+
 export const SPRITES11: GeneratedSprite[] = [
   entry('pool_table', 'Pool Table', 48, 32, 3, 2, POOL_TABLE, 'pool_table', 'front'),
   entry(
@@ -1922,30 +2010,26 @@ export const SPRITES11: GeneratedSprite[] = [
     'foosball',
     'right',
   ),
-  entry('pinball', 'Pinball Machine', 16, 48, 1, 2, PINBALL, 'pinball', 'front'),
-  entry(
-    'pinball_right',
-    'Pinball Machine (Right)',
-    32,
-    32,
-    2,
-    1,
-    PINBALL_RIGHT,
-    'pinball',
-    'right',
+  animated(
+    entry('pinball', 'Pinball Machine', 16, 48, 1, 2, [], 'pinball', 'front'),
+    PINBALL_FRAMES,
+    220,
   ),
-  entry(
-    'pinball_left',
-    'Pinball Machine (Left)',
-    32,
-    32,
-    2,
-    1,
-    mirrorSprite(PINBALL_RIGHT),
-    'pinball',
-    'left',
+  animated(
+    entry('pinball_right', 'Pinball Machine (Right)', 32, 32, 2, 1, [], 'pinball', 'right'),
+    PINBALL_RIGHT_FRAMES,
+    220,
   ),
-  entry('tv_console', 'TV Console', 32, 48, 2, 1, TV_CONSOLE, 'tv_console', 'front'),
+  animated(
+    entry('pinball_left', 'Pinball Machine (Left)', 32, 32, 2, 1, [], 'pinball', 'left'),
+    PINBALL_RIGHT_FRAMES.map(mirrorSprite),
+    220,
+  ),
+  animated(
+    entry('tv_console', 'TV Console', 32, 48, 2, 1, [], 'tv_console', 'front'),
+    TV_CONSOLE_FRAMES,
+    200,
+  ),
   entry(
     'tv_console_back',
     'TV Console (Back)',
@@ -1957,27 +2041,15 @@ export const SPRITES11: GeneratedSprite[] = [
     'tv_console',
     'back',
   ),
-  entry(
-    'tv_console_right',
-    'TV Console (Right)',
-    16,
-    48,
-    1,
-    2,
-    TV_CONSOLE_RIGHT,
-    'tv_console',
-    'right',
+  animated(
+    entry('tv_console_right', 'TV Console (Right)', 16, 48, 1, 2, [], 'tv_console', 'right'),
+    TV_CONSOLE_RIGHT_FRAMES,
+    200,
   ),
-  entry(
-    'tv_console_left',
-    'TV Console (Left)',
-    16,
-    48,
-    1,
-    2,
-    mirrorSprite(TV_CONSOLE_RIGHT),
-    'tv_console',
-    'left',
+  animated(
+    entry('tv_console_left', 'TV Console (Left)', 16, 48, 1, 2, [], 'tv_console', 'left'),
+    TV_CONSOLE_RIGHT_FRAMES.map(mirrorSprite),
+    200,
   ),
   entry('gaming_recliner', 'Gaming Recliner', 16, 32, 1, 1, RECLINER, 'gaming_recliner', 'front'),
   entry(
@@ -2013,7 +2085,7 @@ export const SPRITES11: GeneratedSprite[] = [
     'gaming_recliner',
     'left',
   ),
-  entry('jukebox', 'Jukebox', 16, 32, 1, 1, JUKEBOX),
+  animated(entry('jukebox', 'Jukebox', 16, 32, 1, 1, []), JUKEBOX_FRAMES, 200),
   entry('piano', 'Upright Piano', 32, 32, 2, 1, PIANO, 'piano', 'front'),
   entry('piano_back', 'Upright Piano (Back)', 32, 32, 2, 1, PIANO_BACK, 'piano', 'back'),
   entry('piano_right', 'Upright Piano (Right)', 16, 48, 1, 2, PIANO_RIGHT, 'piano', 'right'),
@@ -2031,11 +2103,11 @@ export const SPRITES11: GeneratedSprite[] = [
   entry('drum_kit', 'Drum Kit', 32, 48, 2, 2, DRUM_KIT),
   entry('guitar_stand', 'Guitar on Stand', 16, 32, 1, 1, GUITAR_STAND),
   entry('dartboard', 'Dartboard', 16, 16, 1, 1, DARTBOARD),
-  entry('record_player', 'Record Player', 16, 16, 1, 1, RECORD_PLAYER),
+  animated(entry('record_player', 'Record Player', 16, 16, 1, 1, []), RECORD_PLAYER_FRAMES, 450),
   entry('board_game', 'Board Game', 16, 16, 1, 1, BOARD_GAME),
-  entry('lava_lamp', 'Lava Lamp', 16, 16, 1, 1, LAVA_LAMP),
+  animated(entry('lava_lamp', 'Lava Lamp', 16, 16, 1, 1, []), LAVA_LAMP_FRAMES, 380),
   entry('popcorn', 'Popcorn Bucket', 16, 16, 1, 1, POPCORN),
-  entry('claw_machine', 'Claw Machine', 16, 32, 1, 1, CLAW_MACHINE),
+  animated(entry('claw_machine', 'Claw Machine', 16, 32, 1, 1, []), CLAW_MACHINE_FRAMES, 300),
   entry('air_hockey', 'Air Hockey Table', 32, 32, 2, 1, AIR_HOCKEY, 'air_hockey', 'front'),
   entry(
     'air_hockey_right',

@@ -228,6 +228,45 @@ class Pix {
 
 const art = (rows: string[], w = 16, h = 16): string[][] => new Pix(w, h).stamp(0, 0, rows).done();
 
+// ── Animation ───────────────────────────────────────────────────
+// An animated piece is a builder `(k) => grid` called once per frame:
+// everything it draws is deterministic except the few pixels that read k,
+// so the silhouette and the rest of the piece are pixel-identical across
+// frames by construction. Frame 0 is the still every other consumer sees.
+
+/** Run a frame builder n times: [frame 0, frame 1, …]. */
+const frameSet = (n: number, build: (k: number) => string[][]): string[][][] =>
+  Array.from({ length: n }, (_, k) => build(k));
+
+/** One loop of a steam wisp, read bottom-up: a column offset per row, null = gap. */
+const WISP = [0, 1, null, 1, 0, null] as const;
+const WISP_B = [1, 0, 0, null, 0, 1] as const;
+
+/**
+ * A steam wisp rising in column x over rows y0 (top) … y1 (bottom). Frame k
+ * samples `path` k rows further along, so the shape climbs a pixel a frame
+ * and the loop closes after path.length frames with no jump. The upper half
+ * fades to `hi`; it only paints over transparent cells, never the piece.
+ */
+function wisp(
+  p: Pix,
+  x: number,
+  y0: number,
+  y1: number,
+  k: number,
+  path: readonly (number | null)[],
+  lo = 'P',
+  hi = 'V',
+): void {
+  const n = path.length;
+  const mid = (y0 + y1) / 2;
+  for (let y = y0; y <= y1; y++) {
+    const dx = path[(y - y0 + k) % n];
+    if (dx === null) continue;
+    if (p.get(x + dx, y) === '.') p.set(x + dx, y, y < mid ? hi : lo);
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 // 1. espresso_bar — THE SHOWPIECE. Teal subway-tiled bar with a cream
 //    top, 32x48, 2x1. On it: a brass-domed lever espresso machine
@@ -308,7 +347,8 @@ const GRINDER = [
   '.KKKKK.',
 ];
 
-const ESPRESSO_BAR = (() => {
+/** Animated: steam climbing off the wand, a darker drop running down the coffee stream. */
+function espressoBar(k: number): string[][] {
   const p = new Pix(32, 48);
   // counter top rows 17-28 (cream stone, lit back edge)
   p.box(1, 17, 30, 28, 'l', 'A');
@@ -325,26 +365,22 @@ const ESPRESSO_BAR = (() => {
   for (const x of [2, 3, 28, 29]) p.set(x, 44, 'S');
   // machine, grinder, tip jar
   p.stamp(1, 4, ESPRESSO_MACHINE);
-  // steam wand hanging off the right flank, silver-light tip, thin wisps
-  // drifting up-right and breaking up before the grinder
+  // steam wand hanging off the right flank, silver-light tip, a thin wisp
+  // drifting up and breaking up before the grinder
   p.set(16, 15, 'm');
   for (let y = 15; y <= 19; y++) p.set(17, y, 'n');
   p.set(17, 20, 'V');
-  for (const [x, y, ch] of [
-    [18, 13, 'P'],
-    [18, 12, 'V'],
-    [19, 11, 'P'],
-    [18, 9, 'V'],
-    [19, 7, 'V'],
-  ] as const)
-    p.set(x, y, ch);
+  wisp(p, 17, 7, 14, k, WISP);
+  // the coffee stream (2px over the cup): a darker drop runs down it
+  p.set(8, 18 + (k % 2), 'c');
   p.stamp(20, 7, GRINDER);
   p.stamp(26, 17, LATTE);
   // saucer with a spoon on the front edge of the bar
   p.stamp(4, 25, ['.vVVv.', 'nvvvvn']);
   p.set(7, 24, 'n');
   return p.done();
-})();
+}
+const ESPRESSO_BAR_FRAMES = frameSet(WISP.length, espressoBar);
 
 const ESPRESSO_BAR_RIGHT = (() => {
   const p = new Pix(16, 48);
@@ -408,7 +444,8 @@ const ESPRESSO_BAR_RIGHT = (() => {
 //    whose window glows warm with something baking. Same counter height
 //    as kitchen_counter.
 // ════════════════════════════════════════════════════════════════
-const KITCHEN_RANGE = (() => {
+/** Animated: two wisps curling off the pot lid, the lit burner's flame flickering. */
+function kitchenRange(k: number): string[][] {
   const p = new Pix(16, 48);
   // control strip / backsplash at the back of the cooktop, with a little
   // green oven-timer readout (12:5) — what tells it apart from a
@@ -429,20 +466,13 @@ const KITCHEN_RANGE = (() => {
   ring(8, 19, false);
   ring(2, 23, false);
   ring(8, 23, true);
-  // steam: two short S-curves rising off the lid, fading at the top
-  for (const [x, y, ch] of [
-    [4, 14, 'P'],
-    [5, 13, 'P'],
-    [5, 12, 'P'],
-    [4, 11, 'V'],
-    [4, 10, 'V'],
-    [5, 9, 'V'],
-    [7, 13, 'P'],
-    [8, 12, 'P'],
-    [8, 11, 'V'],
-    [7, 10, 'V'],
-  ] as const)
-    p.set(x, y, ch);
+  // flame: one warm tongue licking up off the ring's back edge, hopping
+  // round it, and the ring's front corners flaring in turn
+  p.set([10, 12, 9, 11, 10, 12][k], 22, 'w');
+  p.set(k % 2 ? 9 : 12, 26, 'w');
+  // steam: two wisps rising off the lid, fading at the top
+  wisp(p, 4, 9, 14, k, WISP);
+  wisp(p, 7, 9, 13, k + 3, WISP_B);
   // copper pot with a lid on the back-left burner: silver knob, lit
   // top-left lid, clay-dark rim line, iron side handles
   p.stamp(2, 15, [
@@ -471,7 +501,8 @@ const KITCHEN_RANGE = (() => {
   p.fill(1, 43, 14, 43, 'K');
   for (const x of [2, 3, 12, 13]) p.set(x, 44, 'k');
   return p.done();
-})();
+}
+const KITCHEN_RANGE_FRAMES = frameSet(WISP.length, kitchenRange);
 
 // ════════════════════════════════════════════════════════════════
 // 3. bakery_case — glass pastry display, 32x48, 2x1. Glass top and a
@@ -633,7 +664,8 @@ const PANTRY_SHELF = (() => {
 //    steel kettle mid-pop, a striped popcorn-bucket emblem on the base,
 //    black wheels and a few escaped kernels on the floor.
 // ════════════════════════════════════════════════════════════════
-const POPCORN_CART = (() => {
+/** Animated: the kettle's load churning, kernels tumbling over its lip into the heap. */
+function popcornCart(k: number): string[][] {
   const p = new Pix(16, 32);
   p.stamp(0, 0, [
     '.......OO.......',
@@ -652,7 +684,21 @@ const POPCORN_CART = (() => {
   // pot with an iron-dark rim, kernels spilling over its lip
   p.set(7, 7, 'm');
   p.stamp(3, 8, ['...KKKK.', '..KYPYPK', '.VvvvvvKP', '.Vvvvvn.Y', '..mnnm..']);
-  p.set(12, 11, 'P').set(11, 12, 'Y');
+  // the load in the kettle churns; one kernel at a time drops from the
+  // lip down the glass, a step per frame, and the last frame is the beat
+  // after it has landed in the heap (one kernel, not two: any two kernels
+  // spaced evenly on the path make frames repeat)
+  if (k % 2) p.set(6, 9, 'P').set(7, 9, 'Y').set(8, 9, 'P').set(9, 9, 'Y');
+  const fall: ([number, number] | null)[] = [
+    [12, 10],
+    [12, 11],
+    [12, 12],
+    [11, 13],
+    [12, 14],
+    null,
+  ];
+  const kernel = fall[k % fall.length];
+  if (kernel) p.set(kernel[0], kernel[1], 'Y');
   // popcorn heap rows 13-17
   for (let y = 12; y <= 17; y++) {
     for (let x = 3; x <= 12; x++) {
@@ -672,7 +718,8 @@ const POPCORN_CART = (() => {
   // wheels
   p.stamp(3, 28, ['KKK...KKK', 'KnK...KnK', 'KKK...KKK']);
   return p.done();
-})();
+}
+const POPCORN_CART_FRAMES = frameSet(6, popcornCart);
 
 // ════════════════════════════════════════════════════════════════
 // 6. cafe_table — gingham-clothed table for two, 32x32, 2x1, isDesk.
@@ -828,15 +875,15 @@ const MENU_BOARD = (() => {
 // 9–15. Tabletop clutter, 16x16 each, canPlaceOnSurfaces.
 // ════════════════════════════════════════════════════════════════
 
-/** coffee_mug — pink mug with a heart, coffee inside, steam curling. */
-const COFFEE_MUG = art([
+/** coffee_mug — pink mug with a heart, coffee inside, steam curling (animated). */
+const COFFEE_MUG_BODY = [
   '................',
-  '.......I........',
-  '......P...I.....',
-  '.......P.I......',
-  '......P...I.....',
-  '.......P..I.....',
-  '........I.......',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
+  '................',
   '....hhhhhhh.....',
   '....hSWWWSh.....',
   '....hjHHHHhhh...',
@@ -846,16 +893,23 @@ const COFFEE_MUG = art([
   '....hjHHHHh.....',
   '.....hhhhh......',
   '................',
-]);
+];
+const coffeeMug = (k: number): string[][] => {
+  const p = new Pix(16, 16).stamp(0, 0, COFFEE_MUG_BODY);
+  wisp(p, 6, 1, 6, k, WISP, 'P', 'I');
+  wisp(p, 9, 2, 6, k + 3, WISP_B, 'I', 'I');
+  return p.done();
+};
+const COFFEE_MUG_FRAMES = frameSet(WISP.length, coffeeMug);
 
-/** kettle — red enamel kettle on the boil, steam from the spout. */
-const KETTLE = art([
-  '..P.............',
-  '.I..............',
-  '..P.............',
-  '.I....kkkkk.....',
-  'P....k.....k....',
-  '.I...k.KK..k....',
+/** kettle — red enamel kettle on the boil, steam from the spout (animated). */
+const KETTLE_BODY = [
+  '................',
+  '................',
+  '................',
+  '......kkkkk.....',
+  '.....k.....k....',
+  '.....k.KK..k....',
   '.B....BBBBB.....',
   '.rB..BjjrrrB....',
   '..rBBjrrrrrrB...',
@@ -866,7 +920,13 @@ const KETTLE = art([
   '....kkkkkkkkkk..',
   '.....KKKKKKKK...',
   '................',
-]);
+];
+const kettle = (k: number): string[][] => {
+  const p = new Pix(16, 16).stamp(0, 0, KETTLE_BODY);
+  wisp(p, 1, 0, 5, k, WISP, 'P', 'I');
+  return p.done();
+};
+const KETTLE_FRAMES = frameSet(WISP.length, kettle);
 
 /** toaster — retro teal toaster, two slices mid-pop, red "on" LED. */
 const TOASTER = art([
@@ -1065,10 +1125,11 @@ const GUMBALL_MACHINE = (() => {
   return p.done();
 })();
 
-const CUP_NOODLES = (() => {
+/** Animated: steam rising out of the cup, left of the lid. */
+function cupNoodles(k: number): string[][] {
   const p = new Pix(16, 16);
   // steam, left of the lid
-  p.stamp(4, 0, ['.P.', 'I..', '.P.', '..I', '.I.']);
+  wisp(p, 4, 0, 5, k, WISP, 'P', 'I');
   // foil lid peeled up and back behind the cup (top-right): a flat cream
   // tab with a 1px red logo line, sitting behind the fork
   p.stamp(7, 2, ['.lllll', 'lAAAAl', 'lrrrrl', 'lAAAAl']);
@@ -1094,7 +1155,8 @@ const CUP_NOODLES = (() => {
   p.fill(11, 2, 13, 2, 'N');
   p.set(12, 3, 'V').set(11, 4, 'v').set(11, 5, 'v').set(10, 6, 'v').set(10, 7, 'v');
   return p.done();
-})();
+}
+const CUP_NOODLES_FRAMES = frameSet(WISP.length, cupNoodles);
 
 const BIRTHDAY_CAKE = art([
   '.....w..w..w....',
@@ -1139,8 +1201,20 @@ const entry = (
   ...(groupId ? { groupId, orientation } : {}),
 });
 
+/** Attach an animation: frame 0 becomes the still sprite, the rest loop after it. */
+const animated = (e: GeneratedSprite, all: string[][][], frameMs: number): GeneratedSprite => ({
+  ...e,
+  sprite: all[0],
+  frames: all.slice(1),
+  frameMs,
+});
+
 export const SPRITES10: GeneratedSprite[] = [
-  entry('espresso_bar', 'Espresso Bar', 32, 48, 2, 1, ESPRESSO_BAR, 'espresso_bar', 'front'),
+  animated(
+    entry('espresso_bar', 'Espresso Bar', 32, 48, 2, 1, [], 'espresso_bar', 'front'),
+    ESPRESSO_BAR_FRAMES,
+    180,
+  ),
   entry(
     'espresso_bar_right',
     'Espresso Bar (Right)',
@@ -1163,7 +1237,7 @@ export const SPRITES10: GeneratedSprite[] = [
     'espresso_bar',
     'left',
   ),
-  entry('kitchen_range', 'Kitchen Range', 16, 48, 1, 1, KITCHEN_RANGE),
+  animated(entry('kitchen_range', 'Kitchen Range', 16, 48, 1, 1, []), KITCHEN_RANGE_FRAMES, 180),
   entry('bakery_case', 'Bakery Case', 32, 32, 2, 1, BAKERY_CASE, 'bakery_case', 'front'),
   entry(
     'bakery_case_right',
@@ -1188,7 +1262,7 @@ export const SPRITES10: GeneratedSprite[] = [
     'left',
   ),
   entry('pantry_shelf', 'Pantry Shelf', 16, 32, 1, 1, PANTRY_SHELF),
-  entry('popcorn_cart', 'Popcorn Cart', 16, 32, 1, 1, POPCORN_CART),
+  animated(entry('popcorn_cart', 'Popcorn Cart', 16, 32, 1, 1, []), POPCORN_CART_FRAMES, 160),
   entry('cafe_table', 'Café Table', 32, 32, 2, 1, CAFE_TABLE, 'cafe_table', 'front'),
   entry(
     'cafe_table_right',
@@ -1226,15 +1300,15 @@ export const SPRITES10: GeneratedSprite[] = [
     'left',
   ),
   entry('menu_board', 'Menu Board', 32, 32, 2, 1, MENU_BOARD),
-  entry('coffee_mug', 'Coffee Mug', 16, 16, 1, 1, COFFEE_MUG),
-  entry('kettle', 'Kettle', 16, 16, 1, 1, KETTLE),
+  animated(entry('coffee_mug', 'Coffee Mug', 16, 16, 1, 1, []), COFFEE_MUG_FRAMES, 220),
+  animated(entry('kettle', 'Kettle', 16, 16, 1, 1, []), KETTLE_FRAMES, 160),
   entry('toaster', 'Toaster', 16, 16, 1, 1, TOASTER),
   entry('fruit_bowl', 'Fruit Bowl', 16, 16, 1, 1, FRUIT_BOWL),
   entry('pizza_box', 'Pizza Box', 16, 16, 1, 1, PIZZA_BOX),
   entry('dish_rack', 'Dish Rack', 16, 16, 1, 1, DISH_RACK),
   entry('cake_stand', 'Cake Stand', 16, 16, 1, 1, CAKE_STAND),
   entry('gumball_machine', 'Gumball Machine', 16, 32, 1, 1, GUMBALL_MACHINE),
-  entry('cup_noodles', 'Cup Noodles', 16, 16, 1, 1, CUP_NOODLES),
+  animated(entry('cup_noodles', 'Cup Noodles', 16, 16, 1, 1, []), CUP_NOODLES_FRAMES, 220),
   entry('birthday_cake', 'Birthday Cake', 16, 16, 1, 1, BIRTHDAY_CAKE),
 ];
 

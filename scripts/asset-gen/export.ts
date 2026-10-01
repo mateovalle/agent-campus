@@ -21,6 +21,8 @@ import pngjs from 'pngjs';
 
 import type { CatalogMeta } from './catalog-meta.ts';
 import { FLOORS } from './floors.ts';
+import { INTERACTIONS } from './interactions.ts';
+import { WALL_STYLES } from './walls.ts';
 import type { GeneratedSprite } from './sprites.ts';
 import { SPRITES } from './sprites.ts';
 import { SPRITES2 } from './sprites2.ts';
@@ -45,6 +47,10 @@ const ASSETS_DIR = path.join(REPO_ROOT, 'webview-ui', 'public', 'assets');
 const FURNITURE_DIR = path.join(ASSETS_DIR, 'furniture');
 
 const FLOOR_TILE_SIZE = 16;
+const WALL_PIECE_W = 16;
+const WALL_PIECE_H = 32;
+const WALL_SHEET_COLS = 4;
+const WALL_PIECE_COUNT = 16;
 
 // ── Catalog metadata per sprite id ──────────────────────────────
 
@@ -215,6 +221,9 @@ interface CatalogAsset {
   groupId?: string;
   orientation?: string;
   unlock?: string;
+  frames?: number;
+  frameMs?: number;
+  interact?: string;
 }
 
 // ── PNG helpers ─────────────────────────────────────────────────
@@ -318,6 +327,16 @@ function exportFurniture(): void {
       path.join(FURNITURE_DIR, `${s.id}.png`),
       spriteToPng(s.sprite, s.widthPx, s.heightPx),
     );
+    // Animation frames 1..n-1 as <id>@<n>.png (frame 0 is <id>.png above)
+    (s.frames ?? []).forEach((frame, i) => {
+      if (frame.length !== s.heightPx || frame.some((row) => row.length !== s.widthPx)) {
+        throw new Error(`${s.id}: frame ${i + 1} is not ${s.widthPx}x${s.heightPx}`);
+      }
+      fs.writeFileSync(
+        path.join(FURNITURE_DIR, `${s.id}@${i + 1}.png`),
+        spriteToPng(frame, s.widthPx, s.heightPx),
+      );
+    });
 
     const entry: CatalogAsset = {
       id: s.id,
@@ -337,7 +356,26 @@ function exportFurniture(): void {
     if (meta.backgroundTiles !== undefined) entry.backgroundTiles = meta.backgroundTiles;
     if (s.groupId) entry.groupId = s.groupId;
     if (s.orientation) entry.orientation = s.orientation;
+    if (s.frames?.length) {
+      entry.frames = s.frames.length + 1;
+      if (s.frameMs) entry.frameMs = s.frameMs;
+    }
+    const interact = INTERACTIONS[s.id] ?? (s.groupId ? INTERACTIONS[s.groupId] : undefined);
+    if (interact) entry.interact = interact;
     assets.push(entry);
+  }
+
+  for (const id of Object.keys(INTERACTIONS)) {
+    if (!spriteIds.has(id)) throw new Error(`INTERACTIONS lists unknown sprite '${id}'`);
+  }
+
+  // Frames from a previous export of a piece that no longer animates (or has
+  // fewer frames now) would otherwise linger in the folder.
+  const liveFrames = new Set(
+    all.flatMap((s) => (s.frames ?? []).map((_, i) => `${s.id}@${i + 1}.png`)),
+  );
+  for (const f of fs.readdirSync(FURNITURE_DIR)) {
+    if (f.includes('@') && !liveFrames.has(f)) fs.unlinkSync(path.join(FURNITURE_DIR, f));
   }
 
   const catalogPath = path.join(FURNITURE_DIR, 'furniture-catalog.json');
@@ -357,8 +395,35 @@ function exportFurniture(): void {
   }
 }
 
+/** walls.png: one 64×128 sheet (4×4 auto-tile pieces of 16×32) per style, stacked vertically. */
+function exportWalls(): void {
+  const SHEET_W = WALL_SHEET_COLS * WALL_PIECE_W;
+  const SHEET_H = (WALL_PIECE_COUNT / WALL_SHEET_COLS) * WALL_PIECE_H;
+  const height = SHEET_H * WALL_STYLES.length;
+  const grid: string[][] = Array.from({ length: height }, () =>
+    new Array<string>(SHEET_W).fill(''),
+  );
+  WALL_STYLES.forEach((style, si) => {
+    if (style.pieces.length !== WALL_PIECE_COUNT) {
+      throw new Error(`wall style ${style.id}: ${style.pieces.length} pieces, expected 16`);
+    }
+    style.pieces.forEach((piece, mask) => {
+      if (piece.length !== WALL_PIECE_H || piece.some((r) => r.length !== WALL_PIECE_W)) {
+        throw new Error(`wall style ${style.id}: piece ${mask} is not 16x32`);
+      }
+      const ox = (mask % WALL_SHEET_COLS) * WALL_PIECE_W;
+      const oy = si * SHEET_H + Math.floor(mask / WALL_SHEET_COLS) * WALL_PIECE_H;
+      piece.forEach((row, y) => row.forEach((hex, x) => (grid[oy + y][ox + x] = hex)));
+    });
+  });
+  const outPath = path.join(ASSETS_DIR, 'walls.png');
+  fs.writeFileSync(outPath, spriteToPng(grid, SHEET_W, height));
+  console.log(`✓ walls.png (${SHEET_W}×${height}, ${WALL_STYLES.length} styles) → ${outPath}`);
+}
+
 function main(): void {
   exportFloors();
+  exportWalls();
   exportFurniture();
 }
 

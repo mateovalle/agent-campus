@@ -321,7 +321,14 @@ const mirrorRows = (rows: string[]) => rows.map((r) => [...r].reverse().join('')
 //    with a root flare; a rope swing hanging off a limb that visibly holds
 //    both ropes; petals drifting down and a carpet of fallen ones.
 // ════════════════════════════════════════════════════════════════
-const CHERRY_TREE = (() => {
+//    Animated (10 frames): petals detach from the canopy's underside — each
+//    starts on the first open pixel below the blossoms in its column — and
+//    fall 2px a frame (18px in all) with a sideways sway, each on its own
+//    phase; a petal is gone (landed) for one frame of its loop, so its
+//    return to the canopy edge reads as a new petal letting go.
+const CHERRY_FRAMES = 10;
+const PETAL_SWAY = [0, 0, 1, 1, 1, 0, 0, -1, -1, -1];
+const cherryTree = (phase: number): string[][] => {
   const g = blank(32, 64);
   // trunk: 4px up top, 5px mid, 6px at the base; outline / lit / body / shadow
   const trunkX0: number[] = [];
@@ -420,17 +427,32 @@ const CHERRY_TREE = (() => {
   }
   put(g, 20, 47, 'T');
   put(g, 27, 47, 'T');
-  // drifting petals
-  for (const [x, y, ch] of [
-    [2, 37, 'q'],
-    [4, 44, 'p'],
-    [29, 36, 'q'],
-    [30, 43, 'p'],
-    [8, 50, 'q'],
-    [1, 52, 'p'],
-    [11, 40, 'q'],
-  ] as [number, number, string][])
-    put(g, x, y, ch);
+  // drifting petals [column, colour, phase offset]: kept inside the canopy's
+  // span (x 3..28) and off the trunk, each spawning right under the blossoms
+  // in its column; drawn only into open air (ropes and limbs pass in front)
+  const canopyBottom = (x: number): number => {
+    let y = 0;
+    while (y < 30 && get(g, x, y) === '.') y++; // skip sky above
+    while (y < 30 && get(g, x, y) !== '.') y++; // through the blossoms
+    return y;
+  };
+  const petals = (
+    [
+      [4, 'q', 0],
+      [7, 'p', 6],
+      [10, 'q', 3],
+      [12, 'p', 8],
+      [20, 'q', 1],
+      [24, 'p', 5],
+      [27, 'q', 3],
+    ] as [number, string, number][]
+  ).map(([x, ch, off]) => [x, canopyBottom(x), ch, off] as const); // before any petal lands
+  for (const [x, y0, ch, off] of petals) {
+    const j = (phase + off) % CHERRY_FRAMES;
+    if (j === CHERRY_FRAMES - 1) continue;
+    const px0 = x + PETAL_SWAY[j];
+    if (get(g, px0, y0 + 2 * j) === '.') put(g, px0, y0 + 2 * j, ch);
+  }
   // fallen petals around the roots + grass tufts
   for (let y = 53; y <= 62; y++) {
     for (let x = 1; x < 31; x++) {
@@ -451,7 +473,12 @@ const CHERRY_TREE = (() => {
   ])
     put(g, x, y, 'L');
   return compile(g);
-})();
+};
+const CHERRY_TREE = cherryTree(0);
+const CHERRY_TREE_ANIM = {
+  frames: Array.from({ length: CHERRY_FRAMES - 1 }, (_, i) => cherryTree(i + 1)),
+  frameMs: 240,
+};
 
 // ════════════════════════════════════════════════════════════════
 // 2. koi_pond — SHOWPIECE. 32x32, 2x2. A ring of mixed rounded stones
@@ -460,7 +487,10 @@ const CHERRY_TREE = (() => {
 //    rim (light from the top-left), two koi, lily pads with a pink lotus,
 //    a frog with proper eyes, and cattails at the back.
 // ════════════════════════════════════════════════════════════════
-const KOI_POND = (() => {
+//    Animated (6 frames): both koi swish their tails out of step, a drip
+//    ring goes drop → ring → fading ring, and the glints twinkle.
+const KOI_FRAMES = 6;
+const koiPond = (phase: number): string[][] => {
   const g = blank(32, 32);
   const cx = 15.5;
   const cy = 14.5;
@@ -500,8 +530,9 @@ const KOI_POND = (() => {
     }
   }
   outline(g);
-  // water glints + ripple rings (top-left)
-  for (const [x, y] of [
+  // water glints (alternate pairs twinkle off) + a drip ring cycling
+  // drop → ring → fading ring
+  const glints: [number, number][] = [
     [9, 9],
     [10, 9],
     [7, 11],
@@ -511,13 +542,29 @@ const KOI_POND = (() => {
     [23, 15],
     [24, 17],
     [20, 22],
-  ])
-    put(g, x, y, 's');
-  stamp(g, 18, 8, ['.ii.', 'i..i', '.ii.']);
-  // koi #1 (orange & white, heading left)
-  stamp(g, 8, 13, ['.oo0o..o', 'oxoo0oo.', '.o0oo..o']);
-  // koi #2 (white with red patches, heading right)
-  stamp(g, 15, 19, ['o..0r0.', '.0r00x0', 'o..00r.']);
+  ];
+  glints.forEach(([x, y], k) => {
+    if (k % 3 !== phase % 3) put(g, x, y, 's');
+  });
+  const ring = phase % 3;
+  if (ring === 0) put(g, 19, 9, 'i');
+  else
+    stamp(
+      g,
+      18,
+      8,
+      ['.ii.', 'i..i', '.ii.'].map((r) => (ring === 2 ? r.replace(/i/g, 's') : r)),
+    );
+  // koi #1 (orange & white, heading left) — tail fanned / tail swept straight
+  const swish = phase % 2;
+  stamp(
+    g,
+    8,
+    13,
+    swish ? ['.oo0o...', 'oxoo0ooo', '.o0oo...'] : ['.oo0o..o', 'oxoo0oo.', '.o0oo..o'],
+  );
+  // koi #2 (white with red patches, heading right), half a beat behind
+  stamp(g, 15, 19, swish ? ['...0r0.', 'o0r00x0', '...00r.'] : ['o..0r0.', '.0r00x0', 'o..00r.']);
   // lily pads (notched circles) with a lotus on one
   stamp(g, 5, 19, ['.LLL.', 'LHLL.', 'LLL..', 'LLLLD', '.DDD.']);
   stamp(g, 6, 18, ['.q.', 'qpq']);
@@ -537,7 +584,12 @@ const KOI_POND = (() => {
   put(g, 5, 5, 'L');
   put(g, 7, 6, 'L');
   return compile(g);
-})();
+};
+const KOI_POND = koiPond(0);
+const KOI_POND_ANIM = {
+  frames: Array.from({ length: KOI_FRAMES - 1 }, (_, i) => koiPond(i + 1)),
+  frameMs: 260,
+};
 
 // ════════════════════════════════════════════════════════════════
 // 3. pine_tree — 16x48, 1x1. Four stacked skirts, each with a lit
@@ -1275,7 +1327,19 @@ const PICKET_FENCE_RIGHT = (() => {
 //     their cut ends, a flame (red → orange → lamp-warm → gold-light core),
 //     embers, a smoke wisp — and a marshmallow toasting on a stick.
 // ════════════════════════════════════════════════════════════════
-const CAMPFIRE = (() => {
+//     Animated (4 frames): the flame's tongues lick through four shapes
+//     (only the top rows change — the body and base stay put), sparks
+//     rise a pixel a frame in two swaying columns spaced one loop apart (so
+//     they never jump), the smoke wisp's wave climbs with them and the
+//     embers pulse.
+const CAMPFIRE_FRAMES = 4;
+const CAMPFIRE_TIPS = [
+  ['....r.......', '....rr..r...', '...ror..rr..', '...roor.ror.', '..rofforoor.'],
+  ['............', '.....r...r..', '....ror..rr.', '...roor.roor', '..roffororr.'],
+  ['...r........', '...rr...r...', '..ror...rr..', '..roor.ror..', '..rofforoor.'],
+  ['.....r......', '....rr.r....', '...ror.rr...', '...roorror..', '..roffooor..'],
+];
+const campfire = (phase: number): string[][] => {
   const g = blank(16, 32);
   // pit
   for (let y = 21; y <= 30; y++)
@@ -1311,15 +1375,11 @@ const CAMPFIRE = (() => {
   stamp(g, 3, 26, ['TT', 'MM', 'TT']);
   stamp(g, 10, 26, ['TT', 'MM', 'TT']);
   // embers
-  put(g, 7, 25, 'o');
-  put(g, 8, 26, 'o');
+  put(g, 7, 25, phase % 2 ? 'Y' : 'o');
+  put(g, 8, 26, phase % 2 ? 'o' : 'Y');
   // flame — narrow at the base so the back stones show either side
   stamp(g, 2, 9, [
-    '....r.......',
-    '....rr..r...',
-    '...ror..rr..',
-    '...roor.ror.',
-    '..rofforoor.',
+    ...CAMPFIRE_TIPS[phase],
     '..roflfforr.',
     '.rofllffoor.',
     '.rofllllfor.',
@@ -1339,10 +1399,14 @@ const CAMPFIRE = (() => {
     [13.8, 25.5],
   ])
     stone(x, y, 2.1, 1.6);
-  // sparks (one orange) + smoke
-  put(g, 4, 6, 'Y');
-  put(g, 11, 6, 'o');
-  put(g, 9, 4, 'f');
+  // sparks: two swaying columns, one every 4px, rising 1px a frame;
+  // they cool from gold to lamp-warm to orange as they climb
+  for (let y = 1; y <= 7; y++) {
+    const c = y >= 6 ? 'Y' : y >= 3 ? 'f' : 'o';
+    if ((y + phase) % 4 === 2) put(g, 4 - ((y >> 1) & 1), y, c);
+    if ((y + phase) % 4 === 0) put(g, 11 + ((y >> 1) & 1), y, c);
+  }
+  // smoke: the wisp's wave climbs a pixel a frame (the base stays anchored)
   for (const [x, y] of [
     [7, 8],
     [8, 7],
@@ -1354,12 +1418,17 @@ const CAMPFIRE = (() => {
     [8, 1],
     [9, 0],
   ])
-    put(g, x, y, y < 4 ? '7' : '6');
+    put(g, x + (y < 6 ? [0, 1, 1, 0][(y + phase) % 4] : 0), y, y < 4 ? '7' : '6');
   // marshmallow on a stick, poked in from the front-right
   line(g, 15, 29, 13, 21, (x, y) => put(g, x, y, 'T'));
   stamp(g, 12, 19, ['00', 'wo']);
   return compile(g);
-})();
+};
+const CAMPFIRE = campfire(0);
+const CAMPFIRE_ANIM = {
+  frames: Array.from({ length: CAMPFIRE_FRAMES - 1 }, (_, i) => campfire(i + 1)),
+  frameMs: 170,
+};
 
 // ════════════════════════════════════════════════════════════════
 // 14. stepping_stones — 16x16, 1x1, walkable (backgroundTiles 1). Three
@@ -1618,8 +1687,8 @@ const entry = (
 });
 
 export const SPRITES13: GeneratedSprite[] = [
-  entry('cherry_tree', 'Cherry Blossom', 32, 64, 2, 2, CHERRY_TREE),
-  entry('koi_pond', 'Koi Pond', 32, 32, 2, 2, KOI_POND),
+  { ...entry('cherry_tree', 'Cherry Blossom', 32, 64, 2, 2, CHERRY_TREE), ...CHERRY_TREE_ANIM },
+  { ...entry('koi_pond', 'Koi Pond', 32, 32, 2, 2, KOI_POND), ...KOI_POND_ANIM },
   entry('pine_tree', 'Pine Tree', 16, 48, 1, 1, PINE_TREE),
   entry('fiddle_fig', 'Fiddle-Leaf Fig', 16, 48, 1, 1, FIDDLE_FIG),
   entry('monstera', 'Monstera (Stone Pot)', 16, 32, 1, 1, MONSTERA),
@@ -1655,7 +1724,7 @@ export const SPRITES13: GeneratedSprite[] = [
     'picket_fence',
     'right',
   ),
-  entry('campfire', 'Campfire', 16, 32, 1, 1, CAMPFIRE),
+  { ...entry('campfire', 'Campfire', 16, 32, 1, 1, CAMPFIRE), ...CAMPFIRE_ANIM },
   entry('stepping_stones', 'Stepping Stones', 16, 16, 1, 1, STEPPING_STONES),
   entry('mailbox', 'Mailbox', 16, 32, 1, 1, MAILBOX),
   entry('garden_gnome', 'Fishing Gnome', 16, 32, 1, 1, GNOME_FRONT, 'garden_gnome', 'front'),

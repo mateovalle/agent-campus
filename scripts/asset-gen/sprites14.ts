@@ -34,6 +34,7 @@ import type { CatalogMeta } from './catalog-meta.ts';
 import {
   AMBER,
   BLUE,
+  BRICK,
   BRICK_DARK,
   CLAY,
   CLAY_DARK,
@@ -217,7 +218,10 @@ const LAMP = ['XXx', 'XXx', 'xx.'];
 //    first time flap caught mid-flip — the board is updating as you
 //    look at it.
 // ════════════════════════════════════════════════════════════════
-const DEPLOY_BOARD = (() => {
+/** One frame of the board: `flipping` = DATA's first time flap caught
+ *  mid-flip (the still), `onAir` = the header lamp lit, `chatLit` = CHAT's
+ *  red "delayed" lamp lit. */
+function deployBoard(flipping: boolean, onAir: boolean, chatLit: boolean): string[][] {
   const cv = new Canvas(48, 32);
   // hanging rods (below the wall cap) with lit mounting points
   for (const c of [9, 38]) {
@@ -234,7 +238,7 @@ const DEPLOY_BOARD = (() => {
   for (let c = 4; c <= 43; c++) cv.set(11, c, 'N');
   writeText(cv, FONT5, 'DEPLOYS', 6, 6, 'p');
   // on-air lamp
-  cv.stamp(LAMP, 7, 38, { X: 'P', x: 'r' });
+  cv.stamp(LAMP, 7, 38, onAir ? { X: 'P', x: 'r' } : { X: 'r', x: 'D' });
   // flights
   const flights: Array<[string, string, string]> = [
     ['AUTH', '10', 'g'],
@@ -257,14 +261,17 @@ const DEPLOY_BOARD = (() => {
       if (glyph) cv.stamp(glyph, r, c, { '#': i >= 6 ? 'p' : 'y' });
     });
     const lit = lamp === 'r' ? 'P' : lamp === 'g' ? 'G' : 'Y';
-    cv.stamp(LAMP, r, 40, { X: lit, x: lamp });
+    if (lamp === 'r' && !chatLit) cv.stamp(LAMP, r, 40, { X: 'r', x: 'D' });
+    else cv.stamp(LAMP, r, 40, { X: lit, x: lamp });
   });
   // mid-flip: DATA's first time digit. The bottom half of the glyph
   // stays; the upper leaf has tipped towards us, poking 1px up into
   // the dark band above.
   const fr = 13 + 3 * 4;
-  cv.rect(fr - 1, 30, fr - 1, 32, 'l');
-  cv.rect(fr, 30, fr, 32, 's');
+  if (flipping) {
+    cv.rect(fr - 1, 30, fr - 1, 32, 'l');
+    cv.rect(fr, 30, fr, 32, 's');
+  }
   // underside shadow of the casing
   for (let c = 3; c <= 45; c++) cv.set(30, c, 'o');
   return cv.done({
@@ -284,8 +291,22 @@ const DEPLOY_BOARD = (() => {
     Y: GOLD_LIGHT,
     r: RED,
     P: PINK_LIGHT,
+    D: BRICK_DARK,
   });
-})();
+}
+const DEPLOY_BOARD = deployBoard(true, true, true);
+/** The board updating: the flap finishes its flip, then the on-air lamp
+ *  blinks every frame and CHAT's delayed lamp at half that rate, so both
+ *  rhythms stay even across the wrap back to the still (8 frames total). */
+const DEPLOY_BOARD_FRAMES = [
+  deployBoard(false, false, true),
+  deployBoard(false, true, false),
+  deployBoard(false, false, false),
+  deployBoard(false, true, true),
+  deployBoard(false, false, true),
+  deployBoard(false, true, false),
+  deployBoard(false, false, false),
+];
 
 // ════════════════════════════════════════════════════════════════
 // 2. painting_landscape — gilt-framed oil painting, 32x32, 2x1 wall.
@@ -632,7 +653,18 @@ const PORTHOLE = (() => {
 //    power LED and a "21" readout, and two ribbons tied to the louvre
 //    streaming out in the draught. One drop of condensation.
 // ════════════════════════════════════════════════════════════════
-const AC_UNIT = (() => {
+/** How far each ribbon has dropped below its knot, column by column, as
+ *  the draught gusts (frame 0 first). */
+const RIBBON_GUSTS = [
+  [0, 1, 1, 1, 2, 2, 3, 3],
+  [0, 1, 1, 2, 2, 3, 3, 4],
+  [0, 1, 1, 1, 2, 2, 3, 3],
+  [0, 0, 1, 1, 1, 2, 2, 2],
+];
+
+/** The AC unit at frame `t`: the two ribbons flutter out of step and the
+ *  condensation drop falls. */
+function acUnit(t: number): string[][] {
   const cv = new Canvas(32, 32);
   cv.rect(5, 1, 15, 30, 'p');
   cv.frame(5, 1, 15, 30, 's');
@@ -659,13 +691,12 @@ const AC_UNIT = (() => {
   cv.set(16, 29, 's');
   // ribbons: knotted under the louvre, hang 2 rows, then blow down-right
   // in one gentle S; light tone on the upper edge, dark on the lower.
-  const ribbon = (c0: number, lt: string, dk: string) => {
+  const ribbon = (c0: number, lt: string, dk: string, drop: number[]) => {
     cv.set(17, c0, dk);
     for (const r of [18, 19]) {
       cv.set(r, c0, lt);
       cv.set(r, c0 + 1, dk);
     }
-    const drop = [0, 1, 1, 1, 2, 2, 3, 3];
     drop.forEach((d, i) => {
       const r = 19 + d;
       const c = c0 + 1 + i;
@@ -673,14 +704,15 @@ const AC_UNIT = (() => {
       cv.set(r + 1, c, dk);
     });
   };
-  ribbon(8, 't', 'T');
-  ribbon(19, 'm', 'K');
+  ribbon(8, 't', 'T', RIBBON_GUSTS[t]);
+  ribbon(19, 'm', 'K', RIBBON_GUSTS[(4 - t) % 4]);
   // draught dashes, parallel to the ribbons
   cv.line(19, 12, 20, 14, 'I');
   cv.line(19, 23, 20, 25, 'I');
   // condensation drip under the right end
+  // (the drop forms under the bead, falls, and a new one forms)
   cv.set(17, 28, 'I');
-  cv.set(19, 28, 'I');
+  cv.set([19, 21, 23, 18][t], 28, 'I');
   return cv.done({
     p: PAPER,
     s: SILVER,
@@ -696,7 +728,9 @@ const AC_UNIT = (() => {
     m: PINK,
     K: PINK_DARK,
   });
-})();
+}
+const AC_UNIT = acUnit(0);
+const AC_UNIT_FRAMES = [1, 2, 3].map((t) => acUnit(t));
 
 // ════════════════════════════════════════════════════════════════
 // 8. bunting — party bunting, 32x32, 2x1 wall. Two sagging strings of
@@ -1107,7 +1141,8 @@ const DUCK_TROPHY = fromAscii(
 //     of its door mid-call, a cream dial, and pine-cone weights on
 //     chains hanging at two different heights beside a brass pendulum.
 // ════════════════════════════════════════════════════════════════
-const CUCKOO_CLOCK = (() => {
+/** The clock with its pendulum swung `swing` px (-1, 0, 1) at the bob. */
+function cuckooClock(swing: number): string[][] {
   const rows = [
     '................',
     '................',
@@ -1176,6 +1211,19 @@ const CUCKOO_CLOCK = (() => {
     [13, 4, 'y'],
   ];
   for (const [r, c, ch] of bird) rows[r][c] = ch;
+  // pendulum: the rod hangs from the case at col 7; swung, its lower two
+  // rows and the bob shift sideways (the pivot never moves)
+  if (swing !== 0) {
+    for (const r of [25, 26]) rows[r][7] = '.';
+    for (const r of [27, 28]) for (let c = 6; c <= 8; c++) rows[r][c] = '.';
+    // swung, the bob narrows to 2px on the inner side of the rod, so the
+    // right swing (x7..8) keeps a 1px gap before the right weight at x10
+    // and the left swing (x6..7) mirrors it about the pivot column
+    for (const r of [25, 26]) rows[r][7 + swing] = 'b';
+    const c0 = swing > 0 ? 7 : 6;
+    rows[27].splice(c0, 2, 'H', 'B');
+    rows[28].splice(c0, 2, 'B', 'B');
+  }
   return fromAscii(
     rows.map((r) => r.join('')),
     {
@@ -1201,7 +1249,10 @@ const CUCKOO_CLOCK = (() => {
       P: WOOD_DARK,
     },
   );
-})();
+}
+const CUCKOO_CLOCK = cuckooClock(0);
+/** Tick, tock: the pendulum swings right, back through centre, left. */
+const CUCKOO_CLOCK_FRAMES = [1, 0, -1].map((d) => cuckooClock(d));
 
 // ════════════════════════════════════════════════════════════════
 // 15. thermostat — round-dial wall thermostat, 16x16, 1x1 wall. One
@@ -1506,7 +1557,8 @@ const INCIDENT_SIGN = (() => {
 //     build is broken), amber and green are dark. Its cable is taped
 //     to the wall below.
 // ════════════════════════════════════════════════════════════════
-const ANDON_LIGHT = (() => {
+/** The stack light with its red segment lit (the still) or between flashes. */
+function andonLight(redLit: boolean): string[][] {
   const cv = new Canvas(16, 32);
   // cap
   cv.stamp(['.oooo.', 'oSSSso'], 3, 5);
@@ -1523,7 +1575,9 @@ const ANDON_LIGHT = (() => {
     cv.set(r0 + 1, 7, hi);
     cv.set(r0 + 3, 9, o);
   };
-  seg(5, 'r', 'R', 'P', 'w'); // lit red
+  if (redLit)
+    seg(5, 'r', 'R', 'P', 'w'); // lit red
+  else seg(5, 'D', 'B', 'B', 'B'); // between flashes
   seg(9, 'K', 'a', 'a', 'a'); // dark amber
   seg(13, 'n', 'G', 'G', 'G'); // dark green
   // rings between segments
@@ -1550,8 +1604,13 @@ const ANDON_LIGHT = (() => {
     G: TEAL_DARK,
     k: INK,
     q: CREAM,
+    D: BRICK_DARK,
+    B: BRICK,
   });
-})();
+}
+const ANDON_LIGHT = andonLight(true);
+/** The build is broken: the red segment flashes. */
+const ANDON_LIGHT_FRAMES = [andonLight(false)];
 
 // ════════════════════════════════════════════════════════════════
 // 22. string_lights — fairy lights swagged along the wall, 32x32, 2x1
@@ -1561,7 +1620,9 @@ const ANDON_LIGHT = (() => {
 //     below — and one dead grey bulb that has slipped its socket and
 //     dangles lower than the rest.
 // ════════════════════════════════════════════════════════════════
-const STRING_LIGHTS = (() => {
+/** The lights with every third live bulb (`dim` = 0, 1 or 2) dimmed, or
+ *  all lit (`dim` = -1, the still). */
+function stringLights(dim: number): string[][] {
   const cv = new Canvas(32, 32);
   const pins = [1, 16, 30];
   const rowAt = (c: number) => {
@@ -1581,6 +1642,7 @@ const STRING_LIGHTS = (() => {
     ['t', 'T'],
     ['m', 'M'],
   ];
+  const DIM: Legend = { y: 'g', t: 'd', m: 'p' };
   const bulbs = [2, 5, 8, 11, 13, 18, 21, 24, 27];
   let k = 0;
   bulbs.forEach((c, i) => {
@@ -1596,9 +1658,16 @@ const STRING_LIGHTS = (() => {
       cv.set(r + 4, c, 'u');
       return;
     }
+    const live = k;
     const [base, lit] = TONES[k++ % TONES.length];
     cv.set(r, c, 'k');
     cv.set(r, c + 1, 'k');
+    if (live % 3 === dim) {
+      // dimmed: the dark tone of its colour, no highlight, no glow
+      cv.rect(r + 1, c, r + 2, c + 1, DIM[base]);
+      cv.set(r + 1, c, base);
+      return;
+    }
     cv.rect(r + 1, c, r + 2, c + 1, base);
     cv.set(r + 1, c, lit);
     // a pale glow pixel just below the bulb
@@ -1615,10 +1684,16 @@ const STRING_LIGHTS = (() => {
     T: TEAL_LIGHT,
     m: PINK,
     M: PINK_LIGHT,
+    g: GOLD_DARK,
+    d: TEAL_DARK,
+    p: PINK_DARK,
     u: STONE,
     U: STONE_DARK,
   });
-})();
+}
+const STRING_LIGHTS = stringLights(-1);
+/** Twinkle chase: all lit, then each third of the bulbs dims in turn. */
+const STRING_LIGHTS_FRAMES = [0, 1, 2].map((d) => stringLights(d));
 
 // ════════════════════════════════════════════════════════════════
 
@@ -1644,21 +1719,36 @@ const entry = (
   ...(groupId ? { groupId, orientation } : {}),
 });
 
+/** Attach an animation to a catalog entry. */
+const animated = (s: GeneratedSprite, frames: string[][][], frameMs: number): GeneratedSprite => ({
+  ...s,
+  frames,
+  frameMs,
+});
+
 export const SPRITES14: GeneratedSprite[] = [
-  entry('deploy_board', 'Deploy Board', 48, 32, 3, 1, DEPLOY_BOARD),
+  animated(
+    entry('deploy_board', 'Deploy Board', 48, 32, 3, 1, DEPLOY_BOARD),
+    DEPLOY_BOARD_FRAMES,
+    320,
+  ),
   entry('painting_landscape', 'Landscape Painting', 32, 32, 2, 1, PAINTING_LANDSCAPE),
   entry('art_abstract', 'Abstract Canvas', 16, 32, 1, 1, ART_ABSTRACT),
   entry('portrait_capy', 'Capybara Portrait', 16, 32, 1, 1, PORTRAIT_CAPY),
   entry('world_map', 'World Map', 32, 32, 2, 1, WORLD_MAP),
   entry('porthole', 'Porthole', 16, 32, 1, 1, PORTHOLE),
-  entry('ac_unit', 'Air Conditioner', 32, 32, 2, 1, AC_UNIT),
+  animated(entry('ac_unit', 'Air Conditioner', 32, 32, 2, 1, AC_UNIT), AC_UNIT_FRAMES, 240),
   entry('bunting', 'Bunting', 32, 32, 2, 1, BUNTING),
   entry('exit_sign', 'Exit Sign', 16, 32, 1, 1, EXIT_SIGN),
   entry('fire_extinguisher', 'Fire Extinguisher', 16, 32, 1, 1, FIRE_EXTINGUISHER),
   entry('poster_ship', 'Ship It Poster', 16, 32, 1, 1, POSTER_SHIP),
   entry('coat_hooks', 'Coat Hooks', 32, 32, 2, 1, COAT_HOOKS),
   entry('duck_trophy', 'Duck Trophy', 16, 32, 1, 1, DUCK_TROPHY),
-  entry('cuckoo_clock', 'Cuckoo Clock', 16, 32, 1, 1, CUCKOO_CLOCK),
+  animated(
+    entry('cuckoo_clock', 'Cuckoo Clock', 16, 32, 1, 1, CUCKOO_CLOCK),
+    CUCKOO_CLOCK_FRAMES,
+    300,
+  ),
   entry('thermostat', 'Thermostat', 16, 16, 1, 1, THERMOSTAT),
   entry(
     'wet_floor_sign',
@@ -1687,8 +1777,12 @@ export const SPRITES14: GeneratedSprite[] = [
   entry('photo_frame_back', 'Photo Frame', 16, 16, 1, 1, PHOTO_FRAME_BACK, 'photo_frame', 'back'),
   entry('nameplate', 'Nameplate', 16, 16, 1, 1, NAMEPLATE),
   entry('incident_sign', 'Incident Counter', 32, 32, 2, 1, INCIDENT_SIGN),
-  entry('andon_light', 'Build Light', 16, 32, 1, 1, ANDON_LIGHT),
-  entry('string_lights', 'String Lights', 32, 32, 2, 1, STRING_LIGHTS),
+  animated(entry('andon_light', 'Build Light', 16, 32, 1, 1, ANDON_LIGHT), ANDON_LIGHT_FRAMES, 450),
+  animated(
+    entry('string_lights', 'String Lights', 32, 32, 2, 1, STRING_LIGHTS),
+    STRING_LIGHTS_FRAMES,
+    350,
+  ),
 ];
 
 validateSprites(SPRITES14);

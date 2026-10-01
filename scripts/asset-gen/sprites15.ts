@@ -1020,18 +1020,28 @@ const SHIP_GONG = (() => {
 //    felt-panelled interior with a shelf, glowing laptop, a steaming mug
 //    and a stool, a lit ON AIR lamp on the roof, 16x48, 1x1, misc.
 // ════════════════════════════════════════════════════════════════
-const FOCUS_BOOTH = (() => {
+//     Animated (4 frames): the ON AIR lamp breathes (full → softer → dim →
+//     softer) and the mug's steam rises a pixel a frame, puffs spaced one
+//     loop apart so the column never jumps.
+const FOCUS_BOOTH_FRAMES = 4;
+const focusBooth = (phase: number): Grid => {
   const g = grid(16, 48);
   box(g, 0, 3, 15, 45, { o: NAVY_DARK, f: NAVY, l: SCREEN_SHADOW });
   // roof sign, lit: a warm halo around the red lamp
   rect(g, 4, 5, 11, 6, NAVY_DARK);
-  rect(g, 5, 5, 5, 6, ORANGE);
-  rect(g, 10, 5, 10, 6, ORANGE);
-  rect(g, 6, 5, 9, 6, RED);
-  px(g, 6, 5, PINK_LIGHT);
-  px(g, 8, 5, PINK_LIGHT);
-  px(g, 7, 4, GOLD_LIGHT);
-  px(g, 8, 4, GOLD_LIGHT);
+  // the dim step keeps the letters, just a tone darker on a darker field,
+  // so it reads as the same sign dimmed, not a different blank one
+  const glow = [2, 1, 0, 1][phase]; // 2 full, 1 softer, 0 dim
+  const edge = glow === 2 ? ORANGE : glow === 1 ? RED : BRICK_DARK;
+  rect(g, 5, 5, 5, 6, edge);
+  rect(g, 10, 5, 10, 6, edge);
+  rect(g, 6, 5, 9, 6, glow ? RED : BRICK);
+  px(g, 6, 5, glow ? PINK_LIGHT : RED);
+  px(g, 8, 5, glow ? PINK_LIGHT : RED);
+  if (glow === 2) {
+    px(g, 7, 4, GOLD_LIGHT);
+    px(g, 8, 4, GOLD_LIGHT);
+  }
   // acoustic felt back wall: vertical panels with dark grooves
   rect(g, 2, 8, 13, 41, CREAM_DARK);
   for (let x = 4; x <= 13; x += 3) rect(g, x, 14, x, 41, WOOD_LIGHT);
@@ -1052,8 +1062,8 @@ const FOCUS_BOOTH = (() => {
   px(g, 12, 23, SILVER);
   px(g, 11, 21, WOOD_SHADOW);
   px(g, 13, 22, SILVER);
-  px(g, 11, 20, ICE);
-  px(g, 12, 19, PAPER);
+  for (let y = 16; y <= 20; y++)
+    if ((y + phase) % 4 === 0) px(g, 11 + ((20 - y) % 2), y, y >= 19 ? ICE : PAPER);
   // a little succulent
   px(g, 2, 22, LEAF);
   px(g, 3, 21, LEAF);
@@ -1077,7 +1087,12 @@ const FOCUS_BOOTH = (() => {
   rect(g, 1, 46, 2, 46, INK);
   rect(g, 13, 46, 14, 46, INK);
   return g;
-})();
+};
+const FOCUS_BOOTH = focusBooth(0);
+const FOCUS_BOOTH_ANIM = {
+  frames: Array.from({ length: FOCUS_BOOTH_FRAMES - 1 }, (_, i) => focusBooth(i + 1)),
+  frameMs: 320,
+};
 
 // ════════════════════════════════════════════════════════════════
 // 11. capybara_statue — polished bronze capybara on a stone plinth with a
@@ -1176,7 +1191,12 @@ const CAPYBARA_PLUSH = (() => {
 //     floating yuzu, a bamboo spout pours in from the back, mossy rocks
 //     sit at the corner and steam curls up into the overhang.
 // ════════════════════════════════════════════════════════════════
-const CAPYBARA_ONSEN = (() => {
+//     Animated (6 frames): the steam curls climb 2px a frame (their wave
+//     repeats every 12px and their gaps every 6px, so the loop is seamless), the yuzu
+//     bob out of step, the spout's water runs and its splash pulses, and
+//     the ripples drift. The tub, the capybara and the rocks never move.
+const ONSEN_FRAMES = 6;
+const capybaraOnsen = (phase: number): Grid => {
   const g = grid(32, 48);
   const HINOKI: Mat = { o: WOOD, f: CREAM, d: CREAM_DARK };
   // front face: darker grooves between the boards
@@ -1198,13 +1218,16 @@ const CAPYBARA_ONSEN = (() => {
   rect(g, 4, 17, 27, 18, TEAL_DARK);
   rect(g, 4, 17, 5, 35, TEAL_DARK);
   // drifting ripples + a glint top-left
-  for (const [x, y, w] of [
+  const ripples: [number, number, number][] = [
     [21, 25, 4],
     [7, 30, 3],
     [17, 33, 4],
     [24, 19, 2],
-  ])
-    rect(g, x, y, x + w - 1, y, TEAL_LIGHT);
+  ];
+  ripples.forEach(([x, y, w], k) => {
+    const dx = phase < 3 ? 0 : k % 2 ? -1 : 1;
+    rect(g, x + dx, y, x + dx + w - 1, y, TEAL_LIGHT);
+  });
   rect(g, 6, 19, 7, 19, TEAL_LIGHT);
   px(g, 6, 20, TEAL_LIGHT);
   // capybara: only what clears the water line is drawn
@@ -1222,18 +1245,21 @@ const CAPYBARA_ONSEN = (() => {
   rect(g, 11, 27, 16, 27, TEAL_LIGHT);
   // folded towel on its head
   stamp(g, 8, 18, ['.oooo.', 'oPPPPo', 'oIIIIo'], { o: SILVER, P: PAPER, I: ICE });
-  // floating yuzu
-  for (const [x, y] of [
+  // floating yuzu, each bobbing a pixel on its own beat
+  const BOB = [0, 0, 0, 1, 1, 1];
+  const yuzu: [number, number][] = [
     [22, 20],
     [24, 29],
     [5, 31],
     [13, 32],
     [26, 33],
-  ]) {
+  ];
+  yuzu.forEach(([x, y0], k) => {
+    const y = y0 + BOB[(phase + k * 2) % ONSEN_FRAMES];
     stamp(g, x, y, ['.yy.', 'ygGy', '.yy.'], YUZU_LEGEND);
     rect(g, x, y + 3, x + 3, y + 3, TEAL_LIGHT);
-  }
-  px(g, 23, 19, LEAF);
+    if (k === 0) px(g, 23, y - 1, LEAF);
+  });
   // mossy rocks seated on the back-left corner of the rim
   // (clamped inside the rim so its outline at x=1 stays unbroken)
   const ROCK: Mat = { o: STONE_DARK, f: STONE, l: CREAM_DARK };
@@ -1252,23 +1278,32 @@ const CAPYBARA_ONSEN = (() => {
   px(g, 25, 8, GREEN_LIGHT);
   px(g, 26, 8, LEAF_DARK);
   px(g, 21, 8, LEAF_DARK);
-  rect(g, 21, 10, 21, 17, SKY);
-  rect(g, 22, 11, 22, 16, ICE);
-  rect(g, 20, 18, 23, 18, PAPER);
-  // steam: soft 2px curls that thin out as they rise
+  // the pour: a bright band runs down it, the splash pulses
+  for (let y = 10; y <= 17; y++) px(g, 21, y, (y - phase) % 3 === 0 ? ICE : SKY);
+  for (let y = 11; y <= 16; y++) px(g, 22, y, (y - phase) % 3 === 0 ? SKY : ICE);
+  rect(g, phase % 2 ? 19 : 20, 18, phase % 2 ? 24 : 23, 18, PAPER);
+  // steam: soft curls rising off the far side of the tub into the air
+  // above it. They start just above the back rim and the rocks (never on
+  // them), stay clear of the bamboo spout and its pour, and fade out —
+  // 2px, then a single pixel, then a faint ice pixel — before the top edge.
   const wisp = (bx: number, top: number, bottom: number, ph: number) => {
     for (let y = bottom; y >= top; y--) {
-      if ((y + ph) % 6 === 0) continue;
-      const x = bx + Math.round(1.8 * Math.sin(y / 3 + ph));
-      px(g, x, y, PAPER);
-      if (y > top + 3) px(g, x + 1, y, (y + ph) % 2 ? ICE : PAPER);
+      const t = y + ph + 2 * phase; // rises 2px a frame; 6 frames = one 12px wave
+      if (t % 6 === 0) continue;
+      const x = bx + Math.round(1.8 * Math.sin((t * Math.PI) / 6));
+      px(g, x, y, y <= top + 1 ? ICE : PAPER);
+      if (y > top + 3) px(g, x + 1, y, t % 2 ? ICE : PAPER);
     }
   };
-  wisp(12, 1, 13, 0);
-  wisp(18, 4, 13, 2);
-  wisp(25, 0, 6, 4);
+  wisp(8, 2, 9, 0); // above the rocks (their moss caps start at y=10)
+  wisp(15, 1, 10, 3); // x 13..18: clear of the spout (x>=19 at y 8..12)
   return g;
-})();
+};
+const CAPYBARA_ONSEN = capybaraOnsen(0);
+const CAPYBARA_ONSEN_ANIM = {
+  frames: Array.from({ length: ONSEN_FRAMES - 1 }, (_, i) => capybaraOnsen(i + 1)),
+  frameMs: 230,
+};
 
 // ════════════════════════════════════════════════════════════════
 // 14. rug_round — braided rag rug, 32x32, 2x2, decor, walkable. The
@@ -1626,10 +1661,13 @@ const entry = (
 });
 
 export const SPRITES15: GeneratedSprite[] = [
-  entry('capybara_onsen', 'Capybara Onsen', 32, 48, 2, 2, CAPYBARA_ONSEN),
+  {
+    ...entry('capybara_onsen', 'Capybara Onsen', 32, 48, 2, 2, CAPYBARA_ONSEN),
+    ...CAPYBARA_ONSEN_ANIM,
+  },
   entry('capybara_statue', 'Capybara Statue', 16, 32, 1, 1, CAPYBARA_STATUE),
   entry('capybara_plush', 'Capybara Plush', 16, 16, 1, 1, CAPYBARA_PLUSH),
-  entry('focus_booth', 'Focus Booth', 16, 48, 1, 1, FOCUS_BOOTH),
+  { ...entry('focus_booth', 'Focus Booth', 16, 48, 1, 1, FOCUS_BOOTH), ...FOCUS_BOOTH_ANIM },
   entry(
     'reading_armchair',
     'Reading Armchair',

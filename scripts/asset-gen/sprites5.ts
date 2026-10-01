@@ -40,7 +40,7 @@ import {
   WOOD_SURFACE,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, px, validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -246,6 +246,11 @@ const SERVER_RACK_BACK = (() => {
     A: AMBER,
   });
 })();
+
+/** server_rack_back: the PDU's five LEDs — all lit, then a dim step chasing along the strip. */
+const SERVER_RACK_BACK_ANIM = animate(SERVER_RACK_BACK, 6, 180, (g, i) => {
+  for (let j = 0; j < 5; j++) px(g, 3 + 2 * j, 37, i === j + 1 ? IRON : LED_GREEN);
+});
 
 // ════════════════════════════════════════════════════════════════
 // 6. vending_machine_right — vending machine in profile facing
@@ -477,7 +482,7 @@ export const SPRITES5: GeneratedSprite[] = [
     heightPx: 48,
     footprintW: 1,
     footprintH: 1,
-    sprite: SERVER_RACK_BACK,
+    ...SERVER_RACK_BACK_ANIM,
     groupId: 'server_rack',
     orientation: 'back',
   },

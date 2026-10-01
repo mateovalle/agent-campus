@@ -265,7 +265,14 @@ const BENCH_RIGHT = (() => {
 //    ice ripples, a clay pedestal carrying a small upper bowl, and ice
 //    spray arcs above it. Footprint is the bottom 32 rows.
 // ════════════════════════════════════════════════════════════════
-const FOUNTAIN = (() => {
+/**
+ * Animated (6 frames): the jet's lit band climbs the water column a pixel a
+ * frame, gaps run outward along both spray arcs and the crown bobs (all a
+ * 3-frame cycle, so they loop without a jump), and the basin ripples drift a
+ * pixel and back, neighbours in opposite directions.
+ */
+const FOUNTAIN_FRAMES = 6;
+const fountain = (phase: number): string[][] => {
   const g = blank(32, 48);
   for (let y = 22; y <= 46; y++) {
     for (let x = 0; x < 32; x++) {
@@ -283,19 +290,17 @@ const FOUNTAIN = (() => {
       if (g[47][x] === '.' && x >= 4 && x <= 27) g[47][x] = 'Q';
     }
   }
-  // ripples
-  for (const [y, x] of [
+  // ripples [y, x] (2px each), drifting a pixel and back
+  [
     [28, 6],
-    [28, 7],
     [31, 24],
-    [31, 25],
     [37, 8],
-    [37, 9],
     [39, 21],
-    [39, 22],
-  ]) {
-    g[y][x] = 'I';
-  }
+  ].forEach(([y, x], k) => {
+    const dx = phase < 3 ? 0 : k % 2 ? -1 : 1;
+    g[y][x + dx] = 'I';
+    g[y][x + dx + 1] = 'I';
+  });
   // pedestal cols 14-17 rows 22-33, upper bowl rows 18-21 cols 11-20
   for (let y = 22; y <= 33; y++) {
     g[y][13] = 'Q';
@@ -314,28 +319,40 @@ const FOUNTAIN = (() => {
     for (let x = 11; x <= 20; x++) g[y][x] = y === 19 ? 'S' : 'C';
   }
   // water column + spray
+  const t = phase % 3;
   for (let y = 12; y <= 17; y++) {
-    g[y][15] = 'I';
-    g[y][16] = 'S';
+    const band = (y + t) % 3 === 0;
+    g[y][15] = band ? 'S' : 'I';
+    g[y][16] = band ? 'I' : 'S';
   }
-  for (const [y, x] of [
-    [11, 15],
-    [11, 16],
-    [12, 13],
-    [13, 12],
-    [14, 11],
-    [15, 10],
-    [12, 18],
-    [13, 19],
-    [14, 20],
-    [15, 21],
-    [16, 9],
-    [16, 22],
-  ]) {
-    g[y][x] = 'I';
-  }
+  g[11][15] = 'I';
+  g[11][16] = 'I';
+  if (t === 1) g[10][15] = 'I';
+  if (t === 2) g[10][16] = 'I';
+  const arcs: [number, number][][] = [
+    [
+      [12, 13],
+      [13, 12],
+      [14, 11],
+      [15, 10],
+      [16, 9],
+    ],
+    [
+      [12, 18],
+      [13, 19],
+      [14, 20],
+      [15, 21],
+      [16, 22],
+    ],
+  ];
+  for (const arc of arcs)
+    arc.forEach(([y, x], k) => {
+      if ((((k - t) % 3) + 3) % 3 !== 2) g[y][x] = 'I';
+    });
   return compile(g, { Q: CLAY_DARK, C: CLAY, c: ORANGE, S: SKY, I: ICE });
-})();
+};
+const FOUNTAIN = fountain(0);
+const FOUNTAIN_FRAMES_LIST = Array.from({ length: FOUNTAIN_FRAMES - 1 }, (_, i) => fountain(i + 1));
 
 // ════════════════════════════════════════════════════════════════
 // 5. lamp_post — tall iron post with a warm lantern, 16x48, 1x1.
@@ -513,7 +530,11 @@ export const SPRITES8: GeneratedSprite[] = [
     'bench',
     'left',
   ),
-  entry('fountain', 'Fountain', 32, 48, 2, 2, FOUNTAIN),
+  {
+    ...entry('fountain', 'Fountain', 32, 48, 2, 2, FOUNTAIN),
+    frames: FOUNTAIN_FRAMES_LIST,
+    frameMs: 160,
+  },
   entry('lamp_post', 'Lamp Post', 16, 48, 1, 1, LAMP_POST),
   entry('picnic_table', 'Picnic Table', 48, 32, 3, 2, PICNIC_TABLE, 'picnic_table', 'front'),
   entry(

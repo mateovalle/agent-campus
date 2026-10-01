@@ -41,7 +41,7 @@ import {
   WOOD_LIGHT,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, px, recolor, validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -195,6 +195,33 @@ const NEON_SHIPPED = (() => {
   return compile(g, { o: INK, k: IRON_DARK, G: LED_GREEN, h: LEAF_DARK, A: AMBER });
 })();
 
+/**
+ * The two amber stars twinkle out of step — each shrinks to its centre for
+ * one frame of every six (~1.6s) — while the tick buzzes far more rarely:
+ * once per 18-frame loop (~4.7s) its strokes drop to a dimmer green and the
+ * halo goes out for a single frame, the way old neon does. A sign that
+ * buzzed every loop of the stars read as broken.
+ */
+const NEON_SHIPPED_ANIM = animate(NEON_SHIPPED, 18, 260, (g, i) => {
+  for (const [cx, dimAt] of [
+    [3, 2],
+    [27, 4],
+  ]) {
+    const arm = i % 6 === dimAt ? IRON_DARK : AMBER;
+    for (const [r, c] of [
+      [12, cx],
+      [13, cx - 1],
+      [13, cx + 1],
+      [14, cx],
+    ])
+      px(g, c, r, arm);
+  }
+  if (i === 17) {
+    recolor(g, [2, 6, 29, 21], LEAF_DARK, IRON_DARK);
+    recolor(g, [2, 6, 29, 21], LED_GREEN, LEAF_DARK);
+  }
+});
+
 // ════════════════════════════════════════════════════════════════
 // 3. duck_golden — the rubber duck cast in gold, 16x16, 1x1 surface
 //    item. Same silhouette as rubber_duck so the joke lands: gold
@@ -235,7 +262,13 @@ const DUCK_GOLDEN = fromAscii(
 //    hangs off the wall row. Silver sphere with a facet grid, a lit
 //    top-left quarter, and two sparkles.
 // ════════════════════════════════════════════════════════════════
-const DISCO_BALL = (() => {
+/**
+ * Animated: the facet seams slide one pixel per frame (a 3-frame cycle, so
+ * the ball turns without a jump) under a fixed top-left highlight, while the
+ * sparkles hop between three glints — full star, then fading to a dot.
+ */
+const DISCO_FRAMES = 6;
+const discoBall = (phase: number): string[][] => {
   const g = blank(16, 32);
   const set = (r: number, c: number, ch: string) => {
     g[r][c] = ch;
@@ -253,21 +286,32 @@ const DISCO_BALL = (() => {
         continue;
       }
       // facet grid: every third row/column is a seam
-      const seam = (r - 10) % 3 === 0 || (c - 2) % 3 === 0;
+      const seam = (r - 10) % 3 === 0 || (((c - 2 - phase) % 3) + 3) % 3 === 0;
       const lit = c - 8 + (r - 16) < -4;
       set(r, c, seam ? 'S' : lit ? 'P' : 'L');
     }
   }
-  // sparkles
-  for (const [r, c] of [
+  // sparkles: [row, col] glints; each frame one is a full star, the one
+  // before it fades to a dot (frame 0 = the still's pair of stars)
+  const glints: [number, number][] = [
     [12, 12],
     [20, 4],
-  ]) {
+    [15, 11],
+  ];
+  const star = (r: number, c: number, full: boolean) => {
     set(r, c, 'W');
+    if (!full) return;
     set(r - 1, c, 'W');
     set(r + 1, c, 'W');
     set(r, c - 1, 'W');
     set(r, c + 1, 'W');
+  };
+  if (phase === 0) {
+    star(...glints[0], true);
+    star(...glints[1], true);
+  } else {
+    star(...glints[phase % 3], true);
+    star(...glints[(phase + 2) % 3], phase % 2 === 0);
   }
   return compile(g, {
     k: STEEL_DARK,
@@ -276,7 +320,9 @@ const DISCO_BALL = (() => {
     P: SILVER_LIGHT,
     W: PAPER,
   });
-})();
+};
+const DISCO_BALL = discoBall(0);
+const DISCO_BALL_FRAMES = Array.from({ length: DISCO_FRAMES - 1 }, (_, i) => discoBall(i + 1));
 
 // ════════════════════════════════════════════════════════════════
 // 5. robot_statue — a little agent cast as a desk statue, 16x32, 1x1
@@ -353,9 +399,13 @@ const entry = (
 
 export const SPRITES9: GeneratedSprite[] = [
   entry('trophy_case', 'Trophy Case', 32, 48, 2, 1, TROPHY_CASE),
-  entry('neon_shipped', 'Shipped Sign', 32, 32, 2, 1, NEON_SHIPPED),
+  { ...entry('neon_shipped', 'Shipped Sign', 32, 32, 2, 1, NEON_SHIPPED), ...NEON_SHIPPED_ANIM },
   entry('duck_golden', 'Golden Duck', 16, 16, 1, 1, DUCK_GOLDEN),
-  entry('disco_ball', 'Disco Ball', 16, 32, 1, 1, DISCO_BALL),
+  {
+    ...entry('disco_ball', 'Disco Ball', 16, 32, 1, 1, DISCO_BALL),
+    frames: DISCO_BALL_FRAMES,
+    frameMs: 200,
+  },
   entry('robot_statue', 'Robot Statue', 16, 32, 1, 1, ROBOT_STATUE),
 ];
 

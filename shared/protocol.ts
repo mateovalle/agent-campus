@@ -39,7 +39,15 @@ export interface FurnitureAsset {
   state?: string;
   /** Achievement id that unlocks this piece in the editor palette. */
   unlock?: string;
+  /** Animation frame count INCLUDING frame 0 (`file`); frame k>0 is `<id>@k.png`. */
+  frames?: number;
+  /** Milliseconds per animation frame. */
+  frameMs?: number;
+  /** Idle agents walk over and use ('use', hands busy) or look at ('look') this piece. */
+  interact?: FurnitureInteract;
 }
+
+export type FurnitureInteract = 'use' | 'look';
 
 /** Per-agent presentation metadata persisted by the host. */
 export interface AgentSeatMeta {

@@ -1,5 +1,9 @@
 /**
- * Generate walls.png — a complete auto-tile wall set with all 16 bitmask configs.
+ * HISTORICAL — do not run as part of the asset pipeline. It generated the original
+ * walls.png; the shipped classic wall was then touched up by hand, and that version now
+ * lives in scripts/asset-gen/walls-classic.png (style 0 of walls.ts). walls.png holds
+ * every style stacked and is written by scripts/asset-gen/export.ts. This script writes
+ * to a scratch path so running it can no longer clobber either file.
  *
  * Layout: 4×4 grid, each cell is 16×32 pixels.
  * Piece at mask M: col = M % 4, row = floor(M / 4)
@@ -28,16 +32,16 @@ const IMG_H = GRID_ROWS * SPRITE_H;
 
 // ── Colors (RGBA) ────────────────────────────────────────
 const TRANSPARENT = [0, 0, 0, 0];
-const BORDER    = [0x30, 0x2A, 0x28, 255]; // #302A28
-const CAP       = [0xFF, 0xFF, 0xFF, 255]; // #FFFFFF
-const FACE      = [0xEB, 0xE8, 0xE0, 255]; // #EBE8E0
+const BORDER = [0x30, 0x2a, 0x28, 255]; // #302A28
+const CAP = [0xff, 0xff, 0xff, 255]; // #FFFFFF
+const FACE = [0xeb, 0xe8, 0xe0, 255]; // #EBE8E0
 
 // ── Wall geometry ────────────────────────────────────────
-const WALL_BAND = 8;                       // wall thickness in pixels
+const WALL_BAND = 8; // wall thickness in pixels
 const BAND_START = (TILE - WALL_BAND) / 2; // = 4
-const BAND_END = BAND_START + WALL_BAND;   // = 12
-const FACE_HEIGHT = 10;                    // face extends this many px above plan
-const CAP_THICKNESS = 2;                   // cap highlight at top of wall
+const BAND_END = BAND_START + WALL_BAND; // = 12
+const FACE_HEIGHT = 10; // face extends this many px above plan
+const CAP_THICKNESS = 2; // cap highlight at top of wall
 
 /**
  * Get the plan-view wall footprint (16×16 boolean grid) for a given mask.
@@ -50,32 +54,27 @@ function getPlanFootprint(mask) {
 
   // Center block (always)
   for (let r = BAND_START; r < BAND_END; r++)
-    for (let c = BAND_START; c < BAND_END; c++)
-      plan[r][c] = true;
+    for (let c = BAND_START; c < BAND_END; c++) plan[r][c] = true;
 
   // N arm (bit 0)
   if (mask & 1)
     for (let r = 0; r < BAND_START; r++)
-      for (let c = BAND_START; c < BAND_END; c++)
-        plan[r][c] = true;
+      for (let c = BAND_START; c < BAND_END; c++) plan[r][c] = true;
 
   // E arm (bit 1)
   if (mask & 2)
     for (let r = BAND_START; r < BAND_END; r++)
-      for (let c = BAND_END; c < TILE; c++)
-        plan[r][c] = true;
+      for (let c = BAND_END; c < TILE; c++) plan[r][c] = true;
 
   // S arm (bit 2)
   if (mask & 4)
     for (let r = BAND_END; r < TILE; r++)
-      for (let c = BAND_START; c < BAND_END; c++)
-        plan[r][c] = true;
+      for (let c = BAND_START; c < BAND_END; c++) plan[r][c] = true;
 
   // W arm (bit 3)
   if (mask & 8)
     for (let r = BAND_START; r < BAND_END; r++)
-      for (let c = 0; c < BAND_START; c++)
-        plan[r][c] = true;
+      for (let c = 0; c < BAND_START; c++) plan[r][c] = true;
 
   return plan;
 }
@@ -90,9 +89,7 @@ function generatePiece(mask) {
   const plan = getPlanFootprint(mask);
 
   // Copy plan to tile area (sprite rows 16-31 = tile rows 0-15)
-  for (let r = 0; r < 16; r++)
-    for (let c = 0; c < 16; c++)
-      if (plan[r][c]) shape[16 + r][c] = true;
+  for (let r = 0; r < 16; r++) for (let c = 0; c < 16; c++) if (plan[r][c]) shape[16 + r][c] = true;
 
   // Extend face upward from the northernmost plan pixel per column.
   // When N is set and the column is in the vertical band, extend face all the
@@ -102,12 +99,15 @@ function generatePiece(mask) {
   for (let c = 0; c < 16; c++) {
     let topRow = -1;
     for (let r = 0; r < 16; r++) {
-      if (plan[r][c]) { topRow = r; break; }
+      if (plan[r][c]) {
+        topRow = r;
+        break;
+      }
     }
     if (topRow < 0) continue;
 
     const spriteNorth = 16 + topRow;
-    const needsFullExtension = (mask & 1) && c >= BAND_START && c < BAND_END && topRow === 0;
+    const needsFullExtension = mask & 1 && c >= BAND_START && c < BAND_END && topRow === 0;
     const faceTop = needsFullExtension ? 0 : Math.max(0, spriteNorth - FACE_HEIGHT);
     for (let sr = faceTop; sr < spriteNorth; sr++) {
       shape[sr][c] = true;
@@ -157,10 +157,12 @@ function generatePiece(mask) {
   for (let r = 0; r < SPRITE_H; r++) {
     for (let c = 0; c < TILE; c++) {
       if (!shape[r][c]) continue;
-      if (!hasNeighbor(r - 1, c) ||
-          !hasNeighbor(r + 1, c) ||
-          !hasNeighbor(r, c - 1) ||
-          !hasNeighbor(r, c + 1)) {
+      if (
+        !hasNeighbor(r - 1, c) ||
+        !hasNeighbor(r + 1, c) ||
+        !hasNeighbor(r, c - 1) ||
+        !hasNeighbor(r, c + 1)
+      ) {
         isOutline[r][c] = true;
       }
     }
@@ -172,7 +174,7 @@ function generatePiece(mask) {
   const isCap = Array.from({ length: SPRITE_H }, () => Array(TILE).fill(false));
   for (let c = 0; c < TILE; c++) {
     // If N connected and this column is in the vertical band, skip cap
-    if ((mask & 1) && c >= BAND_START && c < BAND_END) continue;
+    if (mask & 1 && c >= BAND_START && c < BAND_END) continue;
     let count = 0;
     for (let r = 0; r < SPRITE_H; r++) {
       if (shape[r][c] && !isOutline[r][c]) {
@@ -185,7 +187,7 @@ function generatePiece(mask) {
 
   // 4. Assemble pixel colors
   const pixels = Array.from({ length: SPRITE_H }, () =>
-    Array.from({ length: TILE }, () => [...TRANSPARENT])
+    Array.from({ length: TILE }, () => [...TRANSPARENT]),
   );
 
   for (let r = 0; r < SPRITE_H; r++) {
@@ -226,7 +228,7 @@ for (let mask = 0; mask < 16; mask++) {
   for (let r = 0; r < SPRITE_H; r++) {
     for (let c = 0; c < TILE; c++) {
       const idx = ((oy + r) * IMG_W + (ox + c)) * 4;
-      png.data[idx]     = piece[r][c][0];
+      png.data[idx] = piece[r][c][0];
       png.data[idx + 1] = piece[r][c][1];
       png.data[idx + 2] = piece[r][c][2];
       png.data[idx + 3] = piece[r][c][3];
@@ -235,7 +237,7 @@ for (let mask = 0; mask < 16; mask++) {
 }
 
 // Save
-const outPath = path.join(__dirname, '..', 'webview-ui', 'public', 'assets', 'walls.png');
+const outPath = path.join(require('os').tmpdir(), 'walls-generated.png');
 const buffer = PNG.sync.write(png);
 fs.writeFileSync(outPath, buffer);
 

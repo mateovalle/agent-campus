@@ -223,6 +223,50 @@ function paint(cv: Cv, m: Mask, { o, base, lit, dark }: Shade): void {
   });
 }
 
+// ── animation helpers ──
+// Animated pieces only ever repaint a few pixels: each extra frame is a copy
+// of frame 0 (the still every non-animating consumer sees) with a small
+// region changed, so the silhouette can't drift between frames.
+
+/** Frames 1..n-1 derived from `base`: `edit(g, i)` repaints a copy for frame i. */
+function deriveFrames(
+  base: string[][],
+  n: number,
+  edit: (g: string[][], i: number) => void,
+): string[][][] {
+  const out: string[][][] = [];
+  for (let i = 1; i < n; i++) {
+    const g = base.map((row) => [...row]);
+    edit(g, i);
+    out.push(g);
+  }
+  return out;
+}
+
+/** Deterministic 0..99 hash so LED blink patterns are fixed across builds. */
+function hash100(a: number, b: number): number {
+  let h = Math.imul(a + 1, 0x9e3779b1) ^ Math.imul(b + 7, 0x85ebca6b);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 13;
+  return (h >>> 0) % 100;
+}
+
+/** An LED that blinks: where it is, its lit colour, and its dark colour. */
+type Led = [x: number, y: number, on: string, off: string];
+
+/** Busy activity LEDs: in frames 1..n-1 each LED is dark with probability
+ *  `offPct`%. Only pixels that still hold their lit colour in frame 0 are
+ *  touched, so a cable drawn over an LED never gets punched through. */
+function blinkFrames(base: string[][], leds: Led[], n: number, offPct: number): string[][][] {
+  const live = leds.filter(([x, y, on]) => base[y]?.[x] === on);
+  return deriveFrames(base, n, (g, i) =>
+    live.forEach(([x, y, , off], k) => {
+      if (hash100(k, i) < offPct) g[y][x] = off;
+    }),
+  );
+}
+
 // ════════════════════════════════════════════════════════════════
 // 1. workbench — 32x32, 2x1, desks (isDesk). The house desk slab
 //    (benchTop(): WOOD planks, lit seams) as a butcher-block top, under a pegboard that
@@ -969,7 +1013,31 @@ const PATCH_PANEL = (() => {
 //    host, a log pane with one red line and a gold cursor. A red
 //    beacon on top is lit because of that red host.
 // ════════════════════════════════════════════════════════════════
-const NOC_WALL = (() => {
+/** Graph samples, cyclic: frame 0 shows the first 11, each later frame
+ *  scrolls the window on 2 samples (6 frames × 2 = the whole loop). */
+const NOC_GRAPH = [11, 11, 10, 11, 9, 9, 10, 8, 7, 7, 6, 9];
+/** Bar heights per frame (frame 0 first); the 5th bar stays the tallest-ish. */
+const NOC_BARS = [
+  [3, 5, 4, 6, 7, 5],
+  [4, 5, 3, 6, 6, 5],
+  [4, 6, 3, 5, 7, 4],
+  [3, 6, 4, 5, 7, 5],
+  [3, 4, 5, 6, 6, 6],
+  [2, 5, 4, 7, 7, 5],
+];
+/** Log lines, cyclic: one new line scrolls in per frame, so the red one
+ *  climbs the pane and comes round again. */
+const NOC_LOGS: [number, string][] = [
+  [7, SKY],
+  [5, SKY],
+  [8, SKY],
+  [6, RED],
+  [4, SKY],
+  [7, SKY],
+];
+
+/** The video wall at animation frame `t` (0 = the still). */
+function nocWall(t: number): string[][] {
   const cv = new Cv(32, 32);
   const screen = (x: number, y: number) => {
     cv.box(x, y, 15, 11, INK, IRON_DARK);
@@ -982,10 +1050,18 @@ const NOC_WALL = (() => {
   cv.hl(15, 16, 2, STEEL_DARK);
   cv.hl(14, 17, 1, RED);
   cv.hl(15, 16, 0, RED);
-  cv.px(15, 0, PINK_LIGHT);
-  cv.px(14, 1, PINK);
-  cv.hl(11, 12, 1, PINK);
-  cv.hl(19, 20, 1, PINK);
+  // the beacon rotates: its glint and its rays swap sides every frame
+  if (t % 2 === 0) {
+    cv.px(15, 0, PINK_LIGHT);
+    cv.px(14, 1, PINK);
+    cv.hl(11, 12, 1, PINK);
+    cv.hl(19, 20, 1, PINK);
+  } else {
+    cv.px(16, 0, PINK_LIGHT);
+    cv.px(17, 1, PINK);
+    cv.hl(9, 10, 1, PINK);
+    cv.hl(21, 22, 1, PINK);
+  }
   screen(1, 4);
   screen(16, 4);
   screen(1, 15);
@@ -993,10 +1069,9 @@ const NOC_WALL = (() => {
   // S1 graph
   cv.hl(3, 13, 9, NAVY);
   cv.vl(8, 6, 12, NAVY);
-  const g1 = [11, 11, 10, 11, 9, 9, 10, 8, 7, 7, 6];
-  g1.forEach((y, i) => cv.px(3 + i, y, LED_GREEN));
+  for (let i = 0; i < 11; i++) cv.px(3 + i, NOC_GRAPH[(i + 2 * t) % NOC_GRAPH.length], LED_GREEN);
   // S2 bars
-  [3, 5, 4, 6, 7, 5].forEach((hgt, i) => {
+  NOC_BARS[t % NOC_BARS.length].forEach((hgt, i) => {
     const x = 18 + i * 2;
     cv.vl(x, 13 - hgt + 1, 12, i === 4 ? TEAL_LIGHT : TEAL);
   });
@@ -1007,23 +1082,21 @@ const NOC_WALL = (() => {
       const y = 18 + r * 2;
       let col = LED_GREEN;
       if (r === 1 && c === 3) col = RED;
-      if (r === 2 && c === 1) col = AMBER;
+      if (r === 2 && c === 1) col = t % 3 === 2 ? LEAF_DARK : AMBER; // flapping
       cv.px(x, y, col);
     }
   }
   // S4 logs
-  const logs: [number, string][] = [
-    [7, SKY],
-    [5, SKY],
-    [8, SKY],
-    [6, RED],
-    [4, SKY],
-  ];
-  logs.forEach(([len, c], i) => cv.hl(18, 18 + len, 17 + i, c));
+  for (let i = 0; i < 5; i++) {
+    const [len, c] = NOC_LOGS[(i + t) % NOC_LOGS.length];
+    cv.hl(18, 18 + len, 17 + i, c);
+  }
   cv.hl(18, 19, 22, PAPER);
-  cv.px(20, 22, GOLD);
+  if (t % 2 === 0) cv.px(20, 22, GOLD); // blinking cursor
   return cv.g;
-})();
+}
+const NOC_WALL = nocWall(0);
+const NOC_WALL_FRAMES = [1, 2, 3, 4, 5].map((t) => nocWall(t));
 
 // ════════════════════════════════════════════════════════════════
 // 9. printer_3d — 16x32, 1x1, surface. A bed-slinger caught
@@ -1031,7 +1104,8 @@ const NOC_WALL = (() => {
 //    the hot end, a hull half printed on the gold build sheet, base
 //    with a teal display and a knob.
 // ════════════════════════════════════════════════════════════════
-const PRINTER_3D = (() => {
+/** The printer with its carriage `dx` px along the gantry (0 = the still). */
+function printer3d(dx: number): string[][] {
   const cv = new Cv(16, 32);
   // spool on the top bar
   paint(cv, new Mask().ellipse(5, 6, 3.2, 3.2), {
@@ -1055,20 +1129,20 @@ const PRINTER_3D = (() => {
   for (const [x, y] of [
     [8, 7],
     [9, 8],
-    [9, 12],
-    [9, 13],
+    [9 + dx, 12],
+    [9 + dx, 13],
   ])
     cv.px(x, y, ORANGE);
   // gantry
   cv.hl(3, 12, 15, SILVER_LIGHT);
   cv.hl(3, 12, 16, STEEL);
   // carriage + fan + nozzle
-  cv.box(6, 13, 5, 6, INK, IRON);
-  cv.px(8, 15, STEEL_LIGHT);
-  cv.px(7, 16, STEEL_DARK);
-  cv.px(9, 16, STEEL_DARK);
-  cv.px(8, 17, STEEL_DARK);
-  cv.px(8, 19, GOLD_DARK);
+  cv.box(6 + dx, 13, 5, 6, INK, IRON);
+  cv.px(8 + dx, 15, STEEL_LIGHT);
+  cv.px(7 + dx, 16, STEEL_DARK);
+  cv.px(9 + dx, 16, STEEL_DARK);
+  cv.px(8 + dx, 17, STEEL_DARK);
+  cv.px(8 + dx, 19, GOLD_DARK);
   // the part, mid-print: half-height box, orange perimeter, cream infill
   // lattice on the open top, the hot layer glowing under the nozzle
   cv.ascii(
@@ -1077,8 +1151,8 @@ const PRINTER_3D = (() => {
     5,
     20,
   );
-  cv.px(8, 20, GOLD_LIGHT);
-  cv.px(9, 20, LAMP_WARM);
+  cv.px(8 + dx, 20, GOLD_LIGHT);
+  cv.px(9 + dx, 20, LAMP_WARM);
   // bed
   cv.hl(3, 12, 26, GOLD_DARK);
   // base: lit top, 2px front face with display + knob, shadow line
@@ -1094,7 +1168,11 @@ const PRINTER_3D = (() => {
   cv.px(12, 30, SILVER_LIGHT);
   cv.hl(0, 15, 31, INK);
   return cv.g;
-})();
+}
+const PRINTER_3D = printer3d(0);
+/** The hot end tracing a layer: right to the part's edge, back across to
+ *  its left edge, home — the glowing fresh layer follows the nozzle. */
+const PRINTER_3D_FRAMES = [1, 2, 1, 0, -1, -2, -3, -2, -1].map(printer3d);
 
 // ════════════════════════════════════════════════════════════════
 // 10. soldering_station — 16x16, 1x1, surface. Control unit with red
@@ -1545,6 +1623,94 @@ const PARTS_CABINET = (() => {
 })();
 
 // ════════════════════════════════════════════════════════════════
+// Animation frames. Everything below repaints a handful of pixels on a
+// copy of the still; printer_3d, robot_arm and noc_wall are drawn by
+// functions of their frame (see above) because their moving part covers
+// other pixels.
+// ════════════════════════════════════════════════════════════════
+
+/** Activity LEDs that may blink (status RED/AMBER ones stay steady — they
+ *  are the story, not noise). */
+const BLINKY = new Set([LED_GREEN, SKY, TEAL_LIGHT]);
+
+/** server_cluster: switch port LEDs, the open rack's server LEDs and the
+ *  LEDs seen through the glass door all flicker with traffic. */
+const SERVER_CLUSTER_FRAMES = (() => {
+  const leds: Led[] = [];
+  for (let i = 0; i < 5; i++) leds.push([4 + 2 * i, 12, SERVER_CLUSTER[12][4 + 2 * i], STEEL_DARK]);
+  for (let i = 0; i < 8; i++) {
+    const y = 17 + 3 * i;
+    for (const x of [11, 12]) leds.push([x, y, SERVER_CLUSTER[y][x], IRON_DARK]);
+  }
+  for (let y = 11; y <= 39; y += 3)
+    for (const x of [26, 27]) leds.push([x, y, SERVER_CLUSTER[y][x], NAVY]);
+  return blinkFrames(
+    SERVER_CLUSTER,
+    leds.filter(([, , on]) => BLINKY.has(on)),
+    6,
+    35,
+  );
+})();
+
+/** Quarter turn: the LEDs down the open rack's front edge. */
+const SERVER_CLUSTER_RIGHT_FRAMES = (() => {
+  const leds: Led[] = [];
+  for (let y = 24; y <= 56; y += 3) leds.push([14, y, SERVER_CLUSTER_RIGHT[y][14], STEEL_DARK]);
+  return blinkFrames(
+    SERVER_CLUSTER_RIGHT,
+    leds.filter(([, , on]) => BLINKY.has(on)),
+    6,
+    35,
+  );
+})();
+
+/** ups_tower: on battery — the last charge bar and the amber LED blink. */
+const UPS_TOWER_FRAMES = deriveFrames(UPS_TOWER, 2, (g) => {
+  for (let y = 15; y <= 17; y++) g[y][10] = TEAL_DARK;
+  g[23][4] = IRON_DARK;
+});
+
+/** patch_panel: switch port LEDs flicker (the amber ones hold steady). */
+const PATCH_PANEL_FRAMES = (() => {
+  const leds: Led[] = [];
+  for (let i = 0; i < 10; i++) leds.push([4 + 2 * i, 7, PATCH_PANEL[7][4 + 2 * i], LEAF_DARK]);
+  return blinkFrames(
+    PATCH_PANEL,
+    leds.filter(([, , on]) => on === LED_GREEN),
+    6,
+    40,
+  );
+})();
+
+/** soldering_station: the smoke curl rises off the tip — a 3px plume whose
+ *  sway pattern scrolls up one row per frame. */
+const SOLDERING_STATION_FRAMES = (() => {
+  const sway = [8, 7, 8, 9];
+  const tone = [STONE, PAPER, STONE]; // faint top, dense middle, faint base
+  return deriveFrames(SOLDERING_STATION, 4, (g, t) => {
+    for (let y = 0; y <= 2; y++) for (let x = 7; x <= 9; x++) g[y][x] = '';
+    for (let y = 0; y <= 2; y++) g[y][sway[(y + t) % 4]] = tone[y];
+  });
+})();
+
+/** oscilloscope: the sine trace scrolls across the screen, 2px a frame
+ *  (one 8px period in 4 frames), the graticule showing through behind it. */
+const OSCILLOSCOPE_FRAMES = (() => {
+  const wave = [0, -1, -2, -1, 0, 1, 2, 1];
+  const screen = (x: number, y: number) =>
+    (x - 3) % 3 === 0 && (y - 7) % 2 === 0 ? TEAL_DARK : NAVY_DARK;
+  return deriveFrames(OSCILLOSCOPE, 4, (g, t) => {
+    for (let y = 7; y <= 11; y++) for (let x = 3; x <= 10; x++) g[y][x] = screen(x, y);
+    wave.forEach((_, i) => (g[9 + wave[(i + 2 * t) % 8]][3 + i] = GREEN_LIGHT));
+  });
+})();
+
+/** Attach an animation to a catalog entry. */
+const animated = (s: GeneratedSprite, frames: string[][][], frameMs: number): GeneratedSprite => ({
+  ...s,
+  frames,
+  frameMs,
+});
 
 const entry = (
   id: string,
@@ -1567,24 +1733,36 @@ const entry = (
 });
 
 export const SPRITES12: GeneratedSprite[] = [
-  entry('server_cluster', 'Server Cluster', SERVER_CLUSTER, 2, 1, 'server_cluster', 'front'),
-  entry(
-    'server_cluster_right',
-    'Server Cluster (Right)',
-    SERVER_CLUSTER_RIGHT,
-    1,
-    2,
-    'server_cluster',
-    'right',
+  animated(
+    entry('server_cluster', 'Server Cluster', SERVER_CLUSTER, 2, 1, 'server_cluster', 'front'),
+    SERVER_CLUSTER_FRAMES,
+    160,
   ),
-  entry(
-    'server_cluster_left',
-    'Server Cluster (Left)',
-    mirrorSprite(SERVER_CLUSTER_RIGHT),
-    1,
-    2,
-    'server_cluster',
-    'left',
+  animated(
+    entry(
+      'server_cluster_right',
+      'Server Cluster (Right)',
+      SERVER_CLUSTER_RIGHT,
+      1,
+      2,
+      'server_cluster',
+      'right',
+    ),
+    SERVER_CLUSTER_RIGHT_FRAMES,
+    160,
+  ),
+  animated(
+    entry(
+      'server_cluster_left',
+      'Server Cluster (Left)',
+      mirrorSprite(SERVER_CLUSTER_RIGHT),
+      1,
+      2,
+      'server_cluster',
+      'left',
+    ),
+    SERVER_CLUSTER_RIGHT_FRAMES.map(mirrorSprite),
+    160,
   ),
   entry('workbench', 'Workbench', WORKBENCH, 2, 1, 'workbench', 'front'),
   entry('workbench_right', 'Workbench (Right)', WORKBENCH_RIGHT, 1, 2, 'workbench', 'right'),
@@ -1597,15 +1775,19 @@ export const SPRITES12: GeneratedSprite[] = [
     'workbench',
     'left',
   ),
-  entry('ups_tower', 'UPS Battery', UPS_TOWER, 1, 1),
+  animated(entry('ups_tower', 'UPS Battery', UPS_TOWER, 1, 1), UPS_TOWER_FRAMES, 600),
   entry('tool_chest', 'Tool Chest', TOOL_CHEST, 1, 1),
   entry('cardboard_boxes', 'Cardboard Boxes', CARDBOARD_BOXES, 1, 1),
   entry('robot_arm', 'Robot Arm', ROBOT_ARM, 1, 1),
-  entry('patch_panel', 'Patch Panel', PATCH_PANEL, 2, 1),
-  entry('noc_wall', 'NOC Video Wall', NOC_WALL, 2, 1),
-  entry('printer_3d', '3D Printer', PRINTER_3D, 1, 1),
-  entry('soldering_station', 'Soldering Station', SOLDERING_STATION, 1, 1),
-  entry('oscilloscope', 'Oscilloscope', OSCILLOSCOPE, 1, 1),
+  animated(entry('patch_panel', 'Patch Panel', PATCH_PANEL, 2, 1), PATCH_PANEL_FRAMES, 160),
+  animated(entry('noc_wall', 'NOC Video Wall', NOC_WALL, 2, 1), NOC_WALL_FRAMES, 450),
+  animated(entry('printer_3d', '3D Printer', PRINTER_3D, 1, 1), PRINTER_3D_FRAMES, 180),
+  animated(
+    entry('soldering_station', 'Soldering Station', SOLDERING_STATION, 1, 1),
+    SOLDERING_STATION_FRAMES,
+    260,
+  ),
+  animated(entry('oscilloscope', 'Oscilloscope', OSCILLOSCOPE, 1, 1), OSCILLOSCOPE_FRAMES, 140),
   entry('keyboard_mech', 'Mech Keyboard', KEYBOARD_MECH, 1, 1),
   entry('headphones_stand', 'Headphones', HEADPHONES_STAND, 1, 1),
   entry('drone_quad', 'Drone', DRONE_QUAD, 1, 1),

@@ -44,8 +44,10 @@ type RGB = [number, number, number];
 
 const batch = process.argv[2];
 if (!batch) throw new Error('usage: preview-batch.ts <batch number> [out.png]');
-const mod = (await import(`./sprites${batch}.ts`)) as Record<string, unknown>;
-const sprites = mod[`SPRITES${batch}`] as GeneratedSprite[];
+// batch 1 is sprites.ts / SPRITES (it predates the numbering)
+const suffix = batch === '1' ? '' : batch;
+const mod = (await import(`./sprites${suffix}.ts`)) as Record<string, unknown>;
+const sprites = mod[`SPRITES${suffix}`] as GeneratedSprite[];
 const meta = (mod[`META${batch}`] ?? {}) as Record<string, CatalogMeta>;
 const outPath = path.resolve(process.argv[3] ?? path.join(HERE, `preview-b${batch}.png`));
 if (!sprites.length) throw new Error(`batch ${batch} has no sprites yet`);
@@ -80,6 +82,13 @@ for (const s of sprites) {
     for (const c of row) if (c && !palette.has(c.toUpperCase())) off.add(c);
   if (off.size) problems.push(`${s.id}: off-palette colours ${[...off].join(' ')}`);
   if (!s.sprite.flat().some(Boolean)) problems.push(`${s.id}: sprite is empty`);
+  (s.frames ?? []).forEach((f, i) => {
+    if (f.length !== s.heightPx || f.some((r) => r.length !== s.widthPx))
+      problems.push(`${s.id}: frame ${i + 1} is not ${s.widthPx}x${s.heightPx}`);
+    for (const row of f) for (const c of row) if (c && !palette.has(c.toUpperCase())) off.add(c);
+  });
+  if (off.size && s.frames?.length)
+    problems.push(`${s.id}: off-palette colours in frames ${[...off].join(' ')}`);
   if (s.orientation && !s.groupId) problems.push(`${s.id}: orientation without groupId`);
 }
 for (const id of Object.keys(meta))
@@ -118,8 +127,19 @@ const sheetW = Math.max(...rows.map((r) => r.reduce((a, c) => a + c.w * SCALE + 
 const bigH = rows.reduce((a, r) => a + Math.max(...r.map((c) => c.h)) * SCALE + PAD, PAD);
 const smallW = sprites.reduce((a, s) => a + s.widthPx * SMALL + 8, 8);
 const smallH = Math.max(...sprites.map((s) => s.heightPx)) * SMALL + 16;
-const W = Math.max(sheetW, smallW);
-const H = bigH + smallH;
+// Animated pieces: every frame side by side at FRAME_SCALE, one row per piece
+const FRAME_SCALE = 4;
+const animated = sprites.filter((s) => s.frames?.length);
+const framesH = animated.reduce(
+  (a, s) => a + s.heightPx * FRAME_SCALE + 12,
+  animated.length ? 8 : 0,
+);
+const framesW = Math.max(
+  0,
+  ...animated.map((s) => (s.frames!.length + 1) * (s.widthPx * FRAME_SCALE + 12) + 8),
+);
+const W = Math.max(sheetW, smallW, framesW);
+const H = bigH + smallH + framesH;
 const png = new PNG({ width: W, height: H });
 
 function put(x: number, y: number, [r, g, b]: RGB): void {
@@ -250,6 +270,24 @@ let sx = 8;
 for (const s of sprites) {
   blit(s.sprite, sx, bigH + 8 + (smallH - 16 - s.heightPx * SMALL), SMALL);
   sx += s.widthPx * SMALL + 8;
+}
+
+let fy = bigH + smallH + 8;
+for (const s of animated) {
+  const all = [s.sprite, ...s.frames!];
+  all.forEach((f, i) => {
+    const x = 8 + i * (s.widthPx * FRAME_SCALE + 12);
+    rect(
+      x - 2,
+      fy - 2,
+      s.widthPx * FRAME_SCALE + 4,
+      s.heightPx * FRAME_SCALE + 4,
+      [0x2a, 0x2a, 0x3a],
+    );
+    blit(f, x, fy, FRAME_SCALE);
+  });
+  console.log(`  ▶ ${s.id}: ${all.length} frames @ ${s.frameMs ?? 'default'}ms`);
+  fy += s.heightPx * FRAME_SCALE + 12;
 }
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });

@@ -1,7 +1,10 @@
 /**
  * Wall tile auto-tiling: sprite storage and bitmask-based piece selection.
  *
- * Stores 16 wall sprites (one per 4-bit bitmask) loaded from walls.png.
+ * Stores one 16-sprite set per wall STYLE (one sprite per 4-bit bitmask),
+ * loaded from walls.png where styles are stacked vertically. A wall tile's
+ * value picks its style (wallStyleOf); any two wall tiles connect, whatever
+ * their styles, so a brick wall meets a glass one without a gap.
  * At render time, each wall tile's 4 cardinal neighbors are checked to build
  * a bitmask, and the corresponding sprite is drawn directly.
  * No changes to the layout model — auto-tiling is purely visual.
@@ -16,20 +19,43 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from './types.js';
-import { TILE_SIZE, TileType } from './types.js';
+import { isWallTile, TILE_SIZE, wallStyleOf } from './types.js';
 
-/** 16 wall sprites indexed by bitmask (0-15) */
-let wallSprites: SpriteData[] | null = null;
+const PIECES_PER_STYLE = 16;
 
-/** Set wall sprites (called once when extension sends wallTilesLoaded) */
+/** Per style, 16 wall sprites indexed by bitmask (0-15) */
+let wallStyles: SpriteData[][] | null = null;
+
+/** Set wall sprites (called once when the host sends wallTilesLoaded): 16 per style, in order */
 export function setWallSprites(sprites: SpriteData[]): void {
-  wallSprites = sprites;
+  const styles: SpriteData[][] = [];
+  for (let i = 0; i + PIECES_PER_STYLE <= sprites.length; i += PIECES_PER_STYLE) {
+    styles.push(sprites.slice(i, i + PIECES_PER_STYLE));
+  }
+  wallStyles = styles.length > 0 ? styles : null;
   wallInstanceCache = null;
 }
 
 /** Check if wall sprites have been loaded */
 export function hasWallSprites(): boolean {
-  return wallSprites !== null;
+  return wallStyles !== null;
+}
+
+/** Number of wall styles available (at least 1, the plain fallback colour) */
+export function getWallStyleCount(): number {
+  return wallStyles?.length ?? 1;
+}
+
+/** A style's free-standing piece (mask 0), for the editor's style picker */
+export function getWallStylePreview(style: number): SpriteData | null {
+  return wallStyles?.[style]?.[0] ?? null;
+}
+
+/** The sprite for a mask in the tile's style; unknown styles fall back to style 0 */
+function pieceFor(tile: TileTypeVal, mask: number): SpriteData | null {
+  if (!wallStyles) return null;
+  const set = wallStyles[wallStyleOf(tile)] ?? wallStyles[0];
+  return set[mask] ?? null;
 }
 
 /** Build the 4-bit neighbor bitmask for a wall tile (N=1, E=2, S=4, W=8) */
@@ -38,10 +64,10 @@ function computeWallMask(col: number, row: number, tileMap: TileTypeVal[][]): nu
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
 
   let mask = 0;
-  if (row > 0 && tileMap[row - 1][col] === TileType.WALL) mask |= 1; // N
-  if (col < tmCols - 1 && tileMap[row][col + 1] === TileType.WALL) mask |= 2; // E
-  if (row < tmRows - 1 && tileMap[row + 1][col] === TileType.WALL) mask |= 4; // S
-  if (col > 0 && tileMap[row][col - 1] === TileType.WALL) mask |= 8; // W
+  if (row > 0 && isWallTile(tileMap[row - 1][col])) mask |= 1; // N
+  if (col < tmCols - 1 && isWallTile(tileMap[row][col + 1])) mask |= 2; // E
+  if (row < tmRows - 1 && isWallTile(tileMap[row + 1][col])) mask |= 4; // S
+  if (col > 0 && isWallTile(tileMap[row][col - 1])) mask |= 8; // W
   return mask;
 }
 
@@ -54,10 +80,8 @@ export function getWallSprite(
   row: number,
   tileMap: TileTypeVal[][],
 ): { sprite: SpriteData; offsetY: number } | null {
-  if (!wallSprites) return null;
-
   const mask = computeWallMask(col, row, tileMap);
-  const sprite = wallSprites[mask];
+  const sprite = pieceFor(tileMap[row][col], mask);
   if (!sprite) return null;
 
   // Anchor sprite at bottom of tile — tall sprites extend upward
@@ -75,13 +99,12 @@ export function getColorizedWallSprite(
   tileMap: TileTypeVal[][],
   color: FloorColor,
 ): { sprite: SpriteData; offsetY: number } | null {
-  if (!wallSprites) return null;
-
   const mask = computeWallMask(col, row, tileMap);
-  const sprite = wallSprites[mask];
+  const sprite = pieceFor(tileMap[row][col], mask);
   if (!sprite) return null;
 
-  const cacheKey = `wall-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
+  const style = wallStyleOf(tileMap[row][col]);
+  const cacheKey = `wall-${style}-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
   const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true });
 
   return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
@@ -105,7 +128,7 @@ export function getWallInstances(
   tileColors?: Array<FloorColor | null>,
   cols?: number,
 ): FurnitureInstance[] {
-  if (!wallSprites) return [];
+  if (!wallStyles) return [];
   if (
     wallInstanceCache &&
     wallInstanceCache.tileMap === tileMap &&
@@ -120,7 +143,7 @@ export function getWallInstances(
   const instances: FurnitureInstance[] = [];
   for (let r = 0; r < tmRows; r++) {
     for (let c = 0; c < tmCols; c++) {
-      if (tileMap[r][c] !== TileType.WALL) continue;
+      if (!isWallTile(tileMap[r][c])) continue;
       const colorIdx = r * layoutCols + c;
       const wallColor = tileColors?.[colorIdx];
       const wallInfo = wallColor

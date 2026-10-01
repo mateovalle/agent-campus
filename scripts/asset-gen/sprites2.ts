@@ -47,7 +47,7 @@ import {
   WOOD_SURFACE,
 } from './palette.ts';
 import type { GeneratedSprite } from './sprites.ts';
-import { validateSprites } from './sprites.ts';
+import { animate, px, validateSprites } from './sprites.ts';
 
 type Legend = Record<string, string>;
 
@@ -664,6 +664,29 @@ const ARCADE_MACHINE = (() => {
   });
 })();
 
+/**
+ * Arcade attract mode: the invader rows step right and back, the ship fires
+ * a shot that climbs the screen and pops an invader (a white flash), the
+ * invader is missing while the rows are stepped over and the ship drifts,
+ * and is back for the next pass. Only the screen interior changes.
+ */
+const ARCADE_MACHINE_ANIM = animate(ARCADE_MACHINE, 6, 170, (g, i) => {
+  for (let y = 7; y <= 13; y++) for (let x = 3; x <= 12; x++) px(g, x, y, SCREEN_BLUE);
+  const dx = i < 3 ? 0 : 1;
+  for (const x of [4, 6, 8, 10]) {
+    if (x === 8 && i >= 3) continue; // popped
+    px(g, x + dx, 7, x === 8 && i === 2 ? PAPER : LED_GREEN);
+  }
+  for (const x of [5, 7, 9, 11]) px(g, x + dx, 9, LED_GREEN);
+  const shot = [12, 10, 8][i];
+  if (shot !== undefined) px(g, 8, shot, PAPER);
+  // the ship (fired from x 7-8) drifts right while the rows step, then back
+  for (let x = 3; x <= 12; x++) px(g, x, 14, SCREEN_BLUE);
+  const ship = [7, 7, 7, 8, 9, 8][i];
+  px(g, ship, 14, PAPER);
+  px(g, ship + 1, 14, PAPER);
+});
+
 // ════════════════════════════════════════════════════════════════
 // Export + validation
 // ════════════════════════════════════════════════════════════════
@@ -831,7 +854,7 @@ export const SPRITES2: GeneratedSprite[] = [
     heightPx: 48,
     footprintW: 1,
     footprintH: 1,
-    sprite: ARCADE_MACHINE,
+    ...ARCADE_MACHINE_ANIM,
     groupId: 'arcade_machine',
     orientation: 'front',
   },

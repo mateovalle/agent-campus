@@ -1,4 +1,14 @@
 import {
+  INTERACT_CHANCE,
+  INTERACT_GLANCE_INTERVAL_MAX_SEC,
+  INTERACT_GLANCE_INTERVAL_MIN_SEC,
+  INTERACT_GLANCE_SEC,
+  INTERACT_MAX_SEC,
+  INTERACT_MIN_SEC,
+  INTERACT_STAND_USE_BELT_ROWS,
+  INTERACT_STAND_USE_LEG_ROWS_DOWN,
+  INTERACT_STAND_USE_LEG_ROWS_SIDE,
+  INTERACT_STAND_USE_LEG_ROWS_UP,
   SEAT_REST_MAX_SEC,
   SEAT_REST_MIN_SEC,
   TYPE_FRAME_DURATION_SEC,
@@ -20,6 +30,73 @@ const READING_TOOLS = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
 export function isReadingTool(tool: string | null): boolean {
   if (!tool) return false;
   return READING_TOOLS.has(tool);
+}
+
+/**
+ * Furniture-interaction reservations, owned by OfficeState. `claim` reserves a
+ * free spot and sets `ch.interaction` (false when none is free); `release`
+ * frees it and clears `ch.interaction`; `isReserved` says whether a tile is a
+ * spot someone holds (random wanderers stay off those).
+ */
+export interface InteractionHooks {
+  claim(ch: Character): boolean;
+  release(ch: Character): void;
+  isReserved(col: number, row: number): boolean;
+}
+
+function dropInteraction(ch: Character, hooks: InteractionHooks | undefined): void {
+  if (!ch.interaction) return;
+  if (hooks) hooks.release(ch);
+  else ch.interaction = null;
+}
+
+/** Stand at the reserved spot, face the piece and start using it. */
+function beginUse(ch: Character): void {
+  if (!ch.interaction) return;
+  ch.state = CharacterState.USE;
+  ch.dir = ch.interaction.dir;
+  ch.interactTimer = randomRange(INTERACT_MIN_SEC, INTERACT_MAX_SEC);
+  ch.glanceTimer = randomRange(INTERACT_GLANCE_INTERVAL_MIN_SEC, INTERACT_GLANCE_INTERVAL_MAX_SEC);
+  ch.frame = 0;
+  ch.frameTimer = 0;
+}
+
+/** A direction perpendicular to `dir`, for a brief glance away from a piece. */
+function glanceAway(dir: Direction): Direction {
+  if (dir === Direction.LEFT || dir === Direction.RIGHT) return Direction.DOWN;
+  return Math.random() < 0.5 ? Direction.LEFT : Direction.RIGHT;
+}
+
+/** Became active: walk to the seat, or sit/type in place when there is no path. */
+function startWorking(
+  ch: Character,
+  seats: Map<string, Seat>,
+  tileMap: TileTypeVal[][],
+  blockedTiles: Set<string>,
+): void {
+  if (!ch.seatId) {
+    // No seat assigned — type in place
+    ch.state = CharacterState.TYPE;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    return;
+  }
+  const seat = seats.get(ch.seatId);
+  if (!seat) return;
+  const path = findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, tileMap, blockedTiles);
+  if (path.length > 0) {
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+  } else {
+    // Already at seat or no path — sit down
+    ch.state = CharacterState.TYPE;
+    ch.dir = seat.facingDir;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+  }
 }
 
 /** Pixel center of a tile */
@@ -84,6 +161,10 @@ export function createCharacter(
     matrixEffect: null,
     matrixEffectTimer: 0,
     matrixEffectSeeds: [],
+    interaction: null,
+    interactTimer: 0,
+    glanceTimer: 0,
+    lastInteractUid: null,
   };
 }
 
@@ -94,8 +175,12 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  interactions?: InteractionHooks,
 ): void {
   ch.frameTimer += dt;
+
+  // Work always wins: an active agent drops whatever piece it was heading to or using.
+  if (ch.isActive && ch.interaction) dropInteraction(ch, interactions);
 
   switch (ch.state) {
     case CharacterState.TYPE: {
@@ -126,37 +211,7 @@ export function updateCharacter(
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
       // If became active, pathfind to seat
       if (ch.isActive) {
-        if (!ch.seatId) {
-          // No seat assigned — type in place
-          ch.state = CharacterState.TYPE;
-          ch.frame = 0;
-          ch.frameTimer = 0;
-          break;
-        }
-        const seat = seats.get(ch.seatId);
-        if (seat) {
-          const path = findPath(
-            ch.tileCol,
-            ch.tileRow,
-            seat.seatCol,
-            seat.seatRow,
-            tileMap,
-            blockedTiles,
-          );
-          if (path.length > 0) {
-            ch.path = path;
-            ch.moveProgress = 0;
-            ch.state = CharacterState.WALK;
-            ch.frame = 0;
-            ch.frameTimer = 0;
-          } else {
-            // Already at seat or no path — sit down
-            ch.state = CharacterState.TYPE;
-            ch.dir = seat.facingDir;
-            ch.frame = 0;
-            ch.frameTimer = 0;
-          }
-        }
+        startWorking(ch, seats, tileMap, blockedTiles);
         break;
       }
       // Countdown wander timer
@@ -184,16 +239,38 @@ export function updateCharacter(
             }
           }
         }
+        // Sometimes head for a piece of furniture instead of a random tile
+        if (interactions && Math.random() < INTERACT_CHANCE && interactions.claim(ch)) {
+          const spot = ch.interaction!;
+          if (ch.tileCol === spot.col && ch.tileRow === spot.row) {
+            ch.wanderCount++;
+            beginUse(ch);
+            break;
+          }
+          const path = findPath(ch.tileCol, ch.tileRow, spot.col, spot.row, tileMap, blockedTiles);
+          if (path.length > 0) {
+            ch.path = path;
+            ch.moveProgress = 0;
+            ch.state = CharacterState.WALK;
+            ch.frame = 0;
+            ch.frameTimer = 0;
+            ch.wanderCount++;
+            ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+            break;
+          }
+          dropInteraction(ch, interactions); // unreachable — wander as usual
+        }
         if (walkableTiles.length > 0) {
-          const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
-          const path = findPath(
-            ch.tileCol,
-            ch.tileRow,
-            target.col,
-            target.row,
-            tileMap,
-            blockedTiles,
-          );
+          let target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+          // Don't stop on a spot someone is using or heading to: one retry,
+          // then stay put this round rather than stack on them
+          if (interactions?.isReserved(target.col, target.row)) {
+            target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+          }
+          const reserved = interactions?.isReserved(target.col, target.row) ?? false;
+          const path = reserved
+            ? []
+            : findPath(ch.tileCol, ch.tileRow, target.col, target.row, tileMap, blockedTiles);
           if (path.length > 0) {
             ch.path = path;
             ch.moveProgress = 0;
@@ -258,6 +335,14 @@ export function updateCharacter(
               break;
             }
           }
+          // Arrived at a reserved furniture spot — face the piece and use it
+          if (ch.interaction) {
+            if (ch.tileCol === ch.interaction.col && ch.tileRow === ch.interaction.row) {
+              beginUse(ch);
+              break;
+            }
+            dropInteraction(ch, interactions); // path was cut short
+          }
           ch.state = CharacterState.IDLE;
           ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
         }
@@ -311,6 +396,61 @@ export function updateCharacter(
       }
       break;
     }
+
+    case CharacterState.USE: {
+      const spot = ch.interaction;
+      if (ch.isActive || !spot) {
+        // Interrupted (became active, or the reservation was revoked)
+        dropInteraction(ch, interactions);
+        if (ch.isActive) {
+          startWorking(ch, seats, tileMap, blockedTiles);
+        } else {
+          ch.state = CharacterState.IDLE;
+          ch.frame = 0;
+          ch.frameTimer = 0;
+          ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+        }
+        break;
+      }
+      if (spot.kind === 'use') {
+        // Hands busy: typing frames, standing
+        if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
+          ch.frameTimer -= TYPE_FRAME_DURATION_SEC;
+          ch.frame = (ch.frame + 1) % 2;
+        }
+      } else {
+        // Looking: standing pose, the odd glance away and back
+        ch.frame = 0;
+        if (ch.glanceTimer > 0) {
+          ch.glanceTimer -= dt;
+          if (ch.glanceTimer <= 0) {
+            ch.dir = glanceAway(spot.dir);
+            ch.glanceTimer = -INTERACT_GLANCE_SEC;
+          }
+        } else {
+          ch.glanceTimer += dt;
+          if (ch.glanceTimer >= 0) {
+            ch.dir = spot.dir;
+            ch.glanceTimer = randomRange(
+              INTERACT_GLANCE_INTERVAL_MIN_SEC,
+              INTERACT_GLANCE_INTERVAL_MAX_SEC,
+            );
+          }
+        }
+      }
+      ch.interactTimer -= dt;
+      if (ch.interactTimer <= 0) {
+        ch.lastInteractUid = spot.uid;
+        ch.dir = spot.dir;
+        dropInteraction(ch, interactions);
+        ch.state = CharacterState.IDLE;
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        ch.interactTimer = 0;
+        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+      }
+      break;
+    }
   }
 }
 
@@ -326,9 +466,81 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
       return sprites.walk[ch.dir][ch.frame % 4];
     case CharacterState.IDLE:
       return sprites.walk[ch.dir][1];
+    case CharacterState.USE:
+      // Standing at a piece: hands busy ('use') or just looking ('look').
+      // Never the raw typing frames — those are a SEATED pose (bent legs,
+      // shorter torso) that only reads right with the sitting offset on a chair.
+      if (ch.interaction?.kind === 'use') {
+        return standUseFrames(sprites)[ch.dir][ch.frame % 2];
+      }
+      return sprites.walk[ch.dir][1];
     default:
       return sprites.walk[ch.dir][1];
   }
+}
+
+// ── Standing "use" frames ───────────────────────────────────
+
+type FramePair = [SpriteData, SpriteData];
+
+/** Per-sheet cache, so each composed frame is a stable object for the sprite cache. */
+const standUseCache = new WeakMap<CharacterSprites, Record<Direction, FramePair>>();
+
+function firstOpaqueRow(s: SpriteData): number {
+  for (let r = 0; r < s.length; r++) if (s[r].some((px) => px !== '')) return r;
+  return -1;
+}
+
+function lastOpaqueRow(s: SpriteData): number {
+  for (let r = s.length - 1; r >= 0; r--) if (s[r].some((px) => px !== '')) return r;
+  return -1;
+}
+
+/**
+ * Upper body of a seated typing frame (head + arms reaching forward) over the
+ * legs of the standing frame. The typing frame is shifted up so its head lines
+ * up with the standing head; below the cut every row is the standing frame's.
+ */
+function composeStandUse(stand: SpriteData, typing: SpriteData, legRows: number): SpriteData {
+  const top = firstOpaqueRow(stand);
+  const bottom = lastOpaqueRow(stand);
+  const typingTop = firstOpaqueRow(typing);
+  if (top < 0 || typingTop < 0) return stand;
+  const shift = typingTop - top;
+  const cut = bottom - legRows;
+  const belt = stand[bottom - INTERACT_STAND_USE_BELT_ROWS] ?? [];
+  const beltL = belt.findIndex((px) => px !== '');
+  const beltR = belt.length - 1 - [...belt].reverse().findIndex((px) => px !== '');
+  return stand.map((row, r) => {
+    if (r >= cut) {
+      // Between the cut and the belt: only the body, not the hands at the sides
+      if (r >= bottom - INTERACT_STAND_USE_BELT_ROWS || beltL < 0) return row;
+      return row.map((px, c) => (c >= beltL && c <= beltR ? px : ''));
+    }
+    const src = typing[r + shift];
+    return src ? [...src] : row.map(() => '');
+  });
+}
+
+function standUseFrames(sprites: CharacterSprites): Record<Direction, FramePair> {
+  const cached = standUseCache.get(sprites);
+  if (cached) return cached;
+  const legRows: Record<Direction, number> = {
+    [Direction.DOWN]: INTERACT_STAND_USE_LEG_ROWS_DOWN,
+    [Direction.UP]: INTERACT_STAND_USE_LEG_ROWS_UP,
+    [Direction.RIGHT]: INTERACT_STAND_USE_LEG_ROWS_SIDE,
+    [Direction.LEFT]: INTERACT_STAND_USE_LEG_ROWS_SIDE,
+  };
+  const out = {} as Record<Direction, FramePair>;
+  for (const dir of [Direction.DOWN, Direction.UP, Direction.RIGHT, Direction.LEFT]) {
+    const stand = sprites.walk[dir][1];
+    out[dir] = [
+      composeStandUse(stand, sprites.typing[dir][0], legRows[dir]),
+      composeStandUse(stand, sprites.typing[dir][1], legRows[dir]),
+    ];
+  }
+  standUseCache.set(sprites, out);
+  return out;
 }
 
 function randomRange(min: number, max: number): number {

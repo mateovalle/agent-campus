@@ -1,3 +1,4 @@
+import { FURNITURE_FRAME_MS } from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
 import type {
   FloorColor,
@@ -5,6 +6,7 @@ import type {
   OfficeLayout,
   PlacedFurniture,
   Seat,
+  SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
 import {
@@ -57,6 +59,13 @@ export function furnitureSpriteY(
 }
 
 /** Convert placed furniture into renderable FurnitureInstance[] */
+/** Stable pseudo-random offset into an animation loop, derived from the piece's uid. */
+function animationPhase(uid: string, loopMs: number): number {
+  let h = 0;
+  for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) | 0;
+  return Math.abs(h) % loopMs;
+}
+
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
   // Pre-compute desk zY per tile so surface items can sort in front of desks.
   // zY means the VISUAL sprite bottom, which is the footprint bottom edge.
@@ -111,18 +120,24 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Colorize sprite if this furniture has a color override
-    let sprite = entry.sprite;
-    if (item.color) {
-      const { h, s, b: bv, c: cv } = item.color;
-      sprite = getColorizedSprite(
-        `furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`,
-        entry.sprite,
-        item.color,
-      );
+    // Colorize sprite (and every animation frame) if this furniture has a color override
+    const color = item.color;
+    const tint = (frame: SpriteData, k: number): SpriteData =>
+      color
+        ? getColorizedSprite(
+            `furn-${item.type}${k ? `@${k}` : ''}-${color.h}-${color.s}-${color.b}-${color.c}-${color.colorize ? 1 : 0}`,
+            frame,
+            color,
+          )
+        : frame;
+    const sprite = tint(entry.sprite, 0);
+    const instance: FurnitureInstance = { sprite, x, y, zY };
+    if (entry.frames) {
+      instance.frames = entry.frames.map((f, k) => (k === 0 ? sprite : tint(f, k)));
+      instance.frameMs = entry.frameMs ?? FURNITURE_FRAME_MS;
+      instance.phaseMs = animationPhase(item.uid, instance.frames.length * instance.frameMs);
     }
-
-    instances.push({ sprite, x, y, zY });
+    instances.push(instance);
   }
   return instances;
 }

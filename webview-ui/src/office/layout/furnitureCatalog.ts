@@ -1,3 +1,4 @@
+import type { FurnitureInteract } from '../../../../shared/protocol.js';
 import {
   BOOKSHELF_SPRITE,
   CHAIR_SPRITE,
@@ -28,6 +29,9 @@ export interface LoadedAssetData {
     backgroundTiles?: number;
     canPlaceOnWalls?: boolean;
     unlock?: string;
+    frames?: number;
+    frameMs?: number;
+    interact?: FurnitureInteract;
   }>;
   sprites: Record<string, SpriteData>;
 }
@@ -151,6 +155,22 @@ let dynamicCategories: FurnitureCategory[] | null = null;
  * Once built, all getCatalog* functions use the dynamic catalog.
  * Uses ONLY custom assets (excludes hardcoded furniture when assets are loaded).
  */
+/** Frames 1..n-1 travel as sprites keyed `<id>@<k>`; a missing one disables the animation. */
+function animationFrames(
+  asset: LoadedAssetData['catalog'][number],
+  sprite: SpriteData,
+  sprites: Record<string, SpriteData>,
+): { frames?: SpriteData[]; frameMs?: number } {
+  if (!asset.frames || asset.frames < 2) return {};
+  const frames = [sprite];
+  for (let k = 1; k < asset.frames; k++) {
+    const f = sprites[`${asset.id}@${k}`];
+    if (!f) return {};
+    frames.push(f);
+  }
+  return { frames, ...(asset.frameMs ? { frameMs: asset.frameMs } : {}) };
+}
+
 export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   if (!assets?.catalog || !assets?.sprites) return false;
 
@@ -175,6 +195,8 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.canPlaceOnSurfaces ? { canPlaceOnSurfaces: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
+        ...(asset.interact ? { interact: asset.interact } : {}),
+        ...animationFrames(asset, sprite, assets.sprites),
       };
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);

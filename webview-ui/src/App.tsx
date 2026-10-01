@@ -553,6 +553,7 @@ function App() {
               <EditorToolbar
                 activeTool={editorState.activeTool}
                 selectedTileType={editorState.selectedTileType}
+                selectedWallStyle={editorState.selectedWallStyle}
                 selectedFurnitureType={editorState.selectedFurnitureType}
                 selectedFurnitureUid={selUid}
                 selectedFurnitureColor={selColor}
@@ -562,6 +563,7 @@ function App() {
                 wallColor={editorState.wallColor}
                 onToolChange={editor.handleToolChange}
                 onTileTypeChange={editor.handleTileTypeChange}
+                onWallStyleChange={editor.handleWallStyleChange}
                 onFloorColorChange={editor.handleFloorColorChange}
                 onWallColorChange={editor.handleWallColorChange}
                 onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}

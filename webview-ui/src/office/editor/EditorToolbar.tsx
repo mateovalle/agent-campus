@@ -4,6 +4,7 @@ import type { AchievementInfo } from '../../../../shared/protocol.js';
 import { PixelIcon } from '../../components/PixelIcon.js';
 import { ICON_LOCK } from '../../components/toolbarIcons.js';
 import { FURNITURE_PALETTE_COLUMNS, FURNITURE_PALETTE_VISIBLE_ROWS } from '../../constants.js';
+import { getColorizedSprite } from '../colorize.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
 import {
@@ -13,7 +14,8 @@ import {
 } from '../layout/furnitureCatalog.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
 import type { FloorColor, TileType as TileTypeVal } from '../types.js';
-import { EditTool } from '../types.js';
+import { EditTool, floorTileForPattern } from '../types.js';
+import { getWallStyleCount, getWallStylePreview } from '../wallTiles.js';
 
 const btnStyle: React.CSSProperties = {
   padding: '3px 8px',
@@ -74,6 +76,8 @@ const activeTabStyle: React.CSSProperties = {
 interface EditorToolbarProps {
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
+  /** Wall style the wall tool paints (index into walls.png's stacked sets). */
+  selectedWallStyle: number;
   selectedFurnitureType: string;
   selectedFurnitureUid: string | null;
   selectedFurnitureColor: FloorColor | null;
@@ -85,6 +89,7 @@ interface EditorToolbarProps {
   wallColor: FloorColor;
   onToolChange: (tool: EditTool) => void;
   onTileTypeChange: (type: TileTypeVal) => void;
+  onWallStyleChange: (style: number) => void;
   onFloorColorChange: (color: FloorColor) => void;
   onWallColorChange: (color: FloorColor) => void;
   onSelectedFurnitureColorChange: (color: FloorColor | null) => void;
@@ -154,6 +159,62 @@ function FloorPatternPreview({
   );
 }
 
+/** A wall style's free-standing piece at 2x (32x64), tinted with the current wall colour */
+function WallStylePreview({
+  style,
+  color,
+  selected,
+  onClick,
+}: {
+  style: number;
+  color: FloorColor;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const w = 32;
+  const h = 64;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    canvas.width = w;
+    canvas.height = h;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, w, h);
+    const piece = getWallStylePreview(style);
+    if (!piece) return;
+    const tinted = getColorizedSprite(
+      `wall-preview-${style}-${color.h}-${color.s}-${color.b}-${color.c}`,
+      piece,
+      { ...color, colorize: true },
+    );
+    ctx.drawImage(getCachedSprite(tinted, 2), 0, 0);
+  }, [style, color]);
+
+  return (
+    <button
+      onClick={onClick}
+      title={`Wall style ${style + 1}`}
+      style={{
+        width: w,
+        height: h,
+        padding: 0,
+        border: selected ? '2px solid #5a8cff' : '2px solid #4a4a6a',
+        borderRadius: 0,
+        cursor: 'pointer',
+        overflow: 'hidden',
+        flexShrink: 0,
+        background: '#2A2A3A',
+        boxSizing: 'content-box',
+      }}
+    >
+      <canvas ref={canvasRef} style={{ width: w, height: h, display: 'block' }} />
+    </button>
+  );
+}
+
 /** Slider control for a single color parameter */
 function ColorSlider({
   label,
@@ -197,6 +258,7 @@ const DEFAULT_FURNITURE_COLOR: FloorColor = { h: 0, s: 0, b: 0, c: 0 };
 export function EditorToolbar({
   activeTool,
   selectedTileType,
+  selectedWallStyle,
   selectedFurnitureType,
   selectedFurnitureUid,
   selectedFurnitureColor,
@@ -206,6 +268,7 @@ export function EditorToolbar({
   wallColor,
   onToolChange,
   onTileTypeChange,
+  onWallStyleChange,
   onFloorColorChange,
   onWallColorChange,
   onSelectedFurnitureColorChange,
@@ -408,13 +471,13 @@ export function EditorToolbar({
             </div>
           )}
 
-          {/* Floor pattern horizontal carousel — at the top */}
+          {/* Floor patterns — wrapping grid at the top */}
           <div
             style={{
               display: 'flex',
               gap: 4,
-              overflowX: 'auto',
-              flexWrap: 'nowrap',
+              flexWrap: 'wrap',
+              maxWidth: FURNITURE_PALETTE_COLUMNS * (thumbSize + 4),
               paddingBottom: 2,
             }}
           >
@@ -423,8 +486,8 @@ export function EditorToolbar({
                 key={patIdx}
                 patternIndex={patIdx}
                 color={floorColor}
-                selected={selectedTileType === patIdx}
-                onClick={() => onTileTypeChange(patIdx as TileTypeVal)}
+                selected={selectedTileType === floorTileForPattern(patIdx)}
+                onClick={() => onTileTypeChange(floorTileForPattern(patIdx))}
               />
             ))}
           </div>
@@ -434,6 +497,20 @@ export function EditorToolbar({
       {/* Sub-panel: Wall — stacked bottom-to-top via column-reverse */}
       {isWallActive && (
         <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 6 }}>
+          {/* Wall styles — painting over a wall of another style restyles it */}
+          {getWallStyleCount() > 1 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {Array.from({ length: getWallStyleCount() }, (_, style) => (
+                <WallStylePreview
+                  key={style}
+                  style={style}
+                  color={wallColor}
+                  selected={selectedWallStyle === style}
+                  onClick={() => onWallStyleChange(style)}
+                />
+              ))}
+            </div>
+          )}
           {/* Color toggle — just above tool row */}
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <button
