@@ -96,6 +96,7 @@ export interface ExtensionMessageState {
   /** Recurring scheduled runs (Electron only; empty elsewhere). */
   schedules: ScheduleEntry[];
   /** Whether the app is registered to open at OS login (Electron only). */
+  notificationsEnabled: boolean;
   launchAtLogin: boolean;
   /** New agents start with permissions bypassed (Settings toggle). */
   bypassPermissions: boolean;
@@ -160,6 +161,7 @@ export function useExtensionMessages(
   const [roles, setRoles] = useState<Array<{ id: string; name: string }>>([]);
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [bypassPermissions, setBypassPermissions] = useState(false);
   const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
   const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
@@ -471,6 +473,14 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'agentSelected') {
         setSelectedAgent(msg.id);
+        // The host selects an agent when you come in through a notification:
+        // land on it like a click would — select, follow, and mark it read.
+        const office = campus.getOfficeForAgent(msg.id);
+        if (office) {
+          office.selectedAgentId = msg.id;
+          office.cameraFollowId = msg.id;
+          office.acknowledgeAgent(msg.id);
+        }
       } else if (msg.type === 'agentStatus') {
         const id = msg.id;
         const status = msg.status;
@@ -636,6 +646,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'settingsLoaded') {
         setSoundEnabled(msg.soundEnabled);
         setLaunchAtLogin(msg.launchAtLogin ?? false);
+        setNotificationsEnabled(msg.notificationsEnabled ?? true);
         setBypassPermissions(msg.bypassPermissions ?? false);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
@@ -706,6 +717,7 @@ export function useExtensionMessages(
     clearAgentSuggestions,
     roles,
     schedules,
+    notificationsEnabled,
     launchAtLogin,
     bypassPermissions,
     missedRuns,

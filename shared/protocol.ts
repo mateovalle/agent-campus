@@ -326,6 +326,8 @@ export type HostToWebviewMessage =
       soundEnabled: boolean;
       launchAtLogin?: boolean;
       bypassPermissions?: boolean;
+      /** Desktop notifications for blocked agents and background turn ends. */
+      notificationsEnabled?: boolean;
     }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
   // Sent on webview ready when daily/weekly occurrences were missed while the
@@ -460,6 +462,7 @@ export type WebviewToHostMessage =
   // workspacePath present = save as that office's own layout (Electron campus)
   | { type: 'saveLayout'; layout: unknown; workspacePath?: string }
   | { type: 'setSoundEnabled'; enabled: boolean }
+  | { type: 'setNotificationsEnabled'; enabled: boolean }
   | { type: 'setLaunchAtLogin'; enabled: boolean }
   // New agents (terminal + chat) start with permissions bypassed when enabled
   | { type: 'setBypassPermissions'; enabled: boolean }

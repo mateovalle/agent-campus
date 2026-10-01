@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import * as fs from 'fs';
 import * as pty from 'node-pty';
 import * as os from 'os';
@@ -7,6 +7,7 @@ import * as path from 'path';
 
 import type {
   AgentSeatMeta,
+  HostToWebviewMessage,
   RestorableAgent,
   ResumableSession,
   ScheduleEntry,
@@ -44,6 +45,7 @@ import {
   type TrackerContext,
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
+import { type AttentionEvent, AttentionTracker } from './attention.js';
 import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
 import {
@@ -93,6 +95,10 @@ const AGENT_NAME_MAX_CHARS = 28;
 const RESUMED_SESSION_STATUS = 'Resumed session — previous conversation shown above';
 // Appended to terminal launches when the "Bypass Permissions" setting is on
 const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
+/** An agent blocked this long (permission or question) gets a desktop notification. */
+const BLOCKED_NOTIFY_AFTER_MS = 2 * 60_000;
+/** How often blocks are checked against BLOCKED_NOTIFY_AFTER_MS. */
+const ATTENTION_TICK_MS = 10_000;
 
 const DATA_DIR = path.join(os.homedir(), DATA_DIR_NAME);
 const AGENT_SEATS_FILE = path.join(DATA_DIR, 'agent-seats.json');
@@ -144,9 +150,11 @@ const ctx: TrackerContext<AgentState> = {
   pollingTimers: new Map(),
   waitingTimers: new Map(),
   permissionTimers: new Map(),
-  // Resolved at call time so a recreated window keeps receiving messages
+  // Resolved at call time so a recreated window keeps receiving messages.
+  // Every message also feeds the attention tracker (Dock badge + notifications).
   send: (message) => {
     mainWindow?.webContents.send('main-message', message);
+    noteAttention(message);
   },
   // Sessions live only as long as their PTYs — nothing to persist
   persistAgents: () => {},
@@ -197,11 +205,20 @@ function loadSeatMetaBySession(): Record<string, AgentSeatMeta> {
   );
 }
 
-function loadSettings(): { soundEnabled: boolean; bypassPermissions: boolean } {
+function loadSettings(): {
+  soundEnabled: boolean;
+  bypassPermissions: boolean;
+  notificationsEnabled: boolean;
+} {
   return {
     soundEnabled: true,
     bypassPermissions: false,
-    ...loadJsonFile<{ soundEnabled?: boolean; bypassPermissions?: boolean }>(SETTINGS_FILE),
+    notificationsEnabled: true,
+    ...loadJsonFile<{
+      soundEnabled?: boolean;
+      bypassPermissions?: boolean;
+      notificationsEnabled?: boolean;
+    }>(SETTINGS_FILE),
   };
 }
 
@@ -1354,6 +1371,13 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     saveAgentSeats(msg.seats);
   } else if (msg.type === 'setSoundEnabled') {
     saveSettings({ soundEnabled: !!msg.enabled });
+  } else if (msg.type === 'setNotificationsEnabled') {
+    saveSettings({ notificationsEnabled: !!msg.enabled });
+    ctx.send({
+      type: 'settingsLoaded',
+      ...loadSettings(),
+      launchAtLogin: app.getLoginItemSettings().openAtLogin,
+    });
   } else if (msg.type === 'setBypassPermissions') {
     saveSettings({ bypassPermissions: !!msg.enabled });
     // Echo back so the Settings checkbox reflects the persisted value
@@ -1444,12 +1468,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       ctx.send({ type: 'agentClosed', id });
     }
   } else if (msg.type === 'focusAgent') {
-    const agent = ctx.agents.get(msg.id);
-    if (agent?.kind === 'chat') {
-      focusChatTab(msg.id);
-    } else if (agent?.ptyId) {
-      ctx.send({ type: 'pty-focus', ptyId: agent.ptyId, agentId: msg.id });
-    }
+    focusAgentTab(msg.id);
   } else if (msg.type === 'runAgentAction') {
     const agent = ctx.agents.get(msg.id);
     const command = msg.command.trim();
@@ -1734,6 +1753,94 @@ function createWindow(): void {
   });
 }
 
+// ── Attention: Dock badge + desktop notifications ────────────
+// Bubbles in the office only help while you look at the window. These reach
+// you when you don't: the Dock badge counts agents that need you, and a
+// notification fires when an agent has been blocked for a while, or finishes
+// a turn while the window is in the background.
+const attention = new AttentionTracker();
+/** Latest permission prompt sentence per chat agent, for the notification body. */
+const lastRequestTitle = new Map<number, string>();
+/** Shown notifications stay referenced until closed, or their click handler is GC'd. */
+const liveNotifications = new Set<Notification>();
+let attentionTimer: ReturnType<typeof setInterval> | null = null;
+let lastBadgeCount = -1;
+
+function windowHasFocus(): boolean {
+  return !!mainWindow && mainWindow.isVisible() && mainWindow.isFocused();
+}
+
+function refreshBadge(): void {
+  const n = attention.needsYouCount();
+  if (n === lastBadgeCount) return;
+  lastBadgeCount = n;
+  app.setBadgeCount(n); // macOS Dock / Linux launchers; a no-op where unsupported
+}
+
+function noteAttention(message: HostToWebviewMessage): void {
+  if (message.type === 'chat-permission-request') {
+    lastRequestTitle.set(
+      message.agentId,
+      message.title ?? `Claude wants to use ${message.toolName}`,
+    );
+  }
+  const event = attention.observe(message, Date.now());
+  if (event?.kind === 'finished' && !windowHasFocus()) notifyAttention(event);
+  refreshBadge();
+}
+
+function attentionTick(): void {
+  // Blocks only count as "seen" in the background; while you are looking at
+  // the window the ageing bubble is the signal, so they stay due for later.
+  if (windowHasFocus()) return;
+  for (const event of attention.dueBlocked(Date.now(), BLOCKED_NOTIFY_AFTER_MS)) {
+    notifyAttention(event);
+  }
+}
+
+function notifyAttention(event: AttentionEvent): void {
+  const agent = ctx.agents.get(event.agentId);
+  if (!agent || !loadSettings().notificationsEnabled || !Notification.isSupported()) return;
+  const where = path.basename(agent.cwd);
+  let title: string;
+  let body: string;
+  if (event.kind === 'blocked') {
+    const minutes = Math.max(1, Math.round(event.blockedForMs / 60_000));
+    title = `${agent.label} is waiting for you`;
+    body = `${lastRequestTitle.get(event.agentId) ?? 'Needs your permission to continue'} · ${minutes} min · ${where}`;
+  } else {
+    title = `${agent.label} finished`;
+    body = `Turn complete in ${where}`;
+  }
+  const n = new Notification({ title, body, silent: event.kind === 'finished' });
+  liveNotifications.add(n);
+  n.on('click', () => showAgent(event.agentId));
+  n.on('close', () => liveNotifications.delete(n));
+  n.show();
+}
+
+/** Open the terminal / chat tab that belongs to an agent. */
+function focusAgentTab(id: number): void {
+  attention.acknowledge(id);
+  refreshBadge();
+  const agent = ctx.agents.get(id);
+  if (agent?.kind === 'chat') {
+    focusChatTab(id);
+  } else if (agent?.ptyId) {
+    ctx.send({ type: 'pty-focus', ptyId: agent.ptyId, agentId: id });
+  }
+}
+
+/** Notification click: bring the window up and land on that agent. */
+function showAgent(id: number): void {
+  if (!mainWindow) createWindow();
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show();
+  mainWindow?.focus();
+  ctx.send({ type: 'agentSelected', id });
+  focusAgentTab(id);
+}
+
 // ── App Lifecycle ────────────────────────────────────────────
 /**
  * True once shutdown began. Quitting tears down every agent, and the open-agent
@@ -1746,6 +1853,10 @@ function cleanupAndQuit(): void {
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
+  }
+  if (attentionTimer) {
+    clearInterval(attentionTimer);
+    attentionTimer = null;
   }
   layoutsDirWatcher?.close();
   layoutsDirWatcher = null;
@@ -1769,6 +1880,7 @@ app.whenReady().then(() => {
   createWindow();
 
   schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
+  attentionTimer = setInterval(attentionTick, ATTENTION_TICK_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

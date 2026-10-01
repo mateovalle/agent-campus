@@ -233,6 +233,9 @@ interface SettingsModalProps {
   roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
   onSetLaunchAtLogin: (enabled: boolean) => void;
+  /** Desktop notifications + Dock badge for agents that need you. */
+  notificationsEnabled: boolean;
+  onSetNotificationsEnabled: (enabled: boolean) => void;
   /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
   bypassPermissions: boolean;
   onSetBypassPermissions: (enabled: boolean) => void;
@@ -547,6 +550,8 @@ export function SettingsModal({
   roles,
   launchAtLogin,
   onSetLaunchAtLogin,
+  notificationsEnabled,
+  onSetNotificationsEnabled,
   bypassPermissions,
   onSetBypassPermissions,
 }: SettingsModalProps) {
@@ -763,6 +768,36 @@ export function SettingsModal({
             }}
           >
             {launchAtLogin ? 'X' : ''}
+          </span>
+        </button>
+        <button
+          onClick={() => onSetNotificationsEnabled(!notificationsEnabled)}
+          onMouseEnter={() => setHovered('notify')}
+          onMouseLeave={() => setHovered(null)}
+          title="Notify when an agent has been waiting on you for a while, or finishes while the app is in the background"
+          style={{
+            ...menuItemBase,
+            background: hovered === 'notify' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          <span>Desktop Notifications</span>
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: 0,
+              background: notificationsEnabled ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              lineHeight: 1,
+              color: '#fff',
+            }}
+          >
+            {notificationsEnabled ? 'X' : ''}
           </span>
         </button>
         <button

@@ -178,6 +178,7 @@ function App() {
     roles,
     schedules,
     launchAtLogin,
+    notificationsEnabled,
     bypassPermissions,
     missedRuns,
     clearMissedRuns,
@@ -485,6 +486,7 @@ function App() {
           workspaces={workspaces}
           roles={roles}
           launchAtLogin={launchAtLogin}
+          notificationsEnabled={notificationsEnabled}
           bypassPermissions={bypassPermissions}
           onSetOfficeTemplate={() =>
             vscode.postMessage({

@@ -43,6 +43,7 @@ interface BottomToolbarProps {
   /** Available dispatch roles (for the new-schedule form). */
   roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
+  notificationsEnabled: boolean;
   bypassPermissions: boolean;
   /** Store the office on screen as the starter for new workspaces. */
   onSetOfficeTemplate: () => void;
@@ -152,6 +153,7 @@ export function BottomToolbar({
   workspaces,
   roles,
   launchAtLogin,
+  notificationsEnabled,
   bypassPermissions,
   onSetOfficeTemplate,
   onResetOfficeTemplate,
@@ -224,6 +226,10 @@ export function BottomToolbar({
           launchAtLogin={launchAtLogin}
           onSetLaunchAtLogin={(enabled) =>
             vscode.postMessage({ type: 'setLaunchAtLogin', enabled })
+          }
+          notificationsEnabled={notificationsEnabled}
+          onSetNotificationsEnabled={(enabled) =>
+            vscode.postMessage({ type: 'setNotificationsEnabled', enabled })
           }
           bypassPermissions={bypassPermissions}
           onSetBypassPermissions={(enabled) =>

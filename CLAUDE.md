@@ -108,6 +108,16 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 self-catch-up) → missedSchedules message → MissedRunsModal
                                 (pick-and-run checkboxes) → resolveMissedSchedules dispatches
                                 picks and stamps ALL offered ids handled (skip = don't re-offer)
+  attention.ts                — Which agents need you: a pure tracker fed by EVERY host→webview message
+                                (main.ts taps ctx.send) — blocked = agentToolPermission until
+                                Clear/ToolStart/status, or open chat-permission-request ids; unread =
+                                agentStatus 'waiting' until focusAgent. Drives app.setBadgeCount (agents
+                                that need you) and native Notifications: a block lasting
+                                BLOCKED_NOTIFY_AFTER_MS (2 min, checked every 10s, only while the window
+                                is NOT focused — focused, the ageing bubble is the signal), or a turn
+                                that finishes in the background. Click → window up + agentSelected
+                                (webview selects, follows, acknowledges) + tab focus. "Desktop
+                                Notifications" toggle in Settings (settings.json notificationsEnabled)
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
                                 ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol,
                                 canUseTool → chat-permission-request/-response promise bridge, capped
@@ -475,9 +485,9 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
 - `npm run build` — check (types+lint) → tsc electron → vite webview; `npm run package` — electron-builder (dmg/AppImage/nsis)
 - `npm run check-types` covers src/core/, electron/, webview-ui/; `npm run lint` covers src/ + electron/ (webview has its own flat config)
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
-- `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (8 suites:
+- `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (suites include
   transcriptParser, actionSuggestions, fileWatcher, roles, achievements, claudeAuth, schedules,
-  transcriptHistory). `vitest.config.ts` scopes it; the webview has no test setup
+  transcriptHistory, attention). `vitest.config.ts` scopes it; the webview has no test setup
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
 - `package-electron.json` at the repo root is DEAD (gitignored leftover of the deleted
