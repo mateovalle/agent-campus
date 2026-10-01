@@ -13,6 +13,7 @@ import type {
   UsageSummary,
   WorkspaceInfo,
 } from '../../../shared/protocol.js';
+import { isDemoAgent } from '../demo/demoAgents.js';
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js';
 import type { CampusState } from '../office/engine/campusState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -506,7 +507,8 @@ export function useExtensionMessages(
           // user actually opens the agent, so a turn finished while they were
           // away is still there when they come back.
           os?.showBubble(id, BubbleKind.DONE);
-          playDoneSound();
+          // Pretend agents finish a turn every few seconds — chiming for each would be noise
+          if (!isDemoAgent(id)) playDoneSound();
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id;

@@ -6,6 +6,8 @@ import { vscode } from '../vscodeApi.js';
 interface WelcomeModalProps {
   /** Null until the host reports; the modal stays hidden while unknown. */
   auth: ClaudeAuthState | null;
+  /** Close the panel and fill the office with pretend agents. */
+  onStartDemo: () => void;
 }
 
 const buttonBase: React.CSSProperties = {
@@ -38,7 +40,7 @@ const codeStyle: React.CSSProperties = {
  * user had to create first. The office stays visible behind the panel —
  * the layout editor and everything else still work logged out.
  */
-export function WelcomeModal({ auth }: WelcomeModalProps) {
+export function WelcomeModal({ auth, onStartDemo }: WelcomeModalProps) {
   const [rechecking, setRechecking] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -120,6 +122,16 @@ export function WelcomeModal({ auth }: WelcomeModalProps) {
           </button>
           <button style={buttonBase} onClick={recheck} disabled={rechecking}>
             {rechecking ? 'Checking…' : 'Check again'}
+          </button>
+          <button
+            style={buttonBase}
+            onClick={() => {
+              setDismissed(true);
+              onStartDemo();
+            }}
+            title="Pretend agents show what the campus does — nothing runs and nothing is saved"
+          >
+            Watch a demo
           </button>
           <button
             style={{ ...buttonBase, color: 'rgba(255,255,255,0.5)' }}
