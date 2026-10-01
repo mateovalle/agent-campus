@@ -1,6 +1,6 @@
 {
   "name": "agent-campus-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent Campus — a desktop campus where every project is an office and every Claude Code agent is a character",
   "main": "dist-electron/electron/main.js",
   "private": true,
