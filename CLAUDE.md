@@ -186,6 +186,12 @@ webview-ui/src/               — React + TypeScript (Vite)
     WelcomeModal.tsx           — First-run panel when Claude Code is logged out or unreachable:
                                  explains both auth paths, opens a login terminal, re-checks, or
                                  steps aside (the office and the layout editor work logged out)
+                                 — or "Watch a demo": demo/demoAgents.ts fills the office with 5
+                                 pretend agents (ids from DEMO_AGENT_BASE_ID) by dispatching host
+                                 messages as window `message` events, the path real ones take, so
+                                 the UI reacts for real while the host ignores the unknown ids
+                                 (nothing spawned or saved; turn chime muted). DemoBanner says so;
+                                 the demo ends on login or when a real agent appears
     DebugView.tsx              — Debug overlay
   office/
     types.ts                  — Interfaces (OfficeLayout, FloorColor, Character, etc.) + re-exports constants from constants.ts
