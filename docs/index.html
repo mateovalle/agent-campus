@@ -810,9 +810,11 @@
 
     <div class="crt">
       <div class="crt-screen">
-        <video autoplay loop muted playsinline poster="assets/demo-poster.png" style="width:100%; display:block;">
+        <video autoplay loop muted playsinline preload="metadata"
+               aria-label="Agent Campus demo: campus, offices with agents working, tasks drawer"
+               poster="assets/demo-poster.webp" style="width:100%; display:block;">
+          <source src="assets/demo.webm" type="video/webm">
           <source src="assets/demo.mp4" type="video/mp4">
-          <img src="assets/demo.gif" alt="Agent Campus demo: campus, offices with agents working, tasks drawer" style="width:100%; display:block;">
         </video>
       </div>
       <div class="crt-bar">
