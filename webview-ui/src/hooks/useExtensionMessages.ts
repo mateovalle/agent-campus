@@ -23,6 +23,7 @@ import {
   setUnlockedAchievements,
 } from '../office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
+import { setRoomTemplates } from '../office/roomTemplates.js';
 import { setCharacterTemplates, setRoleSprites } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
@@ -643,6 +644,8 @@ export function useExtensionMessages(
         const agentId = msg.agentId;
         const todos = msg.todos;
         setAgentTodos((prev) => ({ ...prev, [agentId]: todos }));
+      } else if (msg.type === 'roomTemplatesLoaded') {
+        setRoomTemplates(msg.templates);
       } else if (msg.type === 'settingsLoaded') {
         setSoundEnabled(msg.soundEnabled);
         setLaunchAtLogin(msg.launchAtLogin ?? false);

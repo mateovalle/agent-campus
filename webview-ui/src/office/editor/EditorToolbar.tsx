@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AchievementInfo } from '../../../../shared/protocol.js';
+import type { AchievementInfo, RoomTemplate } from '../../../../shared/protocol.js';
 import { PixelIcon } from '../../components/PixelIcon.js';
 import { ICON_LOCK } from '../../components/toolbarIcons.js';
-import { FURNITURE_PALETTE_COLUMNS, FURNITURE_PALETTE_VISIBLE_ROWS } from '../../constants.js';
+import {
+  FURNITURE_PALETTE_COLUMNS,
+  FURNITURE_PALETTE_VISIBLE_ROWS,
+  ROOM_PALETTE_MAX_HEIGHT_PX,
+} from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
@@ -12,10 +16,19 @@ import {
   getActiveCategories,
   getCatalogByCategory,
 } from '../layout/furnitureCatalog.js';
+import { layoutToFurnitureInstances } from '../layout/layoutSerializer.js';
+import { getRoomTemplates } from '../roomTemplates.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
 import type { FloorColor, TileType as TileTypeVal } from '../types.js';
-import { EditTool, floorTileForPattern } from '../types.js';
-import { getWallStyleCount, getWallStylePreview } from '../wallTiles.js';
+import {
+  EditTool,
+  floorPatternOf,
+  floorTileForPattern,
+  isWallTile,
+  TILE_SIZE,
+  TileType,
+} from '../types.js';
+import { getWallStyleCount, getWallStylePreview, wallColorToHex } from '../wallTiles.js';
 
 const btnStyle: React.CSSProperties = {
   padding: '3px 8px',
@@ -78,6 +91,8 @@ interface EditorToolbarProps {
   selectedTileType: TileTypeVal;
   /** Wall style the wall tool paints (index into walls.png's stacked sets). */
   selectedWallStyle: number;
+  /** Room template the Rooms tool stamps (id), or null when none is picked. */
+  selectedRoomTemplate: string | null;
   selectedFurnitureType: string;
   selectedFurnitureUid: string | null;
   selectedFurnitureColor: FloorColor | null;
@@ -90,6 +105,7 @@ interface EditorToolbarProps {
   onToolChange: (tool: EditTool) => void;
   onTileTypeChange: (type: TileTypeVal) => void;
   onWallStyleChange: (style: number) => void;
+  onRoomTemplateChange: (id: string) => void;
   onFloorColorChange: (color: FloorColor) => void;
   onWallColorChange: (color: FloorColor) => void;
   onSelectedFurnitureColorChange: (color: FloorColor | null) => void;
@@ -215,6 +231,86 @@ function WallStylePreview({
   );
 }
 
+/** A room template drawn small: its floors, walls and furniture at 1x, scaled to fit */
+function RoomTemplateCard({
+  template,
+  selected,
+  onClick,
+}: {
+  template: RoomTemplate;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const w = 84;
+  const h = 60;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    // Render at 1x with a tile of headroom for tall pieces, then fit
+    const top = TILE_SIZE;
+    const sceneW = template.cols * TILE_SIZE;
+    const sceneH = template.rows * TILE_SIZE + top;
+    const scene = document.createElement('canvas');
+    scene.width = sceneW;
+    scene.height = sceneH;
+    const sctx = scene.getContext('2d');
+    if (!sctx) return;
+    for (let r = 0; r < template.rows; r++) {
+      for (let c = 0; c < template.cols; c++) {
+        const tile = template.tiles[r * template.cols + c];
+        const color = template.tileColors[r * template.cols + c] ?? { h: 0, s: 0, b: 0, c: 0 };
+        if (tile === TileType.VOID) continue;
+        if (isWallTile(tile)) {
+          sctx.fillStyle = wallColorToHex(color);
+          sctx.fillRect(c * TILE_SIZE, top + r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        } else {
+          const sprite = getColorizedFloorSprite(floorPatternOf(tile), color);
+          sctx.drawImage(getCachedSprite(sprite, 1), c * TILE_SIZE, top + r * TILE_SIZE);
+        }
+      }
+    }
+    const items = layoutToFurnitureInstances(
+      template.furniture.map((f, i) => ({ uid: `card-${i}`, ...f })),
+    ).sort((a, b) => a.zY - b.zY);
+    for (const f of items) sctx.drawImage(getCachedSprite(f.sprite, 1), f.x, f.y + top);
+
+    canvas.width = w;
+    canvas.height = h;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, w, h);
+    const scale = Math.min(w / sceneW, h / sceneH);
+    const dw = sceneW * scale;
+    const dh = sceneH * scale;
+    ctx.drawImage(scene, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }, [template]);
+
+  return (
+    <button
+      onClick={onClick}
+      title={`${template.label} — ${template.description} (${template.cols}×${template.rows})`}
+      style={{
+        padding: 2,
+        border: selected ? '2px solid #5a8cff' : '2px solid #4a4a6a',
+        borderRadius: 0,
+        background: '#2A2A3A',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2,
+        color: 'inherit',
+        font: 'inherit',
+      }}
+    >
+      <canvas ref={canvasRef} style={{ width: w, height: h, display: 'block' }} />
+      <span style={{ fontSize: '0.85em' }}>{template.label}</span>
+    </button>
+  );
+}
+
 /** Slider control for a single color parameter */
 function ColorSlider({
   label,
@@ -259,6 +355,7 @@ export function EditorToolbar({
   activeTool,
   selectedTileType,
   selectedWallStyle,
+  selectedRoomTemplate,
   selectedFurnitureType,
   selectedFurnitureUid,
   selectedFurnitureColor,
@@ -269,6 +366,7 @@ export function EditorToolbar({
   onToolChange,
   onTileTypeChange,
   onWallStyleChange,
+  onRoomTemplateChange,
   onFloorColorChange,
   onWallColorChange,
   onSelectedFurnitureColorChange,
@@ -346,6 +444,7 @@ export function EditorToolbar({
   const isFloorActive = activeTool === EditTool.TILE_PAINT || activeTool === EditTool.EYEDROPPER;
   const isWallActive = activeTool === EditTool.WALL_PAINT;
   const isEraseActive = activeTool === EditTool.ERASE;
+  const isRoomsActive = activeTool === EditTool.ROOM_STAMP;
   const isFurnitureActive =
     activeTool === EditTool.FURNITURE_PLACE || activeTool === EditTool.FURNITURE_PICK;
 
@@ -404,7 +503,46 @@ export function EditorToolbar({
         >
           Furniture
         </button>
+        {getRoomTemplates().length > 0 && (
+          <button
+            style={isRoomsActive ? activeBtnStyle : btnStyle}
+            onClick={() => onToolChange(EditTool.ROOM_STAMP)}
+            title="Stamp a ready-made room: pick one, then click where its top-left corner goes"
+          >
+            Rooms
+          </button>
+        )}
       </div>
+
+      {/* Sub-panel: Rooms — ready-made rooms to stamp */}
+      {isRoomsActive && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 4,
+              flexWrap: 'wrap',
+              maxWidth: FURNITURE_PALETTE_COLUMNS * (thumbSize + 4),
+              maxHeight: ROOM_PALETTE_MAX_HEIGHT_PX,
+              overflowY: 'auto',
+            }}
+          >
+            {getRoomTemplates().map((t) => (
+              <RoomTemplateCard
+                key={t.id}
+                template={t}
+                selected={selectedRoomTemplate === t.id}
+                onClick={() => onRoomTemplateChange(t.id)}
+              />
+            ))}
+          </div>
+          <span style={{ opacity: 0.6, fontSize: '0.85em' }}>
+            {selectedRoomTemplate
+              ? 'Click where the room’s top-left corner goes — it replaces what is there (Ctrl+Z undoes)'
+              : 'Pick a room'}
+          </span>
+        </div>
+      )}
 
       {/* Sub-panel: Floor tiles — stacked bottom-to-top via column-reverse */}
       {isFloorActive && (

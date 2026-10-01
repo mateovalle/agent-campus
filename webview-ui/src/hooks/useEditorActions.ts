@@ -12,11 +12,13 @@ import {
   placeFurniture,
   removeFurniture,
   rotateFurniture,
+  stampRoom,
   toggleFurnitureState,
 } from '../office/editor/editorActions.js';
 import type { EditorState } from '../office/editor/editorState.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { getRotatedType, getToggledType } from '../office/layout/furnitureCatalog.js';
+import { getRoomTemplate } from '../office/roomTemplates.js';
 import { defaultZoom } from '../office/toolUtils.js';
 import type {
   EditTool as EditToolType,
@@ -47,6 +49,7 @@ export interface EditorActions {
   handleToolChange: (tool: EditToolType) => void;
   handleTileTypeChange: (type: TileTypeVal) => void;
   handleWallStyleChange: (style: number) => void;
+  handleRoomTemplateChange: (id: string) => void;
   handleFloorColorChange: (color: FloorColor) => void;
   handleWallColorChange: (color: FloorColor) => void;
   handleSelectedFurnitureColorChange: (color: FloorColor | null) => void;
@@ -184,6 +187,14 @@ export function useEditorActions(
   const handleTileTypeChange = useCallback(
     (type: TileTypeVal) => {
       editorState.selectedTileType = type;
+      setEditorTick((n) => n + 1);
+    },
+    [editorState],
+  );
+
+  const handleRoomTemplateChange = useCallback(
+    (id: string) => {
+      editorState.selectedRoomTemplate = id;
       setEditorTick((n) => n + 1);
     },
     [editorState],
@@ -565,6 +576,17 @@ export function useEditorActions(
             applyEdit(newLayout);
           }
         }
+      } else if (editorState.activeTool === EditTool.ROOM_STAMP) {
+        const template = getRoomTemplate(editorState.selectedRoomTemplate);
+        if (!template) return;
+        const stamped = stampRoom(
+          layout,
+          template,
+          col,
+          row,
+          `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        );
+        if (stamped) applyEdit(stamped);
       } else if (editorState.activeTool === EditTool.FURNITURE_PICK) {
         // Find furniture at clicked tile, copy its type and color for placement
         const hit = findFurnitureAt(layout.furniture, col, row);
@@ -631,6 +653,7 @@ export function useEditorActions(
     handleToolChange,
     handleTileTypeChange,
     handleWallStyleChange,
+    handleRoomTemplateChange,
     handleFloorColorChange,
     handleWallColorChange,
     handleSelectedFurnitureColorChange,

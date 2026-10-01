@@ -18,45 +18,19 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ASSETS_DIR = path.join(REPO_ROOT, 'webview-ui', 'public', 'assets');
-const CATALOG_PATH = path.join(ASSETS_DIR, 'furniture', 'furniture-catalog.json');
+import type { FloorColor, PlacedFurniture } from './layout-validate.ts';
+import { ASSETS_DIR, countSeats, loadCatalog, validateLayout, VOID } from './layout-validate.ts';
+
 const OUT_PATH = path.join(ASSETS_DIR, 'default-layout.json');
 
 // ── Layout model (mirrors webview-ui/src/office/types.ts) ─────────
 
 const WALL = 0;
-const VOID = 8;
 /** Floor pattern tile ids: 1 wood, 2 large tiles, 3 checker, 4 carpet, 5 herringbone, 6 mosaic, 7 concrete. */
 const LARGE_TILES = 2;
 const CARPET = 4;
 const CONCRETE = 7;
-
-interface FloorColor {
-  h: number;
-  s: number;
-  b: number;
-  c: number;
-}
-
-interface PlacedFurniture {
-  uid: string;
-  type: string;
-  col: number;
-  row: number;
-}
-
-interface CatalogAsset {
-  id: string;
-  footprintW: number;
-  footprintH: number;
-  isDesk: boolean;
-  canPlaceOnWalls: boolean;
-  canPlaceOnSurfaces?: boolean;
-  backgroundTiles?: number;
-}
 
 // ── Scene ────────────────────────────────────────────────────────
 
@@ -148,91 +122,15 @@ const furniture: PlacedFurniture[] = FURNITURE.map(([type, col, row], i) => ({
 
 // ── Validate against the catalog (same rules as canPlaceFurniture) ──
 
-const catalog = new Map<string, CatalogAsset>(
-  (JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8')).assets as CatalogAsset[]).map((a) => [
-    a.id,
-    a,
-  ]),
-);
-
-function tileAt(c: number, r: number): number {
-  if (c < 0 || r < 0 || c >= COLS || r >= ROWS) return -1;
-  return tiles[r * COLS + c];
-}
-
-const errors: string[] = [];
-const occupied = new Map<string, string>(); // "c,r" → uid (non-background tiles)
-const deskTiles = new Set<string>();
-
-for (const f of furniture) {
-  const a = catalog.get(f.type);
-  if (!a) {
-    errors.push(`${f.uid}: unknown type '${f.type}'`);
-    continue;
-  }
-  if (a.isDesk) {
-    for (let dr = 0; dr < a.footprintH; dr++) {
-      for (let dc = 0; dc < a.footprintW; dc++) deskTiles.add(`${f.col + dc},${f.row + dr}`);
-    }
-  }
-}
-
-for (const f of furniture) {
-  const a = catalog.get(f.type);
-  if (!a) continue;
-  const bg = a.backgroundTiles ?? 0;
-  for (let dr = 0; dr < a.footprintH; dr++) {
-    for (let dc = 0; dc < a.footprintW; dc++) {
-      const c = f.col + dc;
-      const r = f.row + dr;
-      const key = `${c},${r}`;
-      const t = tileAt(c, r);
-      const bottomRow = dr === a.footprintH - 1;
-      if (a.canPlaceOnWalls) {
-        if (bottomRow && t !== WALL)
-          errors.push(`${f.uid} ${f.type}: bottom row not on a wall at ${key}`);
-      } else {
-        if (t === -1) errors.push(`${f.uid} ${f.type}: out of bounds at ${key}`);
-        else if (dr >= bg && (t === WALL || t === VOID))
-          errors.push(`${f.uid} ${f.type}: on wall/void at ${key}`);
-      }
-      if (dr < bg) continue; // background rows never collide
-      const other = occupied.get(key);
-      if (other && !(a.canPlaceOnSurfaces && deskTiles.has(key))) {
-        errors.push(`${f.uid} ${f.type}: overlaps ${other} at ${key}`);
-      }
-      // surface items don't claim desk tiles, so two of them can share a desk
-      if (!(a.canPlaceOnSurfaces && deskTiles.has(key))) occupied.set(key, `${f.uid} ${f.type}`);
-    }
-  }
-}
-
-// Surface items on the same desk still shouldn't stack on each other.
-const surfaceTiles = new Map<string, string>();
-for (const f of furniture) {
-  const a = catalog.get(f.type);
-  if (!a?.canPlaceOnSurfaces) continue;
-  for (let dr = 0; dr < a.footprintH; dr++) {
-    for (let dc = 0; dc < a.footprintW; dc++) {
-      const key = `${f.col + dc},${f.row + dr}`;
-      const other = surfaceTiles.get(key);
-      if (other) errors.push(`${f.uid} ${f.type}: stacked on ${other} at ${key}`);
-      surfaceTiles.set(key, `${f.uid} ${f.type}`);
-    }
-  }
-}
-
+const catalog = loadCatalog();
+const errors = validateLayout({ cols: COLS, rows: ROWS, tiles, furniture }, catalog);
 if (errors.length > 0) {
   console.error('✗ default layout invalid:');
   for (const e of errors) console.error('  ' + e);
   process.exit(1);
 }
 
-const seatCount = furniture.reduce((n, f) => {
-  const a = catalog.get(f.type)!;
-  const isChair = /^(chair_|stool|couch)/.test(f.type);
-  return n + (isChair ? a.footprintW * a.footprintH : 0);
-}, 0);
+const seatCount = countSeats(furniture, catalog);
 
 const layout = { version: 1, cols: COLS, rows: ROWS, tiles, tileColors, furniture };
 fs.writeFileSync(OUT_PATH, JSON.stringify(layout) + '\n');

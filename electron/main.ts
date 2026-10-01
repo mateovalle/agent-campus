@@ -19,6 +19,7 @@ import {
   loadFloorTiles,
   loadFurnitureAssets,
   loadRoleSprites,
+  loadRoomTemplates,
   loadWallTiles,
   sendAssets,
   sendCharacterSprites,
@@ -1556,6 +1557,7 @@ function onWebviewReady(): void {
     if (wallTiles) sendWallTiles(ctx.send, wallTiles);
     const assets = await loadFurnitureAssets(assetsRoot);
     if (assets) sendAssets(ctx.send, assets);
+    ctx.send({ type: 'roomTemplatesLoaded', templates: loadRoomTemplates(assetsRoot) });
 
     // Send layout AFTER assets (webview buffers agents until layoutLoaded).
     // This is the STARTER office: what an office looks like before its

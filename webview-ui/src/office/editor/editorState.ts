@@ -14,6 +14,9 @@ export class EditorState {
   // Wall color settings (applied to new wall tiles when painting)
   wallColor: FloorColor = { ...DEFAULT_WALL_COLOR };
 
+  // Room template the Rooms tool stamps (RoomTemplate.id), or null for none picked
+  selectedRoomTemplate: string | null = null;
+
   // Wall style painted by the wall tool (0 = the original plaster wall)
   selectedWallStyle = 0;
 

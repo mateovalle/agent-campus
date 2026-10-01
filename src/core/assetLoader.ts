@@ -13,6 +13,7 @@ import type {
   CharacterDirectionSprites,
   FurnitureAsset,
   RoleSpriteSet,
+  RoomTemplate,
 } from '../../shared/protocol.js';
 import {
   CHAR_COUNT,
@@ -168,6 +169,21 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
  * Load the bundled default layout from assets/default-layout.json.
  * Returns the parsed layout object or null if not found.
  */
+/** Room templates for the editor's Rooms tool (assets/room-templates.json); [] when absent. */
+export function loadRoomTemplates(assetsRoot: string): RoomTemplate[] {
+  try {
+    const p = path.join(assetsRoot, 'assets', 'room-templates.json');
+    if (!fs.existsSync(p)) return [];
+    const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as { templates?: RoomTemplate[] };
+    return Array.isArray(data.templates) ? data.templates : [];
+  } catch (err) {
+    console.error(
+      `[AssetLoader] ❌ Error loading room templates: ${err instanceof Error ? err.message : err}`,
+    );
+    return [];
+  }
+}
+
 export function loadDefaultLayout(assetsRoot: string): Record<string, unknown> | null {
   try {
     const layoutPath = path.join(assetsRoot, 'assets', 'default-layout.json');

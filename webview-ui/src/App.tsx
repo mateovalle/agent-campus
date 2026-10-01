@@ -556,6 +556,7 @@ function App() {
                 activeTool={editorState.activeTool}
                 selectedTileType={editorState.selectedTileType}
                 selectedWallStyle={editorState.selectedWallStyle}
+                selectedRoomTemplate={editorState.selectedRoomTemplate}
                 selectedFurnitureType={editorState.selectedFurnitureType}
                 selectedFurnitureUid={selUid}
                 selectedFurnitureColor={selColor}
@@ -566,6 +567,7 @@ function App() {
                 onToolChange={editor.handleToolChange}
                 onTileTypeChange={editor.handleTileTypeChange}
                 onWallStyleChange={editor.handleWallStyleChange}
+                onRoomTemplateChange={editor.handleRoomTemplateChange}
                 onFloorColorChange={editor.handleFloorColorChange}
                 onWallColorChange={editor.handleWallColorChange}
                 onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}

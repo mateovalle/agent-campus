@@ -820,6 +820,56 @@ export interface EditorRenderState {
   ghostBorderHoverCol: number;
   /** Hovered ghost border tile row (-1 to rows) */
   ghostBorderHoverRow: number;
+  /** Rooms tool: the template under the cursor, drawn translucent at its stamp position */
+  roomGhost?: RoomGhost | null;
+}
+
+export interface RoomGhost {
+  col: number;
+  row: number;
+  cols: number;
+  rows: number;
+  tiles: number[];
+  tileColors: Array<FloorColor | null>;
+  /** Template furniture already offset to (col, row) */
+  furniture: FurnitureInstance[];
+  valid: boolean;
+}
+
+/** Translucent preview of a room template where it would be stamped. */
+function renderRoomGhost(
+  ctx: CanvasRenderingContext2D,
+  ghost: RoomGhost,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+): void {
+  const s = TILE_SIZE * zoom;
+  ctx.save();
+  ctx.globalAlpha = GHOST_PREVIEW_SPRITE_ALPHA;
+  for (let r = 0; r < ghost.rows; r++) {
+    for (let c = 0; c < ghost.cols; c++) {
+      const tile = ghost.tiles[r * ghost.cols + c];
+      const color = ghost.tileColors[r * ghost.cols + c] ?? { h: 0, s: 0, b: 0, c: 0 };
+      const x = offsetX + (ghost.col + c) * s;
+      const y = offsetY + (ghost.row + r) * s;
+      if (tile === TileType.VOID) continue;
+      if (isWallTile(tile)) {
+        ctx.fillStyle = wallColorToHex(color);
+        ctx.fillRect(x, y, s, s);
+      } else {
+        const sprite = getColorizedFloorSprite(floorPatternOf(tile), color);
+        ctx.drawImage(getCachedSprite(sprite, zoom), x, y);
+      }
+    }
+  }
+  for (const f of [...ghost.furniture].sort((a, b) => a.zY - b.zY)) {
+    ctx.drawImage(getCachedSprite(f.sprite, zoom), offsetX + f.x * zoom, offsetY + f.y * zoom);
+  }
+  ctx.globalAlpha = GHOST_PREVIEW_TINT_ALPHA;
+  ctx.fillStyle = ghost.valid ? GHOST_VALID_TINT : GHOST_INVALID_TINT;
+  ctx.fillRect(offsetX + ghost.col * s, offsetY + ghost.row * s, ghost.cols * s, ghost.rows * s);
+  ctx.restore();
 }
 
 export interface SelectionRenderState {
@@ -1004,6 +1054,9 @@ export function renderFrame(
         editor.ghostBorderHoverCol,
         editor.ghostBorderHoverRow,
       );
+    }
+    if (editor.roomGhost) {
+      renderRoomGhost(ctx, editor.roomGhost, offsetX, offsetY, zoom);
     }
     if (editor.ghostSprite && editor.ghostCol >= 0) {
       renderGhostPreview(

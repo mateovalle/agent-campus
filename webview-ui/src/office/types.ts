@@ -169,6 +169,8 @@ export const EditTool = {
   SELECT: 'select',
   EYEDROPPER: 'eyedropper',
   ERASE: 'erase',
+  /** Stamp a ready-made room (room-templates.json) with its top-left at the cursor */
+  ROOM_STAMP: 'room_stamp',
 } as const;
 export type EditTool = (typeof EditTool)[keyof typeof EditTool];
 

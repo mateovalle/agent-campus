@@ -120,6 +120,8 @@ export const DEFAULT_NEUTRAL_COLOR: FloorColor = { h: 0, s: 0, b: 0, c: 0 };
 /** Furniture palette grid: thumbnails per row, and rows shown before it scrolls. */
 export const FURNITURE_PALETTE_COLUMNS = 14;
 export const FURNITURE_PALETTE_VISIBLE_ROWS = 3;
+/** Rooms tool: the template cards scroll past this height (about two rows). */
+export const ROOM_PALETTE_MAX_HEIGHT_PX = 168;
 
 // ── Notification Sound ──────────────────────────────────────
 export const NOTIFICATION_NOTE_1_HZ = 659.25; // E5

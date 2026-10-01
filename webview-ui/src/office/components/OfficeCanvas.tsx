@@ -42,8 +42,17 @@ import {
   summarizeBubbles,
 } from '../engine/renderer.js';
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js';
+import { layoutToFurnitureInstances } from '../layout/layoutSerializer.js';
+import { getRoomTemplate } from '../roomTemplates.js';
 import { formatUsd } from '../toolUtils.js';
-import { BubbleKind, EditTool, TILE_SIZE, WALL_FACE_HEIGHT_PX } from '../types.js';
+import {
+  BubbleKind,
+  EditTool,
+  MAX_COLS,
+  MAX_ROWS,
+  TILE_SIZE,
+  WALL_FACE_HEIGHT_PX,
+} from '../types.js';
 
 interface OfficeCanvasProps {
   campus: CampusState;
@@ -340,6 +349,32 @@ export function OfficeCanvas({
           }
         }
 
+        // Rooms tool: the picked template, translucent, top-left at the cursor
+        if (editorState.activeTool === EditTool.ROOM_STAMP && editorState.ghostCol >= 0) {
+          const template = getRoomTemplate(editorState.selectedRoomTemplate);
+          if (template) {
+            const col = editorState.ghostCol;
+            const row = Math.max(0, editorState.ghostRow);
+            editorRender.roomGhost = {
+              col,
+              row,
+              cols: template.cols,
+              rows: template.rows,
+              tiles: template.tiles,
+              tileColors: template.tileColors,
+              furniture: layoutToFurnitureInstances(
+                template.furniture.map((f, i) => ({
+                  uid: `ghost-${i}`,
+                  type: f.type,
+                  col: col + f.col,
+                  row: row + f.row,
+                })),
+              ),
+              valid: col + template.cols <= MAX_COLS && row + template.rows <= MAX_ROWS,
+            };
+          }
+        }
+
         // Ghost preview for drag-to-move
         if (editorState.isDragMoving && editorState.dragUid && editorState.ghostCol >= 0) {
           const draggedItem = officeState
@@ -487,6 +522,11 @@ export function OfficeCanvas({
           editorState.activeTool === EditTool.ERASE)
       ) {
         if (col < -1 || col > layout.cols || row < -1 || row > layout.rows) return null;
+        return { col, row };
+      }
+      // Rooms tool: the room may hang off the right/bottom edge — stamping grows the grid
+      if (isEditMode && editorState.activeTool === EditTool.ROOM_STAMP) {
+        if (col < 0 || row < 0 || col >= MAX_COLS || row >= MAX_ROWS) return null;
         return { col, row };
       }
       if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return null;

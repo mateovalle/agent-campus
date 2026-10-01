@@ -1,3 +1,4 @@
+import type { RoomTemplate } from '../../../../shared/protocol.js';
 import { DEFAULT_NEUTRAL_COLOR } from '../../constants.js';
 import {
   getCatalogEntry,
@@ -380,4 +381,67 @@ export function expandLayout(
     },
     shift: { col: shiftCol, row: shiftRow },
   };
+}
+
+/**
+ * Stamp a room template with its top-left tile at (col, row): its tiles and
+ * colours replace the rectangle, any furniture touching the rectangle goes,
+ * and the template's furniture is placed. A room that runs past the right or
+ * bottom edge grows the grid (up to MAX_COLS × MAX_ROWS) instead of being
+ * refused, so a room can be added BESIDE an office, not only inside it.
+ * Returns null when it cannot fit at all (negative origin or over the max).
+ */
+export function stampRoom(
+  layout: OfficeLayout,
+  template: RoomTemplate,
+  col: number,
+  row: number,
+  uidPrefix: string,
+): OfficeLayout | null {
+  if (col < 0 || row < 0) return null;
+  if (col + template.cols > MAX_COLS || row + template.rows > MAX_ROWS) return null;
+
+  let next = layout;
+  while (next.cols < col + template.cols) {
+    const grown = expandLayout(next, 'right');
+    if (!grown) return null;
+    next = grown.layout;
+  }
+  while (next.rows < row + template.rows) {
+    const grown = expandLayout(next, 'down');
+    if (!grown) return null;
+    next = grown.layout;
+  }
+
+  const inRect = (c: number, r: number) =>
+    c >= col && c < col + template.cols && r >= row && r < row + template.rows;
+  const kept = next.furniture.filter((f) => {
+    const entry = getCatalogEntry(f.type);
+    const w = entry?.footprintW ?? 1;
+    const h = entry?.footprintH ?? 1;
+    for (let dr = 0; dr < h; dr++) {
+      for (let dc = 0; dc < w; dc++) if (inRect(f.col + dc, f.row + dr)) return false;
+    }
+    return true;
+  });
+
+  const tiles = [...next.tiles];
+  const tileColors = [...(next.tileColors ?? new Array(next.tiles.length).fill(null))];
+  for (let r = 0; r < template.rows; r++) {
+    for (let c = 0; c < template.cols; c++) {
+      const idx = (row + r) * next.cols + (col + c);
+      tiles[idx] = template.tiles[r * template.cols + c];
+      const color = template.tileColors[r * template.cols + c];
+      tileColors[idx] = color ? { ...color } : null;
+    }
+  }
+
+  const placed: PlacedFurniture[] = template.furniture.map((f, i) => ({
+    uid: `${uidPrefix}-${i}`,
+    type: f.type,
+    col: col + f.col,
+    row: row + f.row,
+  }));
+
+  return { ...next, tiles, tileColors, furniture: [...kept, ...placed] };
 }
