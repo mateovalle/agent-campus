@@ -336,3 +336,14 @@ export const INTERACT_STAND_USE_BELT_ROWS = 5;
 /** Surface items (coffee machine on a counter): how far along the desk, in tiles
  *  (row gap + column gap from the item's footprint), a user may stand. */
 export const INTERACT_SURFACE_MAX_REACH = 1;
+
+// ── Demo mode (pretend agents for logged-out first runs) ─────
+/** Demo agent ids start here — far above anything the host hands out. */
+export const DEMO_AGENT_BASE_ID = 900_000;
+export const DEMO_SPAWN_GAP_MS = 900;
+export const DEMO_STEP_MIN_MS = 2_500;
+export const DEMO_STEP_MAX_MS = 5_000;
+export const DEMO_IDLE_MIN_MS = 14_000;
+export const DEMO_IDLE_MAX_MS = 26_000;
+/** How long a demo agent sits on a permission prompt before it is "answered". */
+export const DEMO_BLOCK_MS = 16_000;

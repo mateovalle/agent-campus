@@ -11,6 +11,7 @@ import { BoardPanel } from './components/BoardPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
+import { DemoBanner } from './components/DemoBanner.js';
 import { MissedRunsModal } from './components/MissedRunsModal.js';
 import { OfficePopup } from './components/OfficePopup.js';
 import { RestoreAgentsModal } from './components/RestoreAgentsModal.js';
@@ -27,6 +28,7 @@ import {
   ROTATE_HINT_TOP_DIRTY_PX,
   ROTATE_HINT_TOP_PX,
 } from './constants.js';
+import { isDemoAgent, startDemo } from './demo/demoAgents.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
 import { saveAgentSeats, useExtensionMessages } from './hooks/useExtensionMessages.js';
@@ -282,6 +284,26 @@ function App() {
     setTerminalVisible((prev) => !prev);
   }, []);
 
+  // Demo mode: pretend agents for a logged-out first run (see demo/demoAgents.ts)
+  const stopDemoRef = useRef<(() => void) | null>(null);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const startDemoMode = useCallback(() => {
+    if (stopDemoRef.current) return;
+    stopDemoRef.current = startDemo();
+    setDemoRunning(true);
+  }, []);
+  const endDemoMode = useCallback(() => {
+    stopDemoRef.current?.();
+    stopDemoRef.current = null;
+    setDemoRunning(false);
+  }, []);
+  // The demo steps aside the moment the real thing arrives: a login, or a real agent
+  useEffect(() => {
+    if (!demoRunning) return;
+    if (claudeAuth?.kind === 'ok' || agents.some((id) => !isDemoAgent(id))) endDemoMode();
+  }, [demoRunning, claudeAuth, agents, endDemoMode]);
+  useEffect(() => () => stopDemoRef.current?.(), []);
+
   const handleSelectAgent = useCallback((id: number) => {
     // Opening the agent counts as having read it: drop the unread badge.
     // A 'blocked' bubble deliberately survives — looking isn't resolving.
@@ -509,7 +531,8 @@ function App() {
         )}
 
         <AchievementToast queue={unlockQueue} onDismiss={dismissUnlock} />
-        <WelcomeModal auth={claudeAuth} />
+        <WelcomeModal auth={claudeAuth} onStartDemo={startDemoMode} />
+        {demoRunning && <DemoBanner onEnd={endDemoMode} />}
 
         <MissedRunsModal missed={missedRuns} onResolved={clearMissedRuns} />
         <RestoreAgentsModal agents={restorableAgents} onResolved={clearRestorableAgents} />
