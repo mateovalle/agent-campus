@@ -30,6 +30,12 @@ import { SPRITES6 } from './sprites6.ts';
 import { SPRITES7 } from './sprites7.ts';
 import { SPRITES8 } from './sprites8.ts';
 import { SPRITES9 } from './sprites9.ts';
+import { SPRITES10 } from './sprites10.ts';
+import { SPRITES11 } from './sprites11.ts';
+import { SPRITES12 } from './sprites12.ts';
+import { SPRITES13 } from './sprites13.ts';
+import { SPRITES14 } from './sprites14.ts';
+import { SPRITES15 } from './sprites15.ts';
 
 const { PNG } = pngjs;
 
@@ -100,6 +106,12 @@ function main(): void {
     { name: 'b7', sprites: SPRITES7 },
     { name: 'b8', sprites: SPRITES8 },
     { name: 'b9', sprites: SPRITES9 },
+    { name: 'b10', sprites: SPRITES10 },
+    { name: 'b11', sprites: SPRITES11 },
+    { name: 'b12', sprites: SPRITES12 },
+    { name: 'b13', sprites: SPRITES13 },
+    { name: 'b14', sprites: SPRITES14 },
+    { name: 'b15', sprites: SPRITES15 },
     // each floor pattern rendered as a 3x3 tiled block for seam review
     { name: 'floors', sprites: FLOOR_SHEET },
   ]);

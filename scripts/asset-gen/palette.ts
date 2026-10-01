@@ -74,6 +74,26 @@ export const GREEN_LIGHT = '#66CC88';
 // vending front tone.
 export const LAMP_WARM = '#FFCC55';
 
+// ── Batch 10+ additions (the catalog expansion) ─────────────────
+// The original ~40 colours had no pink, teal, cream, brick or navy, which
+// ruled out upholstery, tiles, pastel décor, masonry and night-time pieces.
+// Each family follows the same rule as the rest: a base + a dark outline
+// tone (+ a lit tone where large surfaces need one).
+export const PINK_DARK = '#A8446E';
+export const PINK = '#E07AA0';
+export const PINK_LIGHT = '#F4B6CC';
+export const TEAL_DARK = '#226666';
+export const TEAL = '#3A9E9E';
+export const TEAL_LIGHT = '#7CCFC4';
+export const CREAM_DARK = '#C9B48A';
+export const CREAM = '#EADDBB';
+export const BRICK_DARK = '#6E3428';
+export const BRICK = '#9A4A3A';
+export const NAVY_DARK = '#1C2440';
+export const NAVY = '#2E3D6B';
+export const STONE_DARK = '#7A746A';
+export const STONE = '#A8A090';
+
 /** Palette grouped by material family, for docs/tooling. */
 export const PALETTE_GROUPS: Record<string, Record<string, string>> = {
   wood: { WOOD_SHADOW, WOOD_DARK, WOOD, WOOD_LIGHT, WOOD_SURFACE },
@@ -84,6 +104,12 @@ export const PALETTE_GROUPS: Record<string, Record<string, string>> = {
   accent: { RED, AMBER, GOLD_DARK, GOLD, GOLD_LIGHT, ORANGE, LAMP_WARM },
   clay: { CLAY_DARK, CLAY },
   purple: { PURPLE_DARK, PURPLE },
+  pink: { PINK_DARK, PINK, PINK_LIGHT },
+  teal: { TEAL_DARK, TEAL, TEAL_LIGHT },
+  cream: { CREAM_DARK, CREAM },
+  brick: { BRICK_DARK, BRICK },
+  navy: { NAVY_DARK, NAVY },
+  stone: { STONE_DARK, STONE },
 };
 
 /** Flat list of every allowed hex color. */

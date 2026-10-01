@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import pngjs from 'pngjs';
 
+import type { CatalogMeta } from './catalog-meta.ts';
 import { FLOORS } from './floors.ts';
 import type { GeneratedSprite } from './sprites.ts';
 import { SPRITES } from './sprites.ts';
@@ -30,6 +31,12 @@ import { SPRITES6 } from './sprites6.ts';
 import { SPRITES7 } from './sprites7.ts';
 import { SPRITES8 } from './sprites8.ts';
 import { SPRITES9 } from './sprites9.ts';
+import { META10, SPRITES10 } from './sprites10.ts';
+import { META11, SPRITES11 } from './sprites11.ts';
+import { META12, SPRITES12 } from './sprites12.ts';
+import { META13, SPRITES13 } from './sprites13.ts';
+import { META14, SPRITES14 } from './sprites14.ts';
+import { META15, SPRITES15 } from './sprites15.ts';
 
 const { PNG } = pngjs;
 
@@ -40,16 +47,6 @@ const FURNITURE_DIR = path.join(ASSETS_DIR, 'furniture');
 const FLOOR_TILE_SIZE = 16;
 
 // ── Catalog metadata per sprite id ──────────────────────────────
-
-interface CatalogMeta {
-  category: 'desks' | 'chairs' | 'storage' | 'electronics' | 'decor' | 'wall' | 'misc';
-  isDesk?: boolean;
-  canPlaceOnWalls?: boolean;
-  canPlaceOnSurfaces?: boolean;
-  backgroundTiles?: number;
-  /** Achievement id that unlocks this piece in the editor palette. */
-  unlock?: string;
-}
 
 const CATALOG_META: Record<string, CatalogMeta> = {
   // ── desks ──
@@ -190,6 +187,13 @@ const CATALOG_META: Record<string, CatalogMeta> = {
   duck_golden: { category: 'decor', canPlaceOnSurfaces: true, unlock: 'century' },
   disco_ball: { category: 'wall', canPlaceOnWalls: true, unlock: 'full-floor' },
   robot_statue: { category: 'decor', unlock: 'automator' },
+  // ── batch 10+: metadata ships beside the art ──
+  ...META10,
+  ...META11,
+  ...META12,
+  ...META13,
+  ...META14,
+  ...META15,
 };
 
 // ── Catalog entry shape (matches FurnitureAsset in shared/protocol.ts) ──
@@ -276,10 +280,20 @@ function exportFurniture(): void {
     ...SPRITES7,
     ...SPRITES8,
     ...SPRITES9,
+    ...SPRITES10,
+    ...SPRITES11,
+    ...SPRITES12,
+    ...SPRITES13,
+    ...SPRITES14,
+    ...SPRITES15,
   ];
 
-  // Sanity: every sprite has metadata, every metadata entry has a sprite.
+  // Sanity: ids are unique, every sprite has metadata, every metadata entry has a sprite.
   const spriteIds = new Set(all.map((s) => s.id));
+  if (spriteIds.size !== all.length) {
+    const dupes = all.map((s) => s.id).filter((id, i, ids) => ids.indexOf(id) !== i);
+    throw new Error(`Duplicate sprite ids: ${dupes.join(', ')}`);
+  }
   for (const s of all) {
     if (!CATALOG_META[s.id]) throw new Error(`No catalog metadata for sprite '${s.id}'`);
   }
