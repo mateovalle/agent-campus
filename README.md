@@ -2,7 +2,7 @@
 
 **A pixel-art mission control for your Claude Code agents.** Every project is an office, every agent is a character you can watch work — and you orchestrate all of them from one campus.
 
-![Agent Campus demo — campus with offices, agents working, task orchestration](docs/assets/demo.gif)
+![Agent Campus demo — agents working in an office, then wandering to the café, game room and garden](docs/assets/demo.gif)
 
 ## What it does
 
@@ -12,7 +12,9 @@
 - 🤖 **The Assistant** — a campus-wide orchestrator with tools to read project status, backlogs and spending, and dispatch agents to any office by natural language.
 - 💸 **Spend dashboard** — exact costs (from the SDK, not estimates) per turn, per day, per project; live on each office's label.
 - 🏆 **Achievements** — milestones for shipped tasks, parallel agents and streaks (never for spend).
-- 🎨 **Layout editor** — design each office: floors, walls, furniture, colors. Per-workspace layouts.
+- 🔔 **Notifications** — an agent left waiting on you for two minutes sends a desktop notification (click it to land on that agent), and the Dock icon counts everyone who needs you.
+- 🎨 **Layout editor** — design each office: 19 floors, 7 wall styles, 270+ pieces of furniture (steam rises, servers blink, fish swim), or stamp a ready-made room — café, game room, lab, library, garden. Per-workspace layouts.
+- ☕ **A campus that lives** — idle agents wander off to the espresso bar, the arcade or the koi pond; logged out, a demo fills the office with pretend agents so you can see it move.
 
 Sessions are **real Claude Code sessions** — same login, same config, same transcripts in `~/.claude/projects`. Start in the app, resume in your terminal, or vice versa. Nothing is locked in.
 
