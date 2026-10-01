@@ -144,8 +144,9 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 (OfficeCanvas onBoardFurnitureClick)
   components/chat/            — Rich chat UI for SDK agents. chatModel.ts is the pure
                                 ChatEvent[] → ChatItem[] reducer (stable monotonic React keys);
-                                ChatView (message list + composer + image attachments + permission
-                                mode picker + prompt-suggestion row); PermissionCard; ResumePicker;
+                                ChatView (message list + composer + image attachments +
+                                SessionSettings ⚙ popover (permission mode + model) +
+                                prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);
                                 ToolCard (collapsible, Edit diffs),
                                 QuestionCard (AskUserQuestion: interactive option picker rendered
@@ -361,12 +362,16 @@ bound to the subtree rather than the window because background tabs stay mounted
 (`chatSetPermissionMode` → `chat-mode` echo), separate from the global "new agents start with
 permissions bypassed" setting in Settings.
 
-**Chat model picker**: per-SESSION model choice, never a global setting — a dropdown in the
-composer next to the permission-mode picker. The option list is NOT hardcoded: `chatAgent.ts`
+**Chat model picker**: per-SESSION model choice, never a global setting — a section of the
+composer's ⚙ SESSION SETTINGS popover (`SessionSettings`, ChatView.tsx), which also holds the
+permission mode. The two were inline labelled buttons until model names ("Default (recommended)")
+ate the composer's width; collapsing them into one gear gives the textarea that width back, and
+the gear's BORDER keeps the permission-mode colour so a session on Bypass still says so.
+The option list is NOT hardcoded: `chatAgent.ts`
 asks the running CLI (`query.supportedModels()`) once at SDK init and ships it as `chat-models`
 (with the model `system init` reports, which is authoritative over whatever we asked for), so new
 models appear without an app release and a CLI too old to answer leaves the list empty — the
-picker then hides itself. Switching sends `chatSetModel` → `query.setModel()` (live, mid-session)
+picker then hides the MODEL section (the popover keeps its permission modes). Switching sends `chatSetModel` → `query.setModel()` (live, mid-session)
 → `chat-models` echo; "Default" (null) hands the choice back to the CLI. Persisted as
 `AgentSeatMeta.model` by session id, so a resumed agent comes back on its model and
 `launchChatAgent` seeds `Options.model` at startup. Like `name`, it is HOST-written: `saveAgentSeats`

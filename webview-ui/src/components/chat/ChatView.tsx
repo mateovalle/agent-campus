@@ -22,14 +22,16 @@ import {
   CHAT_MAX_IMAGE_BYTES,
   CHAT_MAX_IMAGE_MB,
   CHAT_MODE_MENU_MIN_WIDTH_PX,
-  CHAT_MODEL_LABEL_MAX_CHARS,
-  CHAT_MODEL_MENU_MAX_HEIGHT_PX,
-  CHAT_MODEL_MENU_MIN_WIDTH_PX,
   CHAT_MS_PER_SEC,
   CHAT_NEAR_BOTTOM_PX,
+  CHAT_SETTINGS_ICON_SCALE,
+  CHAT_SETTINGS_MENU_MAX_HEIGHT_PX,
+  CHAT_SETTINGS_MENU_MIN_WIDTH_PX,
   CHAT_TOOL_GROUP_MIN,
 } from '../../constants.js';
 import { getElectronAPI, vscode } from '../../vscodeApi.js';
+import { PixelIcon } from '../PixelIcon.js';
+import { ICON_SETTINGS } from '../toolbarIcons.js';
 import type { ChatItem, ChatModel } from './chatModel.js';
 import {
   applyChatEvent,
@@ -405,89 +407,35 @@ const modeMenuItemStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-/**
- * Compact permission-mode selector: a button showing the current mode that
- * opens an upward popup listing the four ChatPermissionModes.
- */
-function ModeSelector({
-  mode,
-  onSelect,
-}: {
-  mode: ChatPermissionMode;
-  onSelect: (mode: ChatPermissionMode) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState<ChatPermissionMode | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+const settingsBtnStyle: React.CSSProperties = {
+  ...modeBtnStyle,
+  padding: '3px 5px',
+  display: 'flex',
+  alignItems: 'center',
+};
 
-  // Close the popup on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handleMouseDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [open]);
-
-  const current = MODE_OPTIONS.find((o) => o.mode === mode) ?? MODE_OPTIONS[0];
-  const isDefault = current.mode === 'default';
-
-  return (
-    <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
-      <button
-        style={{
-          ...modeBtnStyle,
-          color: isDefault ? 'var(--pixel-text-dim)' : current.color,
-          border: isDefault ? modeBtnStyle.border : `2px solid ${current.color}`,
-        }}
-        onClick={() => setOpen((v) => !v)}
-        title="Permission mode"
-      >
-        {current.label} {open ? '▾' : '▴'}
-      </button>
-      {open && (
-        <div style={modeMenuStyle}>
-          {MODE_OPTIONS.map((option) => (
-            <button
-              key={option.mode}
-              style={{
-                ...modeMenuItemStyle,
-                color: option.color,
-                background:
-                  option.mode === mode
-                    ? 'var(--pixel-active-bg)'
-                    : hovered === option.mode
-                      ? 'var(--pixel-btn-hover-bg)'
-                      : 'transparent',
-              }}
-              onClick={() => {
-                setOpen(false);
-                onSelect(option.mode);
-              }}
-              onMouseEnter={() => setHovered(option.mode)}
-              onMouseLeave={() => setHovered(null)}
-            >
-              {option.mode === mode ? '▸ ' : ''}
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const modelMenuStyle: React.CSSProperties = {
+const settingsMenuStyle: React.CSSProperties = {
   ...modeMenuStyle,
-  minWidth: CHAT_MODEL_MENU_MIN_WIDTH_PX,
-  maxHeight: CHAT_MODEL_MENU_MAX_HEIGHT_PX,
+  minWidth: CHAT_SETTINGS_MENU_MIN_WIDTH_PX,
+  maxHeight: CHAT_SETTINGS_MENU_MAX_HEIGHT_PX,
   overflowY: 'auto',
 };
 
-const modelMenuDescStyle: React.CSSProperties = {
+const settingsSectionStyle: React.CSSProperties = {
+  padding: '6px 10px 3px',
+  fontSize: CHAT_BODY_FONT_SIZE_PX - 3,
+  color: 'var(--pixel-text-dim)',
+  letterSpacing: '1px',
+};
+
+/** Same header, but dividing two sections rather than opening the popover. */
+const settingsSectionDividedStyle: React.CSSProperties = {
+  ...settingsSectionStyle,
+  marginTop: 4,
+  borderTop: '2px solid var(--pixel-border)',
+};
+
+const settingsItemDescStyle: React.CSSProperties = {
   display: 'block',
   fontSize: CHAT_BODY_FONT_SIZE_PX - 3,
   color: 'var(--pixel-text-dim)',
@@ -496,28 +444,33 @@ const modelMenuDescStyle: React.CSSProperties = {
 
 /** The row that hands the model choice back to the CLI default. */
 const MODEL_DEFAULT_LABEL = 'Default';
-/** Hover key for that row — model values are ids, so it needs one of its own. */
-const MODEL_DEFAULT_KEY = '\u0000default';
-
-function truncateModelLabel(name: string): string {
-  return name.length > CHAT_MODEL_LABEL_MAX_CHARS
-    ? `${name.slice(0, CHAT_MODEL_LABEL_MAX_CHARS - 1)}…`
-    : name;
-}
+/** Hover keys are shared across both sections, so each one is namespaced. */
+const MODE_HOVER_PREFIX = 'mode:';
+const MODEL_HOVER_PREFIX = 'model:';
+/** Model values are ids; the default row needs a key of its own. */
+const MODEL_DEFAULT_KEY = `${MODEL_HOVER_PREFIX}\u0000default`;
 
 /**
- * Per-session model selector, twin of ModeSelector. The options come from the
- * running CLI ('chat-models'), never from a hardcoded list, so the picker
- * hides itself when the CLI is too old to report any.
+ * Everything that is per-SESSION state — permission mode and model — behind a
+ * single gear in the composer. They used to be two inline pickers, but the
+ * composer is the thing you actually type in and each labelled button ate a
+ * chunk of its width (model names are long: "Default (recommended)"). So the
+ * controls collapse into one popover and the gear itself carries the only
+ * signal worth seeing at a glance: the permission mode's colour, so a session
+ * running on Bypass still says so without spending any width on it.
  */
-function ModelPicker({
+function SessionSettings({
+  mode,
+  onSelectMode,
   models,
-  active,
-  onSelect,
+  activeModel,
+  onSelectModel,
 }: {
+  mode: ChatPermissionMode;
+  onSelectMode: (mode: ChatPermissionMode) => void;
   models: ChatModelOption[];
-  active: string | null;
-  onSelect: (model: string | null) => void;
+  activeModel: string | null;
+  onSelectModel: (model: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -535,71 +488,121 @@ function ModelPicker({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [open]);
 
-  if (models.length === 0) return null;
-
+  const currentMode = MODE_OPTIONS.find((o) => o.mode === mode) ?? MODE_OPTIONS[0];
+  const isDefaultMode = currentMode.mode === 'default';
   // An alias row ('sonnet') covers the explicit id the session reports back
-  const current = models.find((m) => m.value === active || m.resolvedModel === active);
-  const label = current ? truncateModelLabel(current.displayName) : MODEL_DEFAULT_LABEL;
+  const currentModel = models.find(
+    (m) => m.value === activeModel || m.resolvedModel === activeModel,
+  );
+  const modelLabel = currentModel ? currentModel.displayName : MODEL_DEFAULT_LABEL;
+  const accent = isDefaultMode ? 'var(--pixel-text-dim)' : currentMode.color;
 
   return (
     <div ref={rootRef} style={{ position: 'relative', flexShrink: 0 }}>
       <button
-        style={{ ...modeBtnStyle, color: 'var(--pixel-text-dim)' }}
+        style={{
+          ...settingsBtnStyle,
+          border: isDefaultMode ? settingsBtnStyle.border : `2px solid ${currentMode.color}`,
+        }}
         onClick={() => setOpen((v) => !v)}
-        title={current ? `Model: ${current.displayName}` : 'Model'}
+        title={`Permissions: ${currentMode.label}${models.length > 0 ? ` · Model: ${modelLabel}` : ''}`}
+        aria-label="Session settings"
       >
-        {label} {open ? '▾' : '▴'}
+        <PixelIcon
+          grid={ICON_SETTINGS}
+          fg={accent}
+          accent={accent}
+          scale={CHAT_SETTINGS_ICON_SCALE}
+        />
       </button>
       {open && (
-        <div style={modelMenuStyle}>
-          <button
-            style={{
-              ...modeMenuItemStyle,
-              color: 'var(--pixel-text-dim)',
-              background: !current
-                ? 'var(--pixel-active-bg)'
-                : hovered === MODEL_DEFAULT_KEY
-                  ? 'var(--pixel-btn-hover-bg)'
-                  : 'transparent',
-            }}
-            onClick={() => {
-              setOpen(false);
-              onSelect(null);
-            }}
-            onMouseEnter={() => setHovered(MODEL_DEFAULT_KEY)}
-            onMouseLeave={() => setHovered(null)}
-          >
-            {!current ? '▸ ' : ''}
-            {MODEL_DEFAULT_LABEL}
-            <span style={modelMenuDescStyle}>Whatever Claude Code is configured to use</span>
-          </button>
-          {models.map((option) => {
-            const isActive = option === current;
+        <div style={settingsMenuStyle}>
+          <div style={settingsSectionStyle}>PERMISSIONS</div>
+          {MODE_OPTIONS.map((option) => {
+            const key = `${MODE_HOVER_PREFIX}${option.mode}`;
             return (
               <button
-                key={option.value}
+                key={key}
                 style={{
                   ...modeMenuItemStyle,
-                  color: 'var(--pixel-text)',
-                  background: isActive
+                  color: option.color,
+                  background:
+                    option.mode === mode
+                      ? 'var(--pixel-active-bg)'
+                      : hovered === key
+                        ? 'var(--pixel-btn-hover-bg)'
+                        : 'transparent',
+                }}
+                onClick={() => {
+                  setOpen(false);
+                  onSelectMode(option.mode);
+                }}
+                onMouseEnter={() => setHovered(key)}
+                onMouseLeave={() => setHovered(null)}
+              >
+                {option.mode === mode ? '▸ ' : ''}
+                {option.label}
+              </button>
+            );
+          })}
+
+          {/* A CLI too old to report any model leaves this section out entirely */}
+          {models.length > 0 && (
+            <>
+              <div style={settingsSectionDividedStyle}>MODEL</div>
+              <button
+                style={{
+                  ...modeMenuItemStyle,
+                  color: 'var(--pixel-text-dim)',
+                  background: !currentModel
                     ? 'var(--pixel-active-bg)'
-                    : hovered === option.value
+                    : hovered === MODEL_DEFAULT_KEY
                       ? 'var(--pixel-btn-hover-bg)'
                       : 'transparent',
                 }}
                 onClick={() => {
                   setOpen(false);
-                  onSelect(option.value);
+                  onSelectModel(null);
                 }}
-                onMouseEnter={() => setHovered(option.value)}
+                onMouseEnter={() => setHovered(MODEL_DEFAULT_KEY)}
                 onMouseLeave={() => setHovered(null)}
               >
-                {isActive ? '▸ ' : ''}
-                {option.displayName}
-                {option.description && <span style={modelMenuDescStyle}>{option.description}</span>}
+                {!currentModel ? '▸ ' : ''}
+                {MODEL_DEFAULT_LABEL}
+                <span style={settingsItemDescStyle}>Whatever Claude Code is configured to use</span>
               </button>
-            );
-          })}
+              {models.map((option) => {
+                const isActive = option === currentModel;
+                const key = `${MODEL_HOVER_PREFIX}${option.value}`;
+                return (
+                  <button
+                    key={key}
+                    style={{
+                      ...modeMenuItemStyle,
+                      color: 'var(--pixel-text)',
+                      background: isActive
+                        ? 'var(--pixel-active-bg)'
+                        : hovered === key
+                          ? 'var(--pixel-btn-hover-bg)'
+                          : 'transparent',
+                    }}
+                    onClick={() => {
+                      setOpen(false);
+                      onSelectModel(option.value);
+                    }}
+                    onMouseEnter={() => setHovered(key)}
+                    onMouseLeave={() => setHovered(null)}
+                  >
+                    {isActive ? '▸ ' : ''}
+                    {option.displayName}
+                    {option.description && (
+                      <span style={settingsItemDescStyle}>{option.description}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1213,8 +1216,13 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       )}
 
       <div style={composerRowStyle}>
-        <ModeSelector mode={mode} onSelect={handleModeSelect} />
-        <ModelPicker models={modelOptions} active={activeModel} onSelect={handleModelSelect} />
+        <SessionSettings
+          mode={mode}
+          onSelectMode={handleModeSelect}
+          models={modelOptions}
+          activeModel={activeModel}
+          onSelectModel={handleModelSelect}
+        />
         <textarea
           ref={textareaRef}
           className="pixel-chat-body"
