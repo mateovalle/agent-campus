@@ -3,9 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AchievementInfo } from '../../../../shared/protocol.js';
 import { PixelIcon } from '../../components/PixelIcon.js';
 import { ICON_LOCK } from '../../components/toolbarIcons.js';
+import { FURNITURE_PALETTE_COLUMNS, FURNITURE_PALETTE_VISIBLE_ROWS } from '../../constants.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
-import { getActiveCategories, getCatalogByCategory } from '../layout/furnitureCatalog.js';
+import {
+  getActiveCatalog,
+  getActiveCategories,
+  getCatalogByCategory,
+} from '../layout/furnitureCatalog.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
 import type { FloorColor, TileType as TileTypeVal } from '../types.js';
 import { EditTool } from '../types.js';
@@ -212,6 +217,7 @@ export function EditorToolbar({
   const [showColor, setShowColor] = useState(false);
   const [showWallColor, setShowWallColor] = useState(false);
   const [showFurnitureColor, setShowFurnitureColor] = useState(false);
+  const [furnitureQuery, setFurnitureQuery] = useState('');
 
   // Catalog is built in useExtensionMessages when assets load —
   // here we only reset to the first available category
@@ -248,7 +254,14 @@ export function EditorToolbar({
     [effectiveColor, onSelectedFurnitureColorChange],
   );
 
-  const categoryItems = getCatalogByCategory(activeCategory);
+  // A search spans every category: with ~165 pieces, knowing a piece's name
+  // beats guessing which tab it was filed under.
+  const query = furnitureQuery.trim().toLowerCase();
+  const categoryItems = query
+    ? getActiveCatalog().filter(
+        (e) => e.label.toLowerCase().includes(query) || e.type.toLowerCase().includes(query),
+      )
+    : getCatalogByCategory(activeCategory);
 
   // Reward furniture: locked until its achievement is unlocked. The button
   // stays visible (the point is to advertise the reward) but does nothing.
@@ -486,8 +499,11 @@ export function EditorToolbar({
             {getActiveCategories().map((cat) => (
               <button
                 key={cat.id}
-                style={activeCategory === cat.id ? activeTabStyle : tabStyle}
-                onClick={() => setActiveCategory(cat.id)}
+                style={activeCategory === cat.id && !query ? activeTabStyle : tabStyle}
+                onClick={() => {
+                  setActiveCategory(cat.id);
+                  setFurnitureQuery('');
+                }}
               >
                 {cat.label}
               </button>
@@ -508,17 +524,43 @@ export function EditorToolbar({
             >
               Pick
             </button>
+            <input
+              type="search"
+              value={furnitureQuery}
+              onChange={(e) => setFurnitureQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setFurnitureQuery('');
+              }}
+              placeholder="Search…"
+              aria-label="Search furniture"
+              style={{
+                width: 110,
+                padding: '2px 6px',
+                background: '#2A2A3A',
+                color: 'var(--pixel-text)',
+                font: 'inherit',
+                border: '2px solid #4a4a6a',
+                borderRadius: 0,
+                outline: 'none',
+              }}
+            />
           </div>
-          {/* Furniture items — single-row horizontal carousel at 2x */}
+          {/* Furniture items — wrapping grid at 2x, scrolls past a few rows */}
           <div
             style={{
               display: 'flex',
               gap: 4,
-              overflowX: 'auto',
-              flexWrap: 'nowrap',
+              flexWrap: 'wrap',
+              alignContent: 'flex-start',
+              maxWidth: FURNITURE_PALETTE_COLUMNS * (thumbSize + 4),
+              maxHeight: FURNITURE_PALETTE_VISIBLE_ROWS * (thumbSize + 4),
+              overflowY: 'auto',
               paddingBottom: 2,
             }}
           >
+            {categoryItems.length === 0 && (
+              <span style={{ opacity: 0.6, padding: '8px 4px' }}>No furniture matches.</span>
+            )}
             {categoryItems.map((entry) => {
               const cached = getCachedSprite(entry.sprite, 2);
               const isSelected = selectedFurnitureType === entry.type;
