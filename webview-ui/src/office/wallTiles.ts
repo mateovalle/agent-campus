@@ -34,6 +34,7 @@ export function setWallSprites(sprites: SpriteData[]): void {
   }
   wallStyles = styles.length > 0 ? styles : null;
   wallInstanceCache = null;
+  edgeCache.clear();
 }
 
 /** Check if wall sprites have been loaded */
@@ -56,6 +57,61 @@ function pieceFor(tile: TileTypeVal, mask: number): SpriteData | null {
   if (!wallStyles) return null;
   const set = wallStyles[wallStyleOf(tile)] ?? wallStyles[0];
   return set[mask] ?? null;
+}
+
+/** Patched pieces, keyed `style-mask-eastStyle-westStyle`. */
+const edgeCache = new Map<string, SpriteData>();
+
+/**
+ * A connected side carries no outline — the neighbour's wall continues the
+ * silhouette. That assumes both walls are equally tall. Next to a SHORTER
+ * style (the cubicle half-wall, transparent above its lid) the taller wall's
+ * edge would stand bare over the gap, so wherever the neighbour's touching
+ * column is transparent and ours is not, close the edge with our style's own
+ * outline colour (taken from its free-standing piece, whose sides are outlined).
+ */
+function pieceWithEdges(
+  col: number,
+  row: number,
+  tileMap: TileTypeVal[][],
+  mask: number,
+): { sprite: SpriteData; key: string } | null {
+  if (!wallStyles) return null;
+  const tile = tileMap[row][col];
+  const style = wallStyleOf(tile);
+  const base = pieceFor(tile, mask);
+  if (!base) return null;
+  const sides: Array<{ bit: number; dc: number; ours: number; theirs: number }> = [
+    { bit: 2, dc: 1, ours: base[0].length - 1, theirs: 0 }, // E
+    { bit: 8, dc: -1, ours: 0, theirs: base[0].length - 1 }, // W
+  ];
+  let sprite = base;
+  // Cumulative: identifies the base piece plus every patch applied so far
+  let key = `${style}-${mask}`;
+  for (const side of sides) {
+    if (!(mask & side.bit)) continue;
+    const nTile = tileMap[row][col + side.dc];
+    const nStyle = wallStyleOf(nTile);
+    if (nStyle === style) continue;
+    const nMask = computeWallMask(col + side.dc, row, tileMap);
+    const neighbour = pieceFor(nTile, nMask);
+    const outline = wallStyles[style]?.[0]?.[base.length - 8]?.[0];
+    if (!neighbour || !outline) continue;
+    key += `|${side.bit}:${nStyle}:${nMask}`;
+    let patched = edgeCache.get(key);
+    if (!patched) {
+      patched = sprite.map((r) => [...r]);
+      // Both pieces are bottom-anchored on the same tile row
+      const off = neighbour.length - sprite.length;
+      for (let y = 0; y < sprite.length; y++) {
+        const theirs = neighbour[y + off]?.[side.theirs] ?? '';
+        if (sprite[y][side.ours] && !theirs) patched[y][side.ours] = outline;
+      }
+      edgeCache.set(key, patched);
+    }
+    sprite = patched;
+  }
+  return { sprite, key };
 }
 
 /** Build the 4-bit neighbor bitmask for a wall tile (N=1, E=2, S=4, W=8) */
@@ -81,7 +137,7 @@ export function getWallSprite(
   tileMap: TileTypeVal[][],
 ): { sprite: SpriteData; offsetY: number } | null {
   const mask = computeWallMask(col, row, tileMap);
-  const sprite = pieceFor(tileMap[row][col], mask);
+  const sprite = pieceWithEdges(col, row, tileMap, mask)?.sprite;
   if (!sprite) return null;
 
   // Anchor sprite at bottom of tile — tall sprites extend upward
@@ -100,11 +156,11 @@ export function getColorizedWallSprite(
   color: FloorColor,
 ): { sprite: SpriteData; offsetY: number } | null {
   const mask = computeWallMask(col, row, tileMap);
-  const sprite = pieceFor(tileMap[row][col], mask);
-  if (!sprite) return null;
+  const piece = pieceWithEdges(col, row, tileMap, mask);
+  if (!piece) return null;
+  const sprite = piece.sprite;
 
-  const style = wallStyleOf(tileMap[row][col]);
-  const cacheKey = `wall-${style}-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
+  const cacheKey = `wall-${piece.key}-${color.h}-${color.s}-${color.b}-${color.c}`;
   const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true });
 
   return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
