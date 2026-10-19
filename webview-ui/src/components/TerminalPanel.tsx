@@ -110,6 +110,17 @@ export function TerminalPanel({
     [removeTab],
   );
 
+  /**
+   * Renaming is the host's call: it owns the label, persists it by session id
+   * and echoes `agentLabel` back, which patches the tab (and the office
+   * character) through the same path auto-naming uses.
+   */
+  const handleRename = useCallback((tab: PanelTab, label: string) => {
+    const agentId = tab.agentId;
+    if (agentId === undefined) return;
+    vscode.postMessage({ type: 'renameAgent', id: agentId, label });
+  }, []);
+
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       const msg = e.data as HostToWebviewMessage;
@@ -117,7 +128,7 @@ export function TerminalPanel({
 
       if (msg.type === 'pty-created') {
         // The PTY is spawned by the main process; the renderer only shows it.
-        const { ptyId, label, agentId, workspacePath, folderName } = msg;
+        const { ptyId, label, agentId, workspacePath, folderName, branch } = msg;
         const key = ptyKey(ptyId);
         setTabs((prev) => {
           if (prev.some((t) => t.key === key)) return prev;
@@ -132,6 +143,7 @@ export function TerminalPanel({
               agentId,
               workspacePath,
               folderName,
+              branch,
             },
           ];
         });
@@ -153,11 +165,14 @@ export function TerminalPanel({
           ),
         );
       } else if (msg.type === 'chat-created') {
-        const { agentId, label, workspacePath, folderName } = msg;
+        const { agentId, label, workspacePath, folderName, branch } = msg;
         const key = chatKey(agentId);
         setTabs((prev) => {
           if (prev.some((t) => t.key === key)) return prev;
-          return [...prev, { kind: 'chat', key, agentId, label, workspacePath, folderName }];
+          return [
+            ...prev,
+            { kind: 'chat', key, agentId, label, workspacePath, folderName, branch },
+          ];
         });
         setActiveKey(key);
         onTerminalCreated();
@@ -239,7 +254,13 @@ export function TerminalPanel({
         flexShrink: 0,
       }}
     >
-      <TerminalTabs tabs={tabs} activeKey={activeKey} onSelect={selectTab} onClose={handleClose} />
+      <TerminalTabs
+        tabs={tabs}
+        activeKey={activeKey}
+        onSelect={selectTab}
+        onClose={handleClose}
+        onRename={handleRename}
+      />
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {tabs.map((tab) =>
           tab.kind === 'terminal' ? (

@@ -289,6 +289,12 @@ export interface Character {
   /** Role skin id (e.g. 'qa'); undefined = base look */
   role?: string;
   /**
+   * Branch of the agent's private git worktree, when it has one. Shown in the
+   * overlay so two characters in the SAME office visibly work on different
+   * checkouts — the office is the repo, not the branch.
+   */
+  branch?: string;
+  /**
    * Reserved furniture interaction spot: set while walking to it and while in
    * USE. The reservation lives in OfficeState; null = none.
    */

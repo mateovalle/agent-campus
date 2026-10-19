@@ -1,3 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
+
+import { TAB_BRANCH_MAX_CH, TAB_NAME_MAX_CHARS, TAB_RENAME_INPUT_CH } from '../constants.js';
+
 /** Live activity of the agent behind a tab (drives the tab status indicator). */
 export type TabAgentStatus = 'working' | 'permission' | 'ask' | 'done';
 
@@ -11,6 +15,8 @@ interface PanelTabBase {
   status?: TabAgentStatus;
   /** The agent finished while this tab was unfocused. */
   unseen?: boolean;
+  /** Branch of the agent's private worktree, when it has one. */
+  branch?: string;
 }
 
 /** A tab in the bottom panel: an xterm terminal or an SDK-driven chat view. */
@@ -23,6 +29,8 @@ interface TerminalTabsProps {
   activeKey: string | null;
   onSelect: (key: string) => void;
   onClose: (tab: PanelTab) => void;
+  /** Rename the tab's agent (double-click the label). */
+  onRename: (tab: PanelTab, label: string) => void;
 }
 
 const tabStyle: React.CSSProperties = {
@@ -56,6 +64,31 @@ const closeButtonStyle: React.CSSProperties = {
   padding: '0 2px',
   lineHeight: 1,
   borderRadius: 0,
+};
+
+const renameInputStyle: React.CSSProperties = {
+  font: 'inherit',
+  fontSize: '20px',
+  width: `${TAB_RENAME_INPUT_CH}ch`,
+  background: 'var(--pixel-bg)',
+  color: 'var(--pixel-text)',
+  border: '2px solid var(--pixel-accent)',
+  borderRadius: 0,
+  outline: 'none',
+  padding: '0 2px',
+};
+
+/** Worktree branch chip: present means "this agent is NOT editing the repo". */
+const branchChipStyle: React.CSSProperties = {
+  fontSize: '15px',
+  color: 'var(--pixel-text-dim)',
+  border: '2px solid var(--pixel-border)',
+  padding: '0 3px',
+  maxWidth: `${TAB_BRANCH_MAX_CH}ch`,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
 };
 
 const chatMarkerStyle: React.CSSProperties = {
@@ -124,6 +157,61 @@ function StatusIndicator({ status }: { status?: TabAgentStatus }) {
   );
 }
 
+/** A tab can be renamed when it has an agent behind it (all chats, most PTYs). */
+function canRename(tab: PanelTab): boolean {
+  return tab.kind === 'chat' || tab.agentId !== undefined;
+}
+
+/**
+ * Inline rename field: autofocused and preselected, commits on Enter or blur,
+ * abandons on Escape. Owns its draft so typing never re-renders the tab strip.
+ */
+function RenameInput({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string;
+  onCommit: (label: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Committed on blur, so Escape must disarm it before the field loses focus
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    inputRef.current?.select();
+  }, []);
+
+  return (
+    <input
+      ref={inputRef}
+      autoFocus
+      value={value}
+      maxLength={TAB_NAME_MAX_CHARS}
+      style={renameInputStyle}
+      onChange={(e) => setValue(e.target.value)}
+      // The tab strip's click/double-click handlers must not see these
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={() => {
+        if (!cancelledRef.current) onCommit(value);
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          onCommit(value);
+        } else if (e.key === 'Escape') {
+          cancelledRef.current = true;
+          onCancel();
+        }
+      }}
+    />
+  );
+}
+
 interface TabGroup {
   workspacePath: string | null;
   folderName?: string;
@@ -146,8 +234,10 @@ function groupTabs(tabs: PanelTab[]): TabGroup[] {
   return groups;
 }
 
-export function TerminalTabs({ tabs, activeKey, onSelect, onClose }: TerminalTabsProps) {
+export function TerminalTabs({ tabs, activeKey, onSelect, onClose, onRename }: TerminalTabsProps) {
   const groups = groupTabs(tabs);
+  // Key of the tab whose label is being edited, or null when none is
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   // A lone group needs no header — the grouping only earns its space with 2+
   const showHeaders = groups.length > 1;
 
@@ -191,14 +281,37 @@ export function TerminalTabs({ tabs, activeKey, onSelect, onClose }: TerminalTab
                   </span>
                 )}
                 <StatusIndicator status={tab.status} />
-                <span
-                  style={{
-                    opacity: tab.kind === 'terminal' && tab.exited ? 0.5 : 1,
-                    ...(tab.unseen ? { color: 'var(--pixel-chat-green)' } : {}),
-                  }}
-                >
-                  {tab.label}
-                </span>
+                {editingKey === tab.key ? (
+                  <RenameInput
+                    initial={tab.label}
+                    onCommit={(label) => {
+                      setEditingKey(null);
+                      const next = label.trim();
+                      if (next && next !== tab.label) onRename(tab, next);
+                    }}
+                    onCancel={() => setEditingKey(null)}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      opacity: tab.kind === 'terminal' && tab.exited ? 0.5 : 1,
+                      ...(tab.unseen ? { color: 'var(--pixel-chat-green)' } : {}),
+                    }}
+                    title={canRename(tab) ? 'Double-click to rename' : undefined}
+                    onDoubleClick={(e) => {
+                      if (!canRename(tab)) return;
+                      e.stopPropagation();
+                      setEditingKey(tab.key);
+                    }}
+                  >
+                    {tab.label}
+                  </span>
+                )}
+                {tab.branch && (
+                  <span style={branchChipStyle} title={`Working in a worktree on ${tab.branch}`}>
+                    ⎇ {tab.branch}
+                  </span>
+                )}
                 <button
                   style={closeButtonStyle}
                   onClick={(e) => {

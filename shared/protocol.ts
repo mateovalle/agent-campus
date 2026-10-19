@@ -148,6 +148,41 @@ export interface WorkspaceInfo {
   name: string;
   addedAt: number;
   lastUsedAt: number;
+  /** Host-probed: a git repo can give its agents private worktrees. */
+  isGit?: boolean;
+  /**
+   * Run in a fresh worktree before its agent starts (e.g. `npm ci`) — a new
+   * checkout has no node_modules, no .env and no build output.
+   */
+  setupCommand?: string;
+}
+
+/**
+ * Asks for the agent to run in its own git worktree instead of the repo
+ * itself. An empty/absent branch lets the host name it ("agent/1", "agent/2").
+ *
+ * `path` means "this EXISTING checkout, as it is" — sent by the worktree
+ * manager, which is pointing at a checkout that is already on disk. The host
+ * accepts it only if it really is one of that repo's worktrees.
+ */
+export interface WorktreeRequest {
+  branch?: string;
+  path?: string;
+}
+
+/** A repo's checkout, with what you need to decide whether to keep it. */
+export interface WorktreeSummary {
+  path: string;
+  /** Absent for a detached checkout. */
+  branch?: string;
+  /** The repo's own checkout — listed for context, never removable. */
+  isMain: boolean;
+  /** Uncommitted changes live here. */
+  dirty: boolean;
+  /** Commits this branch has that the repo's branch does not. */
+  ahead: number;
+  /** Agents currently working in this checkout. */
+  agentIds: number[];
 }
 
 /** An image attached to a chat prompt (base64, no data: prefix). */
@@ -181,8 +216,15 @@ export interface ChatModelOption {
  */
 export interface RestorableAgent {
   sessionId: string;
-  /** Workspace the agent was working in. */
+  /** Directory the agent RAN in — its worktree, when it had one. */
   cwd: string;
+  /**
+   * Repo the agent belongs to (its office). Differs from `cwd` only for
+   * worktree agents; absent in records written before worktrees existed.
+   */
+  workspacePath?: string;
+  /** Branch of its worktree, when it had one. */
+  branch?: string;
   /** basename(cwd), for display. */
   folderName: string;
   kind: 'terminal' | 'chat';
@@ -296,6 +338,11 @@ export type HostToWebviewMessage =
       agentKind?: 'terminal' | 'chat';
       /** Absolute project folder this agent works in (its workspace/office). */
       workspacePath?: string;
+      /**
+       * Branch of the agent's private worktree, when it has one. The office is
+       * still the repo's — only the agent's cwd differs.
+       */
+      branch?: string;
       /** Dispatch role id (charter + tool policy + skin), when the agent was created with one. */
       role?: string;
     }
@@ -308,6 +355,8 @@ export type HostToWebviewMessage =
       agents: number[];
       agentMeta: Record<number, AgentSeatMeta>;
       folderNames: Record<number, string>;
+      /** Worktree branch per agent, for those running in one. */
+      branches?: Record<number, string>;
     }
   // Tool activity
   // subagentRole: role skin for the Task's typed sub-agent character (from subagent_type)
@@ -355,6 +404,14 @@ export type HostToWebviewMessage =
    * The user picks which to bring back via restoreAgents.
    */
   | { type: 'restorableAgents'; agents: RestorableAgent[] }
+  /**
+   * Something the host did (or refused to do) that the user must hear about,
+   * shown as a toast. For failures with no UI of their own — a worktree git
+   * refused to create, a setup command that exited non-zero.
+   */
+  | { type: 'hostNotice'; level: 'info' | 'error'; text: string }
+  /** A repo's checkouts, for the worktree manager. */
+  | { type: 'worktreesLoaded'; workspacePath: string; worktrees: WorktreeSummary[] }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   // agentId/workspacePath/folderName let the tab bar group tabs per workspace
@@ -366,6 +423,8 @@ export type HostToWebviewMessage =
       agentId?: number;
       workspacePath?: string;
       folderName?: string;
+      /** Worktree branch, shown as a chip on the tab. */
+      branch?: string;
     }
   | { type: 'pty-focus'; ptyId: string; agentId: number }
   | { type: 'pty-close-tab'; ptyId: string }
@@ -379,6 +438,8 @@ export type HostToWebviewMessage =
       label: string;
       workspacePath?: string;
       folderName?: string;
+      /** Worktree branch, shown as a chip on the tab. */
+      branch?: string;
     }
   | { type: 'chat-focus'; agentId: number }
   | { type: 'chat-close-tab'; agentId: number }
@@ -447,9 +508,18 @@ export type WebviewToHostMessage =
   /** Open a terminal tab running `claude auth login`. */
   | { type: 'startClaudeLogin' }
   /** Opens a TERMINAL agent (PTY). No folderPath → host shows a folder picker. */
-  | { type: 'openClaude'; folderPath?: string }
+  | { type: 'openClaude'; folderPath?: string; worktree?: WorktreeRequest }
   /** Opens a CHAT agent (Agent SDK). No folderPath → host shows a folder picker. */
-  | { type: 'openChatAgent'; folderPath?: string }
+  | { type: 'openChatAgent'; folderPath?: string; worktree?: WorktreeRequest }
+  /** Per-workspace setup command run in every new worktree (empty clears it). */
+  | { type: 'setWorkspaceSetupCommand'; path: string; command: string }
+  /** Asks for a repo's checkouts (answered with worktreesLoaded). */
+  | { type: 'listWorktrees'; workspacePath: string }
+  /**
+   * Drops a checkout. `force` discards uncommitted changes in it; the branch
+   * and its commits always survive. Refused while an agent works there.
+   */
+  | { type: 'removeWorktree'; workspacePath: string; path: string; force?: boolean }
   | { type: 'chatSend'; id: number; text: string; images?: ChatImageAttachment[] }
   | { type: 'chatInterrupt'; id: number }
   /** ChatView for this agent mounted — host replays its event history. */
@@ -473,6 +543,12 @@ export type WebviewToHostMessage =
   /** Send an action's command text to an agent's session (terminal or chat). */
   | { type: 'runAgentAction'; id: number; command: string }
   | { type: 'closeAgent'; id: number }
+  /**
+   * Rename an agent by hand (tab label + office character + Board/Tasks).
+   * Overrides auto-naming for good: the host stops deriving a name from
+   * prompts once the user has chosen one. An empty label is ignored.
+   */
+  | { type: 'renameAgent'; id: number; label: string }
   | { type: 'saveAgentSeats'; seats: Record<number, AgentSeatMeta> }
   // Sent as the webview's own OfficeLayout shape; hosts validate structurally
   // with isValidLayout() before persisting.

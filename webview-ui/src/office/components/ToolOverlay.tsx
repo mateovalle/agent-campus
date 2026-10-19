@@ -162,7 +162,14 @@ export function ToolOverlay({
         const displayName = isSub ? undefined : ch.name;
         const primaryText = displayName ?? activityText;
         const secondaryText =
-          [displayName ? activityText : null, ch.folderName].filter(Boolean).join(' · ') || null;
+          [
+            displayName ? activityText : null,
+            ch.folderName,
+            // Says WHERE the work lands: same office, different checkout
+            ch.branch ? `⎇ ${ch.branch}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || null;
 
         // A persistent bubble sits between the head and the overlay, and the
         // overlay is opaque — left alone it hides the very thing it is
