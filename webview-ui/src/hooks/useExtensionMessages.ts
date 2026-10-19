@@ -12,7 +12,9 @@ import type {
   TodoItem,
   UsageSummary,
   WorkspaceInfo,
+  WorktreeSummary,
 } from '../../../shared/protocol.js';
+import type { HostNotice } from '../components/NoticeToast.js';
 import { isDemoAgent } from '../demo/demoAgents.js';
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js';
 import type { CampusState } from '../office/engine/campusState.js';
@@ -31,6 +33,9 @@ import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { BubbleKind } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
 import { vscode } from '../vscodeApi.js';
+
+/** Monotonic ids for notice toasts — React keys that never repeat. */
+let nextNoticeId = 1;
 
 export interface SubagentCharacter {
   id: number;
@@ -89,6 +94,11 @@ export interface ExtensionMessageState {
   unlockQueue: AchievementInfo[];
   /** Dismiss the currently displayed unlock toast (drops unlockQueue[0]). */
   dismissUnlock: () => void;
+  /** Host-side failures worth showing (worktree refused, setup failed). */
+  noticeQueue: HostNotice[];
+  dismissNotice: () => void;
+  /** Checkouts of the repo the worktree manager last asked about. */
+  worktrees: { workspacePath: string; list: WorktreeSummary[] } | null;
   /** End-of-turn action suggestions per agent id (absent = none). */
   agentSuggestions: Record<number, AgentActionSuggestion[]>;
   /** Optimistically drop an agent's suggestions (e.g., after clicking one). */
@@ -157,6 +167,11 @@ export function useExtensionMessages(
   const [achievements, setAchievements] = useState<AchievementInfo[]>([]);
   const [claudeAuth, setClaudeAuth] = useState<ClaudeAuthState | null>(null);
   const [unlockQueue, setUnlockQueue] = useState<AchievementInfo[]>([]);
+  const [noticeQueue, setNoticeQueue] = useState<HostNotice[]>([]);
+  const [worktrees, setWorktrees] = useState<{
+    workspacePath: string;
+    list: WorktreeSummary[];
+  } | null>(null);
   const [agentSuggestions, setAgentSuggestions] = useState<Record<number, AgentActionSuggestion[]>>(
     {},
   );
@@ -169,6 +184,10 @@ export function useExtensionMessages(
   const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
   const [restorable, setRestorable] = useState<RestorableAgent[]>([]);
   const clearRestorableAgents = useCallback(() => setRestorable([]), []);
+
+  const dismissNotice = useCallback(() => {
+    setNoticeQueue((prev) => prev.slice(1));
+  }, []);
 
   const dismissUnlock = useCallback(() => {
     setUnlockQueue((prev) => prev.slice(1));
@@ -207,6 +226,7 @@ export function useExtensionMessages(
       folderName?: string;
       workspacePath?: string;
       name?: string;
+      branch?: string;
     }> = [];
     let workspacesLoaded = false;
     /**
@@ -222,6 +242,7 @@ export function useExtensionMessages(
         const office = campus.routeOffice(p.workspacePath, p.folderName);
         office.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.role);
         if (p.name) office.setAgentName(p.id, p.name);
+        if (p.branch) office.setAgentBranch(p.id, p.branch);
       }
       pendingAgents = [];
       saveAgentSeats(campus);
@@ -269,10 +290,17 @@ export function useExtensionMessages(
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         setSelectedAgent(id);
         if (!layoutReadyRef.current || !workspacesLoaded) {
-          pendingAgents.push({ id, folderName, workspacePath: msg.workspacePath, role: msg.role });
+          pendingAgents.push({
+            id,
+            folderName,
+            workspacePath: msg.workspacePath,
+            role: msg.role,
+            branch: msg.branch,
+          });
         } else {
           const office = campus.routeOffice(msg.workspacePath, folderName);
           office.addAgent(id, undefined, undefined, undefined, undefined, folderName, msg.role);
+          if (msg.branch) office.setAgentBranch(id, msg.branch);
           saveAgentSeats(campus);
         }
       } else if (msg.type === 'agentClosed') {
@@ -326,6 +354,7 @@ export function useExtensionMessages(
         const incoming = msg.agents;
         const meta = msg.agentMeta || {};
         const folderNames = msg.folderNames || {};
+        const branches = msg.branches || {};
         // Buffer agents — they'll be routed once layout + workspaces are ready
         for (const id of incoming) {
           const m = meta[id];
@@ -337,6 +366,7 @@ export function useExtensionMessages(
             role: m?.role ?? undefined,
             folderName: folderNames[id],
             name: m?.name,
+            branch: branches[id],
           });
         }
         setAgentNames((prev) => {
@@ -681,6 +711,10 @@ export function useExtensionMessages(
           return next;
         });
         setUnlockQueue((prev) => [...prev, unlocked]);
+      } else if (msg.type === 'worktreesLoaded') {
+        setWorktrees({ workspacePath: msg.workspacePath, list: msg.worktrees });
+      } else if (msg.type === 'hostNotice') {
+        setNoticeQueue((prev) => [...prev, { id: nextNoticeId++, ...msg }]);
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[];
@@ -718,6 +752,9 @@ export function useExtensionMessages(
     claudeAuth,
     unlockQueue,
     dismissUnlock,
+    noticeQueue,
+    dismissNotice,
+    worktrees,
     agentSuggestions,
     clearAgentSuggestions,
     roles,

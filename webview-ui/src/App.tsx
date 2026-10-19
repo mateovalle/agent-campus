@@ -13,6 +13,7 @@ import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
 import { DemoBanner } from './components/DemoBanner.js';
 import { MissedRunsModal } from './components/MissedRunsModal.js';
+import { NoticeToast } from './components/NoticeToast.js';
 import { OfficePopup } from './components/OfficePopup.js';
 import { RestoreAgentsModal } from './components/RestoreAgentsModal.js';
 import type { AgentTaskGroup } from './components/TasksDrawer.js';
@@ -20,6 +21,7 @@ import { TasksDrawer } from './components/TasksDrawer.js';
 import { TerminalPanel } from './components/TerminalPanel.js';
 import { TerminalSplitter } from './components/TerminalSplitter.js';
 import { WelcomeModal } from './components/WelcomeModal.js';
+import { WorktreesModal } from './components/WorktreesModal.js';
 import { ZoomControls } from './components/ZoomControls.js';
 import {
   OFFICE_POPUP_MARGIN_PX,
@@ -175,6 +177,9 @@ function App() {
     claudeAuth,
     unlockQueue,
     dismissUnlock,
+    noticeQueue,
+    dismissNotice,
+    worktrees,
     agentSuggestions,
     clearAgentSuggestions,
     roles,
@@ -217,6 +222,8 @@ function App() {
   // Per-workspace tasks drawer — one open at a time; opening for another
   // workspace replaces the current one.
   const [tasksDrawerPath, setTasksDrawerPath] = useState<string | null>(null);
+  /** Workspace whose worktree manager is open, if any. */
+  const [worktreesPath, setWorktreesPath] = useState<string | null>(null);
   const handleOpenTasks = useCallback((path: string) => setTasksDrawerPath(path), []);
   const handleCloseTasksDrawer = useCallback(() => setTasksDrawerPath(null), []);
 
@@ -384,6 +391,9 @@ function App() {
   const tasksWorkspace = tasksDrawerPath
     ? (workspaces.find((w) => w.path === tasksDrawerPath) ?? null)
     : null;
+  const worktreesWorkspace = worktreesPath
+    ? (workspaces.find((w) => w.path === worktreesPath) ?? null)
+    : null;
   // Map agentId → workspace via the campus: an agent's office entry carries
   // the workspace it was routed to on creation.
   const tasksAgentGroups: AgentTaskGroup[] = tasksWorkspace
@@ -531,6 +541,7 @@ function App() {
         )}
 
         <AchievementToast queue={unlockQueue} onDismiss={dismissUnlock} />
+        <NoticeToast queue={noticeQueue} onDismiss={dismissNotice} />
         <WelcomeModal auth={claudeAuth} onStartDemo={startDemoMode} />
         {demoRunning && <DemoBanner onEnd={endDemoMode} />}
 
@@ -627,7 +638,19 @@ function App() {
                 .length
             }
             onOpenTasks={() => handleOpenTasks(officePopup.workspace.path)}
+            onOpenWorktrees={() => setWorktreesPath(officePopup.workspace.path)}
             onClose={handleCloseOfficePopup}
+          />
+        )}
+
+        {worktreesWorkspace && !editor.isEditMode && (
+          <WorktreesModal
+            workspace={worktreesWorkspace}
+            // Only this repo's answer — a stale list from another office would
+            // otherwise show its checkouts under the wrong name.
+            worktrees={worktrees?.workspacePath === worktreesWorkspace.path ? worktrees.list : []}
+            agents={agents}
+            onClose={() => setWorktreesPath(null)}
           />
         )}
 

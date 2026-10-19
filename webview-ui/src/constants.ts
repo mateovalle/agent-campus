@@ -189,8 +189,21 @@ export const CHAT_TOOL_ICON_ACCENT = 'rgba(255, 255, 255, 0.9)';
 export const CHAT_TOOL_CARD_BORDER_PX = 4;
 /** Consecutive finished read-category tool calls needed to collapse into a group. */
 export const CHAT_TOOL_GROUP_MIN = 3;
+/** Marks a user message in the chat DOM as a turn boundary (jump anchor). */
+export const CHAT_TURN_ANCHOR_ATTR = 'data-chat-turn';
+/**
+ * Slack when picking the next turn to jump to. Without it, "up" would keep
+ * re-selecting the anchor already sitting at the top of the viewport.
+ */
+export const CHAT_TURN_JUMP_TOLERANCE_PX = 8;
 /** Max diff-stat count shown on a collapsed Edit card before capping ("99+"). */
 export const CHAT_EDIT_STAT_CAP = 99;
+/** Max characters of a hand-typed tab name (the host truncates to the same). */
+export const TAB_NAME_MAX_CHARS = 28;
+/** Width of the inline tab-rename input, in characters. */
+export const TAB_RENAME_INPUT_CH = 16;
+/** Width cap of a tab's worktree-branch chip, in characters. */
+export const TAB_BRANCH_MAX_CH = 14;
 export const SECONDS_PER_MINUTE = 60;
 export const MINUTES_PER_HOUR = 60;
 export const HOURS_PER_DAY = 24;
@@ -248,6 +261,27 @@ export const ACHIEVEMENT_TOAST_SLIDE_SEC = 0.25;
 /** Amber accent border for the unlock toast */
 export const ACHIEVEMENT_TOAST_BORDER_COLOR = '#f9e2af';
 export const ACHIEVEMENT_TOAST_Z_INDEX = 60;
+
+// ── Host notices (toast for host-side failures) ──────────────
+/** How long an informational notice stays up (errors wait for a click). */
+export const NOTICE_TOAST_DURATION_MS = 6000;
+export const NOTICE_TOAST_ERROR_COLOR = '#f38ba8';
+export const NOTICE_TOAST_INFO_COLOR = '#89b4fa';
+export const NOTICE_TOAST_MAX_WIDTH_PX = 520;
+/**
+ * Above every modal (which sit at 59/60). A host notice is usually the ANSWER
+ * to something clicked in one — a worktree git refused to remove — so a toast
+ * trapped behind the modal would make the click look like it did nothing.
+ */
+export const NOTICE_TOAST_Z_INDEX = 80;
+
+// ── Worktree manager ─────────────────────────────────────────
+export const WORKTREES_MODAL_WIDTH_PX = 520;
+export const WORKTREES_MODAL_MAX_HEIGHT_PX = '70vh';
+/** Uncommitted changes — the only thing a removal can destroy. */
+export const WORKTREE_DIRTY_COLOR = '#f9e2af';
+/** Commits not in the repo's branch yet. */
+export const WORKTREE_AHEAD_COLOR = '#89b4fa';
 /** Max height of the achievements list in the Settings modal */
 export const ACHIEVEMENT_LIST_MAX_HEIGHT_PX = 220;
 /** Opacity applied to locked achievement rows */

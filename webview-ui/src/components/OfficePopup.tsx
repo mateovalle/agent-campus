@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import type { WorkspaceInfo } from '../../../shared/protocol.js';
+import type { WorkspaceInfo, WorktreeRequest } from '../../../shared/protocol.js';
 import { OFFICE_POPUP_MARGIN_PX, OFFICE_POPUP_WIDTH_PX } from '../constants.js';
 import { vscode } from '../vscodeApi.js';
 
@@ -15,8 +15,30 @@ interface OfficePopupProps {
   /** Number of open human todos in this workspace (shown on the Tasks button). */
   openTaskCount: number;
   onOpenTasks: () => void;
+  /** Opens the worktree manager for this repo (git workspaces only). */
+  onOpenWorktrees: () => void;
   onClose: () => void;
 }
+
+const fieldStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  font: 'inherit',
+  fontSize: '18px',
+  padding: '3px 6px',
+  background: 'var(--pixel-bg)',
+  color: 'var(--pixel-text)',
+  border: '2px solid var(--pixel-border)',
+  borderRadius: 0,
+  outline: 'none',
+};
+
+const hintStyle: React.CSSProperties = {
+  fontSize: '14px',
+  color: 'var(--pixel-text-dim)',
+  padding: '0 2px',
+  lineHeight: 1.3,
+};
 
 const btnStyle: React.CSSProperties = {
   display: 'block',
@@ -42,11 +64,31 @@ export function OfficePopup({
   y,
   openTaskCount,
   onOpenTasks,
+  onOpenWorktrees,
   onClose,
 }: OfficePopupProps) {
   const popupRef = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // Worktree opt-in: applies to both + Agent and + Terminal, so the choice is
+  // "where does the next agent work", not a second pair of buttons.
+  const [useWorktree, setUseWorktree] = useState(false);
+  const [branch, setBranch] = useState('');
+  const [setupDraft, setSetupDraft] = useState(workspace.setupCommand ?? '');
+
+  /** The worktree argument for a launch, or undefined to work in the repo. */
+  const worktreeArg = (): WorktreeRequest | undefined =>
+    useWorktree ? { branch: branch.trim() || undefined } : undefined;
+
+  /** Saves the setup command only when it actually changed. */
+  const commitSetup = () => {
+    if (setupDraft.trim() === (workspace.setupCommand ?? '').trim()) return;
+    vscode.postMessage({
+      type: 'setWorkspaceSetupCommand',
+      path: workspace.path,
+      command: setupDraft,
+    });
+  };
 
   // Esc closes
   useEffect(() => {
@@ -84,7 +126,9 @@ export function OfficePopup({
     const available = el.offsetParent?.clientHeight ?? window.innerHeight;
     const overflow = y + el.offsetHeight + OFFICE_POPUP_MARGIN_PX - available;
     setLiftY(overflow > 0 ? Math.max(0, Math.min(overflow, y - OFFICE_POPUP_MARGIN_PX)) : 0);
-  }, [y]);
+    // Ticking the worktree box adds two fields and a hint, so the popup can
+    // grow past the bottom edge long after it was placed — re-measure then too.
+  }, [y, useWorktree]);
 
   const hoverBg = (key: string, base: string) =>
     hovered === key ? 'var(--pixel-btn-hover-bg)' : base;
@@ -132,10 +176,19 @@ export function OfficePopup({
         onMouseEnter={() => setHovered('agent')}
         onMouseLeave={() => setHovered(null)}
         onClick={() => {
-          vscode.postMessage({ type: 'openChatAgent', folderPath: workspace.path });
+          commitSetup();
+          vscode.postMessage({
+            type: 'openChatAgent',
+            folderPath: workspace.path,
+            ...(worktreeArg() ? { worktree: worktreeArg() } : {}),
+          });
           onClose();
         }}
-        title="Open a chat agent in this workspace"
+        title={
+          useWorktree
+            ? 'Open a chat agent in its own git worktree'
+            : 'Open a chat agent in this workspace'
+        }
       >
         + Agent
       </button>
@@ -144,13 +197,109 @@ export function OfficePopup({
         onMouseEnter={() => setHovered('terminal')}
         onMouseLeave={() => setHovered(null)}
         onClick={() => {
-          vscode.postMessage({ type: 'openClaude', folderPath: workspace.path });
+          commitSetup();
+          vscode.postMessage({
+            type: 'openClaude',
+            folderPath: workspace.path,
+            ...(worktreeArg() ? { worktree: worktreeArg() } : {}),
+          });
           onClose();
         }}
         title="Open the Claude Code CLI in a terminal tab — slash commands, Esc to interrupt"
       >
         + Terminal
       </button>
+      {workspace.isGit && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            padding: '2px 2px 4px',
+            borderBottom: '2px solid var(--pixel-border)',
+          }}
+        >
+          {/* A native checkbox is the one rounded, glossy thing in a pixel UI —
+              drawn here as a [x] box instead, same semantics (a real button). */}
+          <button
+            role="switch"
+            aria-checked={useWorktree}
+            onClick={() => setUseWorktree(!useWorktree)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              width: '100%',
+              textAlign: 'left',
+              fontSize: '18px',
+              font: 'inherit',
+              color: useWorktree ? 'var(--pixel-text)' : 'var(--pixel-text-dim)',
+              background: 'none',
+              border: 'none',
+              borderRadius: 0,
+              cursor: 'pointer',
+              padding: '2px 4px',
+            }}
+            title="Run the next agent in its own checkout, on its own branch"
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 14,
+                height: 14,
+                flexShrink: 0,
+                lineHeight: '10px',
+                textAlign: 'center',
+                fontSize: '14px',
+                border: '2px solid var(--pixel-border)',
+                background: useWorktree ? 'var(--pixel-accent)' : 'var(--pixel-bg)',
+                color: 'var(--pixel-bg)',
+              }}
+            >
+              {useWorktree ? '✕' : ''}
+            </span>
+            <span>⎇ Own worktree</span>
+          </button>
+          {useWorktree && (
+            <>
+              <input
+                style={fieldStyle}
+                value={branch}
+                placeholder="branch (auto-named)"
+                onChange={(e) => setBranch(e.target.value)}
+                title="Branch for the new checkout — left empty, the host names it"
+              />
+              <input
+                style={fieldStyle}
+                value={setupDraft}
+                placeholder="setup command (e.g. npm ci)"
+                onChange={(e) => setSetupDraft(e.target.value)}
+                onBlur={commitSetup}
+                title="Run in every new worktree of this workspace before its agent starts"
+              />
+              <span style={hintStyle}>A fresh checkout has no node_modules or .env.</span>
+            </>
+          )}
+          <button
+            style={{
+              ...btnStyle,
+              fontSize: '18px',
+              padding: '4px 4px',
+              background: hoverBg('worktrees', 'transparent'),
+              color: 'var(--pixel-text-dim)',
+            }}
+            onMouseEnter={() => setHovered('worktrees')}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => {
+              onOpenWorktrees();
+              onClose();
+            }}
+            title="List this repo's checkouts: what is unmerged, who works where, and remove them"
+          >
+            Manage worktrees…
+          </button>
+        </div>
+      )}
       <button
         style={{ ...btnStyle, background: hoverBg('tasks', 'var(--pixel-btn-bg)') }}
         onMouseEnter={() => setHovered('tasks')}

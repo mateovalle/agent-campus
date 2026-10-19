@@ -55,6 +55,20 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 Per-workspace layout files (~/.pixel-agents/layouts/) are sent on
                                 webviewReady AND hot-reloaded via a layouts-dir watcher (debounced,
                                 own-write suppression) — external edits apply without restart
+  worktrees.ts                — Git worktrees: a private checkout per agent (opt-in), so two agents
+                                in one repo stop overwriting each other. Checkouts live in
+                                ~/.pixel-agents/worktrees/<repo>-<hash>/<branch> (never beside the
+                                repo, where the project's own tooling would find them). Pure,
+                                tested helpers: normalizeBranchName (typed words → a ref git
+                                accepts), nextFreeBranch (agent/1, agent/2…), repoWorktreeDir /
+                                freeWorktreePath, parseWorktreeList. gitRepoRoot() answers the MAIN
+                                repo via --git-common-dir, so a worktree resolves to the repo that
+                                owns it, not itself. NOTHING here deletes a worktree on its own —
+                                it holds unmerged work; removal is always asked for.
+                                summarizeWorktrees() adds what a removal decision needs: dirty
+                                (uncommitted), ahead (commits the repo's branch lacks) and isMain;
+                                main.ts fills agentIds by matching each agent's cwd. The policy
+                                itself is the pure, tested worktreeRemovalBlocker()
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger (per-turn DELTAS derived from the
                                 SDK's cumulative total_cost_usd — summing that field raw inflates
@@ -159,6 +173,14 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);
                                 ToolCard (collapsible, Edit diffs),
+                                turnNavigation.ts (pure turnJumpTarget) + the ▲▼ arrows at the
+                                top-right of the message list and Alt+↑/↓: jump between TURNS,
+                                anchored on the user's own messages (each starts a turn, so the
+                                answer lands right below it) — reading something from earlier
+                                shouldn't mean scrolling past every tool card since. Anchors are
+                                read from the DOM (`data-chat-turn`) rather than tracked in state,
+                                and a jump upward clears the near-bottom flag, so new output stops
+                                yanking the view back down;
                                 QuestionCard (AskUserQuestion: interactive option picker rendered
                                 INLINE on its tool card — matched by toolUseId on the permission
                                 request; single-question single-select answers on click, answers
@@ -282,6 +304,30 @@ session + chat tab). "+ Terminal" → `openClaude` → a PTY running
 `claude --session-id <uuid>` (plus `--dangerously-skip-permissions` when the Settings toggle is
 on), then a 1s poll for `<uuid>.jsonl`.
 
+**Worktrees (an office is a REPO, not a checkout)**: an agent has two paths, and conflating them
+is the bug to watch for. `AgentPlacement` (main.ts) carries both: `cwd` — where the session RUNS
+(PTY, SDK, transcript project hash) — and `workspacePath` — the office it belongs to, which keys
+the layout, todos, usage ledger and tab grouping. They are the same path for a normal agent and
+differ for a worktree one, which sits in its repo's office with everyone else and shows its branch
+on the tab chip and in the character overlay (`ws · ⎇ agent/1`). Worktrees are deliberately
+invisible to workspaces.json: a checkout is never its own office. Opt-in per agent via the office
+popup's "⎇ Own worktree" (branch optional — the host names it); Board/schedule dispatch still runs
+in the repo. A workspace may define a `setupCommand` (e.g. `npm ci`) that runs in every new
+checkout IN A VISIBLE TERMINAL TAB before its agent starts — a fresh worktree has no node_modules
+or .env, and the tab closes itself on a clean exit (the standard PTY policy) or stays with the
+output when it fails, in which case the agent is NOT started and a `hostNotice` toast says so.
+
+**Worktree manager** (`WorktreesModal`, from the office popup's "Manage worktrees…"): lists a
+repo's checkouts with what a delete would cost — `uncommitted`, `N unmerged`, `N agents here` —
+and does the two things worth doing. `+ Agent here` reuses an EXISTING checkout via
+`WorktreeRequest.path`, which the host re-validates against `git worktree list` rather than
+trusting (it decides where an agent writes). Remove is two-step and passes `force` only when the
+checkout is dirty, since uncommitted work is the only thing a removal can destroy — the branch
+and its commits always survive, and the confirmation text says so. A checkout with a live agent
+can't be removed, and the repo's own checkout is never offered. `hostNotice` toasts sit ABOVE
+modals (z 80, `position: fixed`): a notice is usually the answer to something clicked inside one,
+and trapped behind it the click would look like it did nothing.
+
 **INTERNAL SESSIONS ONLY**: there is no adoption of sessions the app did not spawn. The 1s scan
 (`scanForNewJsonlFiles`) only looks inside the project dirs of agents it already owns, and exists
 purely for `/clear`: a new JSONL there is reassigned to whichever of that dir's agents most
@@ -367,7 +413,11 @@ screen. Sprites are built by `makeBubbleSprite(accent, cells)` in `spriteData.ts
 **Agent names**: the host auto-derives a display name from an agent's first prompt, sends it as
 `agentLabel`, and persists it as `AgentSeatMeta.name` (session-keyed, so it survives resume).
 The webview mirrors it onto the character (`setAgentName`) and into React (`agentNames`), so the
-office, Board and Tasks drawer read `fix-auth-timeout` rather than `Agent 3`.
+office, Board and Tasks drawer read `fix-auth-timeout` rather than `Agent 3`. **Manual rename**:
+double-click a tab's label (chat or terminal) for an inline field — Enter/blur commits, Esc
+cancels — which sends `renameAgent`. The host owns the rename (`applyAgentName`, shared with
+auto-naming: state + PTY/chat replay labels + seat meta + `agentLabel` echo) and marks the agent
+`autoNamed`, so a name you typed is never overwritten by the first prompt.
 
 **Prompt suggestions**: the SDK emits a `prompt_suggestion` after a turn's result; chat tabs
 offer it as a dashed row above the composer (Tab or click to accept into the draft, Esc to
@@ -497,7 +547,9 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
 - `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (suites include
   transcriptParser, actionSuggestions, fileWatcher, roles, achievements, claudeAuth, schedules,
-  transcriptHistory, attention). `vitest.config.ts` scopes it; the webview has no test setup
+  transcriptHistory, attention, worktrees). `worktrees.integration.test.ts` drives REAL git in a
+  temp repo with HOME redirected — it asserts the isolation the feature exists for (an edit in one
+  checkout leaves the repo untouched), so keep the HOME override if you touch it. `vitest.config.ts` scopes it; the webview has no test setup
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
 - `package-electron.json` at the repo root is DEAD (gitignored leftover of the deleted

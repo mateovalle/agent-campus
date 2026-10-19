@@ -428,6 +428,14 @@ export class OfficeState {
     else delete ch.name;
   }
 
+  /** Tags a character with the worktree branch its agent runs on. */
+  setAgentBranch(id: number, branch: string | undefined): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    if (branch) ch.branch = branch;
+    else delete ch.branch;
+  }
+
   removeAgent(id: number): void {
     const ch = this.characters.get(id);
     if (!ch) return;

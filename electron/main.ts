@@ -12,6 +12,8 @@ import type {
   ResumableSession,
   ScheduleEntry,
   WebviewToHostMessage,
+  WorktreeRequest,
+  WorktreeSummary,
 } from '../shared/protocol.js';
 import {
   loadCharacterSprites,
@@ -75,10 +77,20 @@ import { addTodo, deleteTodo, getAllTodoPaths, getTodos, toggleTodo } from './to
 import { isSyntheticUserText, loadTranscriptHistory } from './transcriptHistory.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
+  getSetupCommand,
   loadWorkspaces,
   removeWorkspace as removeWorkspaceEntry,
+  setSetupCommand,
   touchWorkspace,
 } from './workspaces.js';
+import {
+  createWorktree,
+  gitRepoRoot,
+  listWorktrees,
+  removeWorktree as removeWorktreeDir,
+  summarizeWorktrees,
+  worktreeRemovalBlocker,
+} from './worktrees.js';
 
 // ── Electron-specific constants ──────────────────────────────
 const PTY_SCROLLBACK_MAX_CHARS = 200_000;
@@ -115,7 +127,16 @@ interface AgentState extends CoreAgentState {
   /** Set for terminal agents only. */
   ptyId?: string;
   sessionId: string;
+  /** Where the session RUNS: its worktree when it has one, else the repo. */
   cwd: string;
+  /**
+   * Which office the character sits in. An office is a REPO, not a checkout,
+   * so worktree agents share their repo's office — and its layout, todos and
+   * usage ledger, all keyed by this path rather than by `cwd`.
+   */
+  workspacePath: string;
+  /** Branch of its private worktree, when it has one. */
+  branch?: string;
   /** Tab display name; starts as "Agent N" / role id, auto-derived from the first prompt. */
   label: string;
   /** True once the label was auto-derived (or restored) — stops further renames. */
@@ -314,6 +335,8 @@ function spawnPty(opts: {
   command?: string;
   sessionId?: string;
   label: string;
+  /** Called when the process exits — used to gate on a worktree's setup. */
+  onExit?: (exitCode: number) => void;
 }): string {
   const ptyId = crypto.randomUUID();
   const isWin = process.platform === 'win32';
@@ -356,6 +379,7 @@ function spawnPty(opts: {
 
   proc.onExit(({ exitCode }) => {
     ctx.send({ type: 'pty-exit', ptyId, exitCode });
+    opts.onExit?.(exitCode);
     ptys.delete(ptyId);
     if (record.sessionId && ptySessionIds.get(record.sessionId) === ptyId) {
       ptySessionIds.delete(record.sessionId);
@@ -388,14 +412,154 @@ function killPty(ptyId: string): void {
 }
 
 // ── Agent lifecycle (internal sessions only) ─────────────────
+
+/**
+ * Where an agent lives: the directory it runs in and the office it belongs to.
+ *
+ * These are the same path for a plain agent and differ for a worktree one,
+ * which runs in its own checkout but still sits in its repo's office. Passing
+ * them together keeps every launch path honest about which of the two it
+ * means — `cwd` for the session (PTY, SDK, transcript), `workspacePath` for
+ * everything the campus groups by project.
+ */
+interface AgentPlacement {
+  cwd: string;
+  workspacePath: string;
+  branch?: string;
+}
+
+/** Placement for an agent that works directly in the project folder. */
+function inWorkspace(cwd: string): AgentPlacement {
+  return { cwd, workspacePath: cwd };
+}
+
+/** Tells the user something the UI that asked for it can no longer report. */
+function notify(level: 'info' | 'error', text: string): void {
+  console.log(`[Agent Campus] ${level}: ${text}`);
+  ctx.send({ type: 'hostNotice', level, text });
+}
+
+/**
+ * Runs a workspace's setup command in a fresh worktree, in a terminal tab so
+ * the user can watch it, and resolves to whether it succeeded.
+ *
+ * A new checkout has no node_modules, no .env and no build output, so an
+ * agent starting before this finishes would spend its first turns on a
+ * failing build. Waiting is the point; the tab is so the wait is legible.
+ */
+function runWorktreeSetup(place: AgentPlacement, command: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const label = `setup ${place.branch ?? ''}`.trim();
+    const ptyId = spawnPty({
+      cwd: place.cwd,
+      command,
+      label,
+      onExit: (exitCode) => {
+        if (exitCode !== 0) {
+          notify(
+            'error',
+            `Setup for ${place.branch} failed (exit ${exitCode}) — agent not started.`,
+          );
+        }
+        resolve(exitCode === 0);
+      },
+    });
+    ctx.send({
+      type: 'pty-created',
+      ptyId,
+      label,
+      workspacePath: place.workspacePath,
+      folderName: path.basename(place.workspacePath),
+      ...(place.branch ? { branch: place.branch } : {}),
+    });
+  });
+}
+
+/**
+ * A repo's checkouts, each tagged with the agents living in it. Agents are
+ * matched by the directory they RUN in (`cwd`), which is exactly what a
+ * worktree is — so this is the one place that reads cwd as an identity.
+ */
+function worktreesWithAgents(repoRoot: string): WorktreeSummary[] {
+  const summaries = summarizeWorktrees(repoRoot);
+  for (const summary of summaries) {
+    summary.agentIds = [...ctx.agents.values()]
+      .filter((agent) => path.resolve(agent.cwd) === path.resolve(summary.path))
+      .map((agent) => agent.id);
+  }
+  return summaries;
+}
+
+/** Pushes a repo's checkouts to the worktree manager. */
+function sendWorktrees(workspacePath: string): void {
+  const repoRoot = gitRepoRoot(workspacePath);
+  ctx.send({
+    type: 'worktreesLoaded',
+    workspacePath,
+    worktrees: repoRoot ? worktreesWithAgents(repoRoot) : [],
+  });
+}
+
+/**
+ * Where a requested agent should run: the folder itself, or a private
+ * worktree of its repo when the caller asked for one. Resolves to null if
+ * the checkout was refused or its setup failed — in both cases the user has
+ * been told, and launching anyway would quietly put the agent somewhere it
+ * was not meant to be.
+ */
+async function placeForRequest(
+  cwd: string,
+  request?: WorktreeRequest,
+): Promise<AgentPlacement | null> {
+  if (!request) return inWorkspace(cwd);
+
+  const repoRoot = gitRepoRoot(cwd);
+  if (!repoRoot) {
+    notify('error', `${path.basename(cwd)} is not a git repository, so it has no worktrees.`);
+    return null;
+  }
+
+  // An existing checkout, chosen in the worktree manager. Verified against the
+  // repo's own list rather than trusted: this decides where an agent writes.
+  if (request.path) {
+    const known = listWorktrees(repoRoot).find((w) => w.path === request.path);
+    if (!known) {
+      notify('error', 'That worktree is no longer part of this repository.');
+      return null;
+    }
+    return {
+      cwd: known.path,
+      workspacePath: repoRoot,
+      ...(known.branch ? { branch: known.branch } : {}),
+    };
+  }
+
+  let place: AgentPlacement;
+  try {
+    const worktree = createWorktree(repoRoot, request.branch);
+    place = { cwd: worktree.path, workspacePath: repoRoot, branch: worktree.branch };
+    console.log(`[Agent Campus] Worktree ${worktree.branch} at ${worktree.path}`);
+  } catch (err) {
+    notify('error', `Could not create the worktree: ${(err as Error).message}`);
+    return null;
+  }
+
+  const setup = getSetupCommand(repoRoot);
+  if (setup && !(await runWorktreeSetup(place, setup))) return null;
+  return place;
+}
+
 /** Registers the office character + transcript watching shared by both agent kinds. */
 function registerAgent(
   kind: 'terminal' | 'chat',
-  cwd: string,
+  place: AgentPlacement,
   sessionId: string,
   label: string,
   skipToEnd = false,
 ): AgentState {
+  const { cwd } = place;
+  // Transcripts are keyed by the directory claude RUNS in, so a worktree
+  // agent's JSONL lives under the worktree's own project hash.
   const projectDir = getProjectDirPath(cwd);
   const expectedFile = path.join(projectDir, `${sessionId}.jsonl`);
   // Pre-register so the /clear scan won't treat this session's own file as new
@@ -410,6 +574,8 @@ function registerAgent(
     kind,
     sessionId,
     cwd,
+    workspacePath: place.workspacePath,
+    ...(place.branch ? { branch: place.branch } : {}),
     label: storedName ?? label,
     autoNamed: !!storedName,
     openedAtMs: Date.now(),
@@ -438,7 +604,11 @@ function snapshotOpenAgents(): void {
       return {
         sessionId: agent.sessionId,
         cwd: agent.cwd,
-        folderName: path.basename(agent.cwd),
+        workspacePath: agent.workspacePath,
+        // The office's name, not the checkout's: a restored worktree agent
+        // belongs to the same office it left.
+        folderName: path.basename(agent.workspacePath),
+        ...(agent.branch ? { branch: agent.branch } : {}),
         kind: agent.kind,
         label: agent.label,
         ...(role ? { role } : {}),
@@ -468,15 +638,16 @@ function deriveAgentName(text: string): string | null {
   return `${(lastSpace > AGENT_NAME_MAX_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
-/** Renames an agent once from its first prompt: state + tab replays + persistence. */
-function autoNameAgent(agentId: number, promptText: string): void {
+/**
+ * Applies a name to an agent everywhere it is remembered: state, the tab
+ * replay sources (so a webview reload shows it), the session-keyed seat meta
+ * (so a resume restores it) and the webview.
+ */
+function applyAgentName(agentId: number, name: string): void {
   const agent = ctx.agents.get(agentId);
-  if (!agent || agent.autoNamed) return;
-  const name = deriveAgentName(promptText);
-  if (!name) return;
+  if (!agent) return;
 
   agent.label = name;
-  agent.autoNamed = true;
   // Keep the tab-replay sources in sync so reloads show the same name
   if (agent.ptyId) {
     const record = ptys.get(agent.ptyId);
@@ -490,6 +661,30 @@ function autoNameAgent(agentId: number, promptText: string): void {
   saveJsonFile(AGENT_SEATS_FILE, { bySession });
 
   ctx.send({ type: 'agentLabel', id: agentId, label: name });
+}
+
+/** Renames an agent once from its first prompt. */
+function autoNameAgent(agentId: number, promptText: string): void {
+  const agent = ctx.agents.get(agentId);
+  if (!agent || agent.autoNamed) return;
+  const name = deriveAgentName(promptText);
+  if (!name) return;
+  agent.autoNamed = true;
+  applyAgentName(agentId, name);
+}
+
+/**
+ * Renames an agent on the user's request. Marks it auto-named so the first
+ * prompt can't overwrite a name the user typed on purpose.
+ */
+function renameAgent(agentId: number, label: string): void {
+  const agent = ctx.agents.get(agentId);
+  if (!agent) return;
+  const name = label.replace(/\s+/g, ' ').trim().slice(0, AGENT_NAME_MAX_CHARS);
+  if (!name) return;
+  agent.autoNamed = true;
+  applyAgentName(agentId, name);
+  snapshotOpenAgents();
 }
 
 /** Probe Claude Code's auth state and push it to the webview. */
@@ -519,11 +714,12 @@ function startClaudeLogin(): void {
   console.log('[Agent Campus] Opened a Claude Code login terminal');
 }
 
-function launchAgent(cwd: string, resumeSessionId?: string): void {
+function launchAgent(place: AgentPlacement, resumeSessionId?: string): void {
+  const { cwd, workspacePath } = place;
   const sessionId = resumeSessionId ?? crypto.randomUUID();
   const agent = registerAgent(
     'terminal',
-    cwd,
+    place,
     sessionId,
     `Agent ${nextTerminalIndex++}`,
     !!resumeSessionId,
@@ -547,32 +743,38 @@ function launchAgent(cwd: string, resumeSessionId?: string): void {
     ptyId,
     label: agent.label,
     agentId: agent.id,
-    workspacePath: cwd,
-    folderName: path.basename(cwd),
+    workspacePath,
+    folderName: path.basename(workspacePath),
+    ...(place.branch ? { branch: place.branch } : {}),
   });
   ctx.send({
     type: 'agentCreated',
     id: agent.id,
     ptyId,
     agentKind: 'terminal',
-    folderName: path.basename(cwd),
-    workspacePath: cwd,
+    folderName: path.basename(workspacePath),
+    workspacePath,
+    ...(place.branch ? { branch: place.branch } : {}),
   });
-  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(cwd) });
+  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(workspacePath) });
   ensureProjectScan(agent.projectDir);
 }
 
 function launchChatAgent(
-  cwd: string,
+  place: AgentPlacement,
   resumeSessionId?: string,
   initialPrompt?: string,
   roleId?: string,
 ): number {
+  // `cwd` is where the session runs; `workspacePath` is the office it belongs
+  // to — the two differ for a worktree agent, so never substitute one for the
+  // other: tasks and spend are the OFFICE's, the files are the checkout's.
+  const { cwd, workspacePath } = place;
   const sessionId = resumeSessionId ?? crypto.randomUUID();
   const role = roleId ? AGENT_ROLE_DEFS[roleId] : undefined;
   // Placeholder until the first prompt names the tab; roles make a better one
   const defaultLabel = role ? role.id : `Agent ${nextTerminalIndex++}`;
-  const agent = registerAgent('chat', cwd, sessionId, defaultLabel, !!resumeSessionId);
+  const agent = registerAgent('chat', place, sessionId, defaultLabel, !!resumeSessionId);
   if (roleId) {
     agent.role = roleId;
     snapshotOpenAgents(); // the role arrived after registration
@@ -599,20 +801,28 @@ function launchChatAgent(
     ...(persistedModel ? { model: persistedModel } : {}),
     ...(role ? { systemPromptAppend: role.charter, disallowedTools: role.disallowedTools } : {}),
     taskHandlers: {
-      list: () => getTodos(cwd),
+      list: () => getTodos(workspacePath),
       add: (text) => {
-        ctx.send({ type: 'workspaceTodos', path: cwd, todos: addTodo(cwd, text) });
+        ctx.send({
+          type: 'workspaceTodos',
+          path: workspacePath,
+          todos: addTodo(workspacePath, text),
+        });
       },
       complete: (id) => {
-        const item = getTodos(cwd).find((t) => t.id === id && t.status === 'open');
+        const item = getTodos(workspacePath).find((t) => t.id === id && t.status === 'open');
         if (!item) return false;
-        ctx.send({ type: 'workspaceTodos', path: cwd, todos: toggleTodo(cwd, id) });
+        ctx.send({
+          type: 'workspaceTodos',
+          path: workspacePath,
+          todos: toggleTodo(workspacePath, id),
+        });
         trackAchievement('agentTaskCompleted');
         return true;
       },
     },
     onTurnComplete: (costUsd, durationMs, turnSessionId) => {
-      recordTurnUsage(cwd, costUsd, durationMs, turnSessionId);
+      recordTurnUsage(workspacePath, costUsd, durationMs, turnSessionId);
       ctx.send({ type: 'usageSummary', summary: summarizeUsage() });
       trackAchievement('turnCompleted');
     },
@@ -635,18 +845,20 @@ function launchChatAgent(
     type: 'chat-created',
     agentId: agent.id,
     label: agent.label,
-    workspacePath: cwd,
-    folderName: path.basename(cwd),
+    workspacePath,
+    folderName: path.basename(workspacePath),
+    ...(place.branch ? { branch: place.branch } : {}),
   });
   ctx.send({
     type: 'agentCreated',
     id: agent.id,
     agentKind: 'chat',
-    folderName: path.basename(cwd),
-    workspacePath: cwd,
+    folderName: path.basename(workspacePath),
+    workspacePath,
+    ...(place.branch ? { branch: place.branch } : {}),
     ...(role ? { role: role.id } : {}),
   });
-  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(cwd) });
+  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(workspacePath) });
   trackAchievement('agentSpawned', {
     concurrentAgents: chatSessions.size,
     ...(role ? { role: role.id } : {}),
@@ -953,7 +1165,7 @@ function openAssistant(): void {
               },
               async (args) => {
                 launchChatAgent(
-                  args.workspacePath,
+                  inWorkspace(args.workspacePath),
                   undefined,
                   args.task,
                   args.role ?? roleForTaskText(args.task),
@@ -1065,7 +1277,7 @@ function sendSchedules(): void {
 function dispatchSchedule(s: ScheduleEntry): void {
   console.log(`[Agent Campus] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
   const agentId = launchChatAgent(
-    s.workspacePath,
+    inWorkspace(s.workspacePath),
     undefined,
     `Scheduled run. ${s.prompt}\n\nThis run is unattended: work autonomously, and if you ` +
       `finish or get blocked, leave a clear report as your final message.`,
@@ -1230,13 +1442,19 @@ async function resolveAgentCwd(folderPath: string | undefined): Promise<string |
 function focusChatTab(agentId: number): void {
   const session = chatSessions.get(agentId);
   if (session) {
+    const agent = ctx.agents.get(agentId);
     ctx.send({
       type: 'chat-created',
       agentId,
       label: session.label,
-      // The Assistant is not a registered agent and stays ungrouped
-      ...(ctx.agents.has(agentId)
-        ? { workspacePath: session.cwd, folderName: path.basename(session.cwd) }
+      // The Assistant is not a registered agent and stays ungrouped. A real
+      // one groups by its OFFICE (the repo), never by a worktree checkout.
+      ...(agent
+        ? {
+            workspacePath: agent.workspacePath,
+            folderName: path.basename(agent.workspacePath),
+            ...(agent.branch ? { branch: agent.branch } : {}),
+          }
         : {}),
     });
   }
@@ -1260,8 +1478,10 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'startClaudeLogin') {
     startClaudeLogin();
   } else if (msg.type === 'openClaude') {
-    void resolveAgentCwd(msg.folderPath).then((cwd) => {
-      if (cwd) launchAgent(cwd);
+    void resolveAgentCwd(msg.folderPath).then(async (cwd) => {
+      if (!cwd) return;
+      const place = await placeForRequest(cwd, msg.worktree);
+      if (place) launchAgent(place);
     });
   } else if (msg.type === 'openAssistant') {
     if (assistantAgentId !== null && chatSessions.has(assistantAgentId)) {
@@ -1273,8 +1493,10 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       chatSessions.get(assistantAgentId)?.send(msg.prompt);
     }
   } else if (msg.type === 'openChatAgent') {
-    void resolveAgentCwd(msg.folderPath).then((cwd) => {
-      if (cwd) launchChatAgent(cwd);
+    void resolveAgentCwd(msg.folderPath).then(async (cwd) => {
+      if (!cwd) return;
+      const place = await placeForRequest(cwd, msg.worktree);
+      if (place) launchChatAgent(place);
     });
   } else if (msg.type === 'chatSend') {
     chatSessions.get(msg.id)?.send(msg.text, msg.images);
@@ -1342,7 +1564,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     if (todo) {
       trackAchievement('taskAssigned');
       launchChatAgent(
-        msg.path,
+        inWorkspace(msg.path),
         undefined,
         `You are assigned this task (task id: ${todo.id}):\n\n${todo.text}\n\n` +
           `The workspace has a shared task list available through your tasks tools ` +
@@ -1352,10 +1574,34 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
         roleForTaskText(todo.text),
       );
     }
+  } else if (msg.type === 'listWorktrees') {
+    sendWorktrees(msg.workspacePath);
+  } else if (msg.type === 'removeWorktree') {
+    const repoRoot = gitRepoRoot(msg.workspacePath);
+    if (!repoRoot) return;
+    const target = worktreesWithAgents(repoRoot).find((w) => w.path === msg.path);
+    const blocker = target ? worktreeRemovalBlocker(target) : 'That worktree no longer exists.';
+    if (blocker) {
+      notify('error', blocker);
+      sendWorktrees(msg.workspacePath);
+      return;
+    }
+    try {
+      removeWorktreeDir(repoRoot, msg.path, msg.force);
+      notify('info', `Removed ${path.basename(msg.path)} — its branch and commits are kept.`);
+    } catch (err) {
+      notify('error', `Could not remove the worktree: ${(err as Error).message}`);
+    }
+    sendWorktrees(msg.workspacePath);
+  } else if (msg.type === 'setWorkspaceSetupCommand') {
+    ctx.send({
+      type: 'workspacesLoaded',
+      workspaces: setSetupCommand(msg.path, msg.command),
+    });
   } else if (msg.type === 'removeWorkspace') {
     ctx.send({ type: 'workspacesLoaded', workspaces: removeWorkspaceEntry(msg.path) });
   } else if (msg.type === 'resumeChatAgent') {
-    launchChatAgent(msg.folderPath, msg.sessionId);
+    launchChatAgent(inWorkspace(msg.folderPath), msg.sessionId);
   } else if (msg.type === 'saveLayout') {
     if (isValidLayout(msg.layout)) {
       if (msg.workspacePath) {
@@ -1443,10 +1689,17 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     for (const sessionId of msg.sessionIds) {
       const record = byId.get(sessionId);
       if (!record) continue;
+      // Back into the checkout it was working in — a worktree agent that
+      // came back in the repo would silently abandon its branch's work.
+      const place: AgentPlacement = {
+        cwd: record.cwd,
+        workspacePath: record.workspacePath ?? record.cwd,
+        ...(record.branch ? { branch: record.branch } : {}),
+      };
       if (record.kind === 'terminal') {
-        launchAgent(record.cwd, sessionId);
+        launchAgent(place, sessionId);
       } else {
-        launchChatAgent(record.cwd, sessionId, undefined, record.role);
+        launchChatAgent(place, sessionId, undefined, record.role);
       }
     }
   } else if (msg.type === 'closeAgent') {
@@ -1468,6 +1721,8 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       removeAgent(id);
       ctx.send({ type: 'agentClosed', id });
     }
+  } else if (msg.type === 'renameAgent') {
+    renameAgent(msg.id, msg.label);
   } else if (msg.type === 'focusAgent') {
     focusAgentTab(msg.id);
   } else if (msg.type === 'runAgentAction') {
@@ -1512,23 +1767,34 @@ function onWebviewReady(): void {
   // Rebuild terminal tabs for PTYs that survived a renderer reload; each
   // tab's TerminalInstance requests a scrollback replay via 'pty-ready'.
   for (const [ptyId, record] of ptys) {
+    const agentId = ptyToAgent.get(ptyId);
+    const agent = agentId !== undefined ? ctx.agents.get(agentId) : undefined;
+    // Tabs group by OFFICE, so a worktree agent's tab must replay with its
+    // repo — record.cwd is the checkout and would strand it in its own group.
+    const workspacePath = agent?.workspacePath ?? record.cwd;
     ctx.send({
       type: 'pty-created',
       ptyId,
       label: record.label,
-      ...(ptyToAgent.has(ptyId) ? { agentId: ptyToAgent.get(ptyId) } : {}),
-      ...(record.cwd ? { workspacePath: record.cwd, folderName: path.basename(record.cwd) } : {}),
+      ...(agentId !== undefined ? { agentId } : {}),
+      ...(workspacePath ? { workspacePath, folderName: path.basename(workspacePath) } : {}),
+      ...(agent?.branch ? { branch: agent.branch } : {}),
     });
   }
   // Same for chat tabs — each ChatView requests its history via 'chatReady'.
   // The Assistant is not a registered agent and stays workspace-less (ungrouped).
   for (const [agentId, session] of chatSessions) {
+    const agent = ctx.agents.get(agentId);
     ctx.send({
       type: 'chat-created',
       agentId,
       label: session.label,
-      ...(ctx.agents.has(agentId)
-        ? { workspacePath: session.cwd, folderName: path.basename(session.cwd) }
+      ...(agent
+        ? {
+            workspacePath: agent.workspacePath,
+            folderName: path.basename(agent.workspacePath),
+            ...(agent.branch ? { branch: agent.branch } : {}),
+          }
         : {}),
     });
   }
@@ -1538,13 +1804,16 @@ function onWebviewReady(): void {
   const metaBySession = loadSeatMetaBySession();
   const agentMeta: Record<number, AgentSeatMeta> = {};
   const folderNames: Record<number, string> = {};
+  const branches: Record<number, string> = {};
   for (const [id, agent] of ctx.agents) {
     if (metaBySession[agent.sessionId]) {
       agentMeta[id] = metaBySession[agent.sessionId];
     }
-    folderNames[id] = path.basename(agent.cwd);
+    // The office's name, not the checkout's: worktree agents belong to their repo
+    folderNames[id] = path.basename(agent.workspacePath);
+    if (agent.branch) branches[id] = agent.branch;
   }
-  ctx.send({ type: 'existingAgents', agents: agentIds, agentMeta, folderNames });
+  ctx.send({ type: 'existingAgents', agents: agentIds, agentMeta, folderNames, branches });
 
   // Load and send assets (fire-and-forget; loaders log their own errors)
   void (async () => {

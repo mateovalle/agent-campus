@@ -28,6 +28,8 @@ import {
   CHAT_SETTINGS_MENU_MAX_HEIGHT_PX,
   CHAT_SETTINGS_MENU_MIN_WIDTH_PX,
   CHAT_TOOL_GROUP_MIN,
+  CHAT_TURN_ANCHOR_ATTR,
+  CHAT_TURN_JUMP_TOLERANCE_PX,
 } from '../../constants.js';
 import { getElectronAPI, vscode } from '../../vscodeApi.js';
 import { PixelIcon } from '../PixelIcon.js';
@@ -46,6 +48,7 @@ import { QuestionCard } from './QuestionCard.js';
 import { ToolCard } from './ToolCard.js';
 import { ToolGroup } from './ToolGroup.js';
 import { buildRenderNodes } from './toolMeta.js';
+import { turnJumpTarget } from './turnNavigation.js';
 
 interface ChatViewProps {
   agentId: number;
@@ -199,6 +202,21 @@ const newMessagesBtnStyle: React.CSSProperties = {
   boxShadow: 'var(--pixel-shadow)',
   padding: '3px 10px',
   fontSize: '18px',
+  cursor: 'pointer',
+};
+
+/** Turn-jump arrows, pinned to the top-right of the message list. */
+const turnNavBtnStyle: React.CSSProperties = {
+  background: 'var(--pixel-bg)',
+  color: 'var(--pixel-text-dim)',
+  border: '2px solid var(--pixel-border)',
+  borderRadius: 0,
+  boxShadow: 'var(--pixel-shadow)',
+  width: 24,
+  height: 22,
+  padding: 0,
+  fontSize: '16px',
+  lineHeight: 1,
   cursor: 'pointer',
 };
 
@@ -854,6 +872,34 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
     setHasNew(false);
   }, []);
 
+  /**
+   * Jumps to the previous/next turn. Anchors are read from the DOM rather
+   * than tracked in state: the list already re-renders on every event, and a
+   * parallel ref map would only have to be kept in sync with it.
+   */
+  const jumpTurn = useCallback(
+    (direction: 'up' | 'down') => {
+      const el = listRef.current;
+      if (!el) return;
+      const listTop = el.getBoundingClientRect().top;
+      const tops = [...el.querySelectorAll(`[${CHAT_TURN_ANCHOR_ATTR}]`)].map(
+        (node) => node.getBoundingClientRect().top - listTop + el.scrollTop,
+      );
+      const target = turnJumpTarget(tops, el.scrollTop, direction, CHAT_TURN_JUMP_TOLERANCE_PX);
+      if (target === null) {
+        // Past the last turn there is only the newest answer — go read it.
+        if (direction === 'down') scrollToBottom();
+        return;
+      }
+      el.scrollTop = target;
+      // A jump upwards is a deliberate "leave me here": stop auto-scrolling on
+      // new content, which is what nearBottomRef gates.
+      nearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < CHAT_NEAR_BOTTOM_PX;
+    },
+    [scrollToBottom],
+  );
+
   // ── Image attachments ──────────────────────────────────────
 
   // Transient warning line above the composer; auto-clears
@@ -1058,6 +1104,14 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   // stop it there, so they still win while they're open.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Alt+Arrow walks the conversation by turn. Alt is the one modifier
+      // free here: plain arrows belong to the composer's caret, and macOS
+      // takes Ctrl+Arrow for Mission Control.
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        jumpTurn(e.key === 'ArrowUp' ? 'up' : 'down');
+        e.preventDefault();
+        return;
+      }
       if (e.key !== 'Escape' || ended) return;
       // Mid-turn Escape interrupts; otherwise it dismisses a pending
       // suggestion. With neither in play the key is left alone, so the
@@ -1068,7 +1122,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       e.preventDefault();
       e.stopPropagation(); // also stops the native bubble (edit-mode shortcuts)
     },
-    [busy, ended, suggestion, handleStop],
+    [busy, ended, suggestion, handleStop, jumpTurn],
   );
 
   // Offered only on an empty composer: with a draft in progress the row would
@@ -1076,6 +1130,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const suggestionVisible = suggestion !== null && draft === '' && !busy && !ended;
 
   const sendDisabled = ended || (draft.trim() === '' && attachments.length === 0);
+
+  // One turn is just the conversation so far — nothing to jump between yet.
+  const turnCount = model.items.reduce((n, item) => (item.kind === 'user' ? n + 1 : n), 0);
 
   // AskUserQuestion requests anchor to their tool card and render inline in
   // the message list; everything else (and unmatched asks) uses the bottom
@@ -1130,17 +1187,50 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             node.type === 'group' ? (
               <ToolGroup key={node.items[0].key} items={node.items} />
             ) : (
-              <ChatItemView
+              // Each of the user's messages starts a turn, and so doubles as
+              // the jump anchor for the arrows above.
+              <div
                 key={node.item.key}
-                item={node.item}
-                askRequest={
-                  node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
-                }
-                onPermissionRespond={handlePermissionResponse}
-              />
+                {...(node.item.kind === 'user' ? { [CHAT_TURN_ANCHOR_ATTR]: '' } : {})}
+              >
+                <ChatItemView
+                  item={node.item}
+                  askRequest={
+                    node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
+                  }
+                  onPermissionRespond={handlePermissionResponse}
+                />
+              </div>
             ),
           )}
         </div>
+        {turnCount > 1 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            <button
+              style={turnNavBtnStyle}
+              onClick={() => jumpTurn('up')}
+              title="Previous message (Alt+↑)"
+            >
+              ▲
+            </button>
+            <button
+              style={turnNavBtnStyle}
+              onClick={() => jumpTurn('down')}
+              title="Next message (Alt+↓)"
+            >
+              ▼
+            </button>
+          </div>
+        )}
         {hasNew && (
           <button style={newMessagesBtnStyle} onClick={scrollToBottom}>
             ↓ new messages
