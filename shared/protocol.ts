@@ -141,6 +141,25 @@ export type ChatEvent =
   /** The SDK loop finished — the session accepts no further input. */
   | { kind: 'session-ended' };
 
+/**
+ * What a RUNNING agent says about itself through the `campus` CLI or its own
+ * MCP tools — the one channel that flows agent → office, where everything
+ * else is the host deducing state from a transcript.
+ *
+ * Session state, not transcript: re-sent on webviewReady the way 'chat-mode'
+ * and 'chat-suggestion' are, and deliberately NOT persisted in AgentSeatMeta.
+ * A progress bar from a build that died yesterday has no business coming back
+ * on resume.
+ */
+export interface AgentDecor {
+  /** Short line the agent wrote about itself; null clears it. */
+  status: string | null;
+  /** 0..1, drawn as a bar at the character's feet; null clears it. */
+  progress: number | null;
+  /** When it was last set — the webview owns any fade/TTL policy. */
+  setAtMs: number;
+}
+
 /** A registered workspace (project folder) — rendered as an office. */
 export interface WorkspaceInfo {
   path: string;
@@ -412,6 +431,14 @@ export type HostToWebviewMessage =
   | { type: 'hostNotice'; level: 'info' | 'error'; text: string }
   /** A repo's checkouts, for the worktree manager. */
   | { type: 'worktreesLoaded'; workspacePath: string; worktrees: WorktreeSummary[] }
+  /** An agent decorated itself (campus status/progress). Replayed on reload. */
+  | { type: 'agentDecor'; id: number; decor: AgentDecor }
+  /**
+   * One-shot shout from an agent (`campus notify`): raises its unread bubble
+   * and, with the window in the background, a native notification. NOT
+   * replayed — a two-hour-old "build done" is noise, not news.
+   */
+  | { type: 'agentNotice'; id: number; text: string }
   | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   // agentId/workspacePath/folderName let the tab bar group tabs per workspace

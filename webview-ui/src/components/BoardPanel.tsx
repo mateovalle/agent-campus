@@ -24,6 +24,8 @@ export interface BoardAgent {
   needsPermission: boolean;
   /** Latest tool status line while working. */
   activity: string | null;
+  /** What the agent said about itself (campus status) — outranks `activity`. */
+  spokenStatus?: string | null;
   /** The agent's in-progress plan item (TodoWrite), if any. */
   currentPlanItem: string | null;
   suggestions: AgentActionSuggestion[];
@@ -123,10 +125,12 @@ function AgentCard({
   const statusText = agent.needsPermission
     ? 'Needs approval'
     : agent.state === 'working'
-      ? (agent.activity ?? 'Working')
+      ? // The agent's own words first — it knows what it is doing better
+        // than the name of the tool it happens to be running.
+        (agent.spokenStatus ?? agent.activity ?? 'Working')
       : agent.state === 'waiting'
-        ? 'Turn finished'
-        : 'Idle';
+        ? (agent.spokenStatus ?? 'Turn finished')
+        : (agent.spokenStatus ?? 'Idle');
   return (
     <div style={{ ...cardStyle, border }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>

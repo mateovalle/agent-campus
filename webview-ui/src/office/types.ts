@@ -289,6 +289,14 @@ export interface Character {
   /** Role skin id (e.g. 'qa'); undefined = base look */
   role?: string;
   /**
+   * What the agent said about ITSELF through the campus CLI or its `me` tools
+   * — the one channel that flows agent → office. Ephemeral: a new turn
+   * retires it, and it is never persisted.
+   */
+  status?: string;
+  /** 0..1, drawn as a bar at the character's feet. Not an attention signal. */
+  progress?: number;
+  /**
    * Branch of the agent's private git worktree, when it has one. Shown in the
    * overlay so two characters in the SAME office visibly work on different
    * checkouts — the office is the repo, not the branch.

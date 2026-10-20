@@ -160,10 +160,13 @@ export function ToolOverlay({
         // Named agents lead with the name and demote the activity to the
         // subtitle; unnamed ones keep the old activity-first layout.
         const displayName = isSub ? undefined : ch.name;
-        const primaryText = displayName ?? activityText;
+        const primaryText = displayName ?? ch.status ?? activityText;
+        // What the agent SAID about itself beats what we inferred from its
+        // tools: "migrating the schema" is worth more than "Editing".
+        const spoken = isSub ? undefined : ch.status;
         const secondaryText =
           [
-            displayName ? activityText : null,
+            displayName ? (spoken ?? activityText) : null,
             ch.folderName,
             // Says WHERE the work lands: same office, different checkout
             ch.branch ? `⎇ ${ch.branch}` : null,
