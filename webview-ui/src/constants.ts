@@ -275,6 +275,18 @@ export const NOTICE_TOAST_MAX_WIDTH_PX = 520;
  */
 export const NOTICE_TOAST_Z_INDEX = 80;
 
+// ── Agent self-reported progress (campus CLI / `me` tools) ───
+// A bar at the character's feet. In SPRITE pixels: the renderer multiplies by
+// the same scale bubbles use, so it keeps a constant on-screen size.
+export const PROGRESS_BAR_WIDTH_PX = 16;
+export const PROGRESS_BAR_HEIGHT_PX = 3;
+export const PROGRESS_BAR_BORDER_PX = 1;
+/** Gap below the character's feet, so it never overlaps the sprite. */
+export const PROGRESS_BAR_FOOT_GAP_PX = 2;
+export const PROGRESS_BAR_BORDER_COLOR = '#0a0a14';
+export const PROGRESS_BAR_TRACK_COLOR = '#45475a';
+export const PROGRESS_BAR_FILL_COLOR = '#a6e3a1';
+
 // ── Worktree manager ─────────────────────────────────────────
 export const WORKTREES_MODAL_WIDTH_PX = 520;
 export const WORKTREES_MODAL_MAX_HEIGHT_PX = '70vh';

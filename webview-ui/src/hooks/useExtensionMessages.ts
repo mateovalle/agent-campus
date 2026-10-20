@@ -74,6 +74,8 @@ export interface ExtensionMessageState {
   agentStatuses: Record<number, string>;
   /** Display name per agent (auto-derived from its first prompt); absent until named. */
   agentNames: Record<number, string>;
+  /** Self-reported status line per agent (campus status / mcp__me__set_status). */
+  agentStatusTexts: Record<number, string>;
   subagentTools: Record<number, Record<string, ToolActivity[]>>;
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
@@ -151,6 +153,8 @@ export function useExtensionMessages(
   const [agentStatuses, setAgentStatuses] = useState<Record<number, string>>({});
   /** Host-derived display names, mirrored into React so labels re-render. */
   const [agentNames, setAgentNames] = useState<Record<number, string>>({});
+  /** What agents said about themselves (campus status) — for the DOM panels. */
+  const [agentStatusTexts, setAgentStatusTexts] = useState<Record<number, string>>({});
   const [subagentTools, setSubagentTools] = useState<
     Record<number, Record<string, ToolActivity[]>>
   >({});
@@ -227,6 +231,7 @@ export function useExtensionMessages(
       workspacePath?: string;
       name?: string;
       branch?: string;
+      decor?: { status: string | null; progress: number | null };
     }> = [];
     let workspacesLoaded = false;
     /**
@@ -243,6 +248,7 @@ export function useExtensionMessages(
         office.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.role);
         if (p.name) office.setAgentName(p.id, p.name);
         if (p.branch) office.setAgentBranch(p.id, p.branch);
+        if (p.decor) office.setAgentDecor(p.id, p.decor);
       }
       pendingAgents = [];
       saveAgentSeats(campus);
@@ -711,6 +717,35 @@ export function useExtensionMessages(
           return next;
         });
         setUnlockQueue((prev) => [...prev, unlocked]);
+      } else if (msg.type === 'agentDecor') {
+        const decor = msg.decor;
+        const office = campus.getOfficeForAgent(msg.id);
+        if (office) {
+          office.setAgentDecor(msg.id, decor);
+        } else {
+          // Replayed before the office exists (reload: decor arrives with the
+          // agent list, ahead of layoutLoaded) — patch the buffered record the
+          // way agentLabel does, or it lands on a character that isn't there.
+          const pending = pendingAgents.find((p) => p.id === msg.id);
+          if (pending) pending.decor = decor;
+        }
+        setAgentStatusTexts((prev) => {
+          if (!decor.status) {
+            if (!(msg.id in prev)) return prev;
+            const next = { ...prev };
+            delete next[msg.id];
+            return next;
+          }
+          return { ...prev, [msg.id]: decor.status };
+        });
+      } else if (msg.type === 'agentNotice') {
+        // A shout IS something for you, so it earns an unread bubble — and the
+        // text goes on the status line, because a bubble with nothing to read
+        // is just a mystery when you are sitting right there.
+        campus.getOfficeForAgent(msg.id)?.setAgentDecor(msg.id, { status: msg.text });
+        setAgentStatusTexts((prev) => ({ ...prev, [msg.id]: msg.text }));
+        campus.getOfficeForAgent(msg.id)?.showBubble(msg.id, BubbleKind.DONE);
+        playDoneSound();
       } else if (msg.type === 'worktreesLoaded') {
         setWorktrees({ workspacePath: msg.workspacePath, list: msg.worktrees });
       } else if (msg.type === 'hostNotice') {
@@ -752,6 +787,7 @@ export function useExtensionMessages(
     claudeAuth,
     unlockQueue,
     dismissUnlock,
+    agentStatusTexts,
     noticeQueue,
     dismissNotice,
     worktrees,

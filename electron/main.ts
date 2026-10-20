@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type {
+  AgentDecor,
   AgentSeatMeta,
   HostToWebviewMessage,
   RestorableAgent,
@@ -49,6 +50,17 @@ import {
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
 import { type AttentionEvent, AttentionTracker } from './attention.js';
+import type { CampusCommand, CampusResult, CampusServerHandle } from './campusServer.js';
+import {
+  applyCampusCommand,
+  authorizeCampus,
+  CAMPUS_NOTICE_MAX_CHARS,
+  campusSocketPath,
+  mintCampusToken,
+  normalizeStatusText,
+  startCampusServer,
+} from './campusServer.js';
+import { campusBinDir, installCampusShims } from './campusShim.js';
 import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
 import {
@@ -112,6 +124,12 @@ const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
 const BLOCKED_NOTIFY_AFTER_MS = 2 * 60_000;
 /** How often blocks are checked against BLOCKED_NOTIFY_AFTER_MS. */
 const ATTENTION_TICK_MS = 10_000;
+/**
+ * Trailing-edge window for pushing an agent's self-reported decoration. A
+ * build loop can call `campus progress` hundreds of times a second; the
+ * renderer only needs the latest.
+ */
+const CAMPUS_DECOR_PUSH_MS = 100;
 
 const DATA_DIR = path.join(os.homedir(), DATA_DIR_NAME);
 const AGENT_SEATS_FILE = path.join(DATA_DIR, 'agent-seats.json');
@@ -137,6 +155,13 @@ interface AgentState extends CoreAgentState {
   workspacePath: string;
   /** Branch of its private worktree, when it has one. */
   branch?: string;
+  /**
+   * Shared secret this agent's processes prove themselves with on the campus
+   * socket. In memory only — nothing to leak once the app quits.
+   */
+  campusToken: string;
+  /** What the agent last said about itself (campus status/progress). */
+  decor?: AgentDecor;
   /** Tab display name; starts as "Agent N" / role id, auto-derived from the first prompt. */
   label: string;
   /** True once the label was auto-derived (or restored) — stops further renames. */
@@ -181,7 +206,13 @@ const ctx: TrackerContext<AgentState> = {
   // Sessions live only as long as their PTYs — nothing to persist
   persistAgents: () => {},
   // First real prompt in a session names its tab
-  onUserPrompt: (agentId, text) => autoNameAgent(agentId, text),
+  onUserPrompt: (agentId, text) => {
+    // A new turn makes last turn's "migrating the schema" a lie. Cleared here
+    // rather than on every tool start, because an agent's own build hook runs
+    // mid-turn and the next tool would wipe what it just set.
+    clearAgentDecor(agentId);
+    autoNameAgent(agentId, text);
+  },
 };
 
 // PTY state
@@ -335,6 +366,8 @@ function spawnPty(opts: {
   command?: string;
   sessionId?: string;
   label: string;
+  /** Extra environment for this terminal (the campus CLI's credentials). */
+  env?: Record<string, string>;
   /** Called when the process exits — used to gate on a worktree's setup. */
   onExit?: (exitCode: number) => void;
 }): string {
@@ -355,7 +388,7 @@ function spawnPty(opts: {
     cols: 80,
     rows: 24,
     cwd: opts.cwd || os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+    env: { ...process.env, TERM: 'xterm-256color', ...opts.env } as Record<string, string>,
   });
 
   const record: PtyRecord = {
@@ -475,6 +508,128 @@ function runWorktreeSetup(place: AgentPlacement, command: string): Promise<boole
   });
 }
 
+// ── The campus socket: agents decorating their own characters ──
+
+let campusServer: CampusServerHandle | null = null;
+let campusBin: string | null = null;
+/** Pending decor pushes, coalesced per agent (see sendDecorSoon). */
+const decorPushTimers = new Map<number, NodeJS.Timeout>();
+
+/**
+ * Environment that lets an agent's processes find the campus and prove who
+ * they are. Keyed by SESSION, not by the numeric agent id: ids are a
+ * per-process counter that changes across a restart, a restore and a resume,
+ * while the session uuid is what every other persistence path here uses.
+ */
+function campusEnvFor(agent: AgentState): Record<string, string> {
+  if (!campusServer?.bound || !campusBin) return {};
+  return {
+    CAMPUS_SESSION: agent.sessionId,
+    CAMPUS_TOKEN: agent.campusToken,
+    CAMPUS_SOCKET: campusServer.path,
+    // So a hook can call the CLI by absolute path even if PATH was rewritten
+    CAMPUS_BIN: campusBin,
+  };
+}
+
+/**
+ * Pushes an agent's decoration to the webview, coalesced on a trailing edge.
+ * A build loop reporting progress every few milliseconds would otherwise put
+ * hundreds of IPC messages a second in front of the renderer; the record is
+ * always current, only the telling is throttled.
+ */
+function sendDecorSoon(agentId: number): void {
+  if (decorPushTimers.has(agentId)) return;
+  decorPushTimers.set(
+    agentId,
+    setTimeout(() => {
+      decorPushTimers.delete(agentId);
+      const agent = ctx.agents.get(agentId);
+      if (agent?.decor) ctx.send({ type: 'agentDecor', id: agentId, decor: agent.decor });
+    }, CAMPUS_DECOR_PUSH_MS),
+  );
+}
+
+/** Drops whatever an agent said about itself, telling the webview to forget it. */
+function clearAgentDecor(agentId: number): void {
+  const agent = ctx.agents.get(agentId);
+  if (!agent?.decor) return;
+  delete agent.decor;
+  clearTimeout(decorPushTimers.get(agentId));
+  decorPushTimers.delete(agentId);
+  ctx.send({
+    type: 'agentDecor',
+    id: agentId,
+    decor: { status: null, progress: null, setAtMs: Date.now() },
+  });
+}
+
+/** Handles one authenticated-or-not command off the socket. */
+function handleCampusCommand(cmd: CampusCommand): CampusResult {
+  const agent = [...ctx.agents.values()].find((a) => a.sessionId === cmd.session);
+  // An unknown session and a bad token answer identically, so a caller can't
+  // probe for which sessions exist.
+  if (
+    !agent ||
+    !authorizeCampus(
+      (session) => (session === agent.sessionId ? agent.campusToken : undefined),
+      cmd,
+    )
+  ) {
+    return { ok: false, error: 'unknown session or bad token' };
+  }
+
+  if (cmd.verb === 'ping') {
+    return { ok: true, info: { agent: agent.label, session: agent.sessionId, cwd: agent.cwd } };
+  }
+
+  if (cmd.verb === 'notify') {
+    const text = normalizeStatusText(cmd.text ?? '', CAMPUS_NOTICE_MAX_CHARS);
+    if (!text) return { ok: false, error: 'nothing to say' };
+    // A shout IS something for you: the office's bubble rule is satisfied.
+    ctx.send({ type: 'agentNotice', id: agent.id, text });
+    notifyAgentShout(agent, text);
+    return { ok: true };
+  }
+
+  agent.decor = applyCampusCommand(agent.decor, cmd, Date.now());
+  sendDecorSoon(agent.id);
+  return { ok: true };
+}
+
+/** Native notification for `campus notify`, when you aren't looking. */
+function notifyAgentShout(agent: AgentState, text: string): void {
+  if (!loadSettings().notificationsEnabled) return;
+  if (mainWindow?.isFocused()) return; // you're here — the bubble is enough
+  const n = new Notification({ title: agent.label, body: text, silent: true });
+  liveNotifications.add(n);
+  n.on('click', () => showAgent(agent.id));
+  n.on('close', () => liveNotifications.delete(n));
+  n.show();
+}
+
+/**
+ * Brings up the socket and installs the CLI. Failure is survivable: the
+ * office works exactly as before, agents simply have nothing to talk to.
+ */
+async function startCampus(): Promise<void> {
+  const shims = installCampusShims({
+    electronPath: process.execPath,
+    cliSource: path.join(__dirname, 'campusCli.js'),
+    version: app.getVersion(),
+  });
+  campusBin = shims?.binDir ?? null;
+
+  campusServer = await startCampusServer({
+    socketPath: campusSocketPath(app.isPackaged),
+    onCommand: handleCampusCommand,
+    onNotice: (level, text) => console.log(`[Agent Campus] campus socket: ${level}: ${text}`),
+  });
+  if (campusServer.bound) {
+    console.log(`[Agent Campus] campus socket at ${campusServer.path}`);
+  }
+}
+
 /**
  * A repo's checkouts, each tagged with the agents living in it. Agents are
  * matched by the directory they RUN in (`cwd`), which is exactly what a
@@ -576,6 +731,7 @@ function registerAgent(
     cwd,
     workspacePath: place.workspacePath,
     ...(place.branch ? { branch: place.branch } : {}),
+    campusToken: mintCampusToken(),
     label: storedName ?? label,
     autoNamed: !!storedName,
     openedAtMs: Date.now(),
@@ -727,11 +883,16 @@ function launchAgent(place: AgentPlacement, resumeSessionId?: string): void {
   // Resuming continues the same session id, so the transcript watcher
   // registered on it keeps working exactly as for a fresh one.
   const sessionFlag = resumeSessionId ? `--resume ${sessionId}` : `--session-id ${sessionId}`;
+  // The PATH prefix goes INSIDE the command, not in the env: this is a LOGIN
+  // shell, and a user's profile that sets PATH wholesale would drop anything
+  // we put in the environment before it ran.
+  const campusPath = campusBin ? `export PATH=${JSON.stringify(campusBin)}:"$PATH"; ` : '';
   const ptyId = spawnPty({
     cwd,
-    command: `claude ${sessionFlag}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
+    command: `${campusPath}claude ${sessionFlag}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
     sessionId,
     label: agent.label,
+    env: campusEnvFor(agent),
   });
   agent.ptyId = ptyId;
   agentToPty.set(agent.id, ptyId);
@@ -796,6 +957,39 @@ function launchChatAgent(
       : {}),
     send: ctx.send,
     bypassPermissions: loadSettings().bypassPermissions,
+    // Credentials for the campus CLI, plus its directory on PATH so the
+    // agent's own Bash tool and anything it spawns can reach it.
+    env: {
+      ...campusEnvFor(agent),
+      ...(campusBin ? { PATH: `${campusBin}${path.delimiter}${process.env.PATH ?? ''}` } : {}),
+    },
+    // The SDK-native half: a chat agent decorates itself with a tool call
+    // instead of shelling out, which is the difference between this being
+    // used and not.
+    selfHandlers: {
+      setStatus: (text) => {
+        agent.decor = applyCampusCommand(
+          agent.decor,
+          { verb: 'status', session: sessionId, token: agent.campusToken, text },
+          Date.now(),
+        );
+        sendDecorSoon(agent.id);
+      },
+      setProgress: (value) => {
+        agent.decor = applyCampusCommand(
+          agent.decor,
+          { verb: 'progress', session: sessionId, token: agent.campusToken, value },
+          Date.now(),
+        );
+        sendDecorSoon(agent.id);
+      },
+      notify: (text) => {
+        const clean = normalizeStatusText(text, CAMPUS_NOTICE_MAX_CHARS);
+        if (!clean) return;
+        ctx.send({ type: 'agentNotice', id: agent.id, text: clean });
+        notifyAgentShout(agent, clean);
+      },
+    },
     // Model is per SESSION, not global: a resumed agent comes back on the
     // model it was last switched to (see chatSetModel)
     ...(persistedModel ? { model: persistedModel } : {}),
@@ -1815,6 +2009,12 @@ function onWebviewReady(): void {
   }
   ctx.send({ type: 'existingAgents', agents: agentIds, agentMeta, folderNames, branches });
 
+  // Decoration is session state, like chat-mode: the webview lost it on
+  // reload, and only the host still knows what the agent said about itself.
+  for (const [id, agent] of ctx.agents) {
+    if (agent.decor) ctx.send({ type: 'agentDecor', id, decor: agent.decor });
+  }
+
   // Load and send assets (fire-and-forget; loaders log their own errors)
   void (async () => {
     const charSprites = await loadCharacterSprites(assetsRoot);
@@ -2140,10 +2340,16 @@ function cleanupAndQuit(): void {
   for (const id of [...ctx.agents.keys()]) removeAgent(id);
   for (const ptyId of [...ptys.keys()]) killPty(ptyId);
   ptys.clear();
+  for (const timer of decorPushTimers.values()) clearTimeout(timer);
+  decorPushTimers.clear();
+  campusServer?.close();
+  campusServer = null;
 }
 
 app.whenReady().then(() => {
+  // Before the campus socket: the PATH we hand to agents must be the fixed one
   fixPathEnv();
+  void startCampus();
   setupIpcHandlers();
 
   watchWorkspaceLayouts();

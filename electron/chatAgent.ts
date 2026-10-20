@@ -223,6 +223,16 @@ export interface ChatSession {
   dispose(): void;
 }
 
+/**
+ * What an agent may say about its own character — the SDK-native half of the
+ * campus CLI, so a chat agent can decorate itself without shelling out.
+ */
+export interface SelfToolHandlers {
+  setStatus(text: string): void;
+  setProgress(value: number): void;
+  notify(text: string): void;
+}
+
 export function startChatSession(opts: {
   agentId: number;
   sessionId: string;
@@ -237,6 +247,14 @@ export function startChatSession(opts: {
    */
   initialHistory?: ChatEvent[];
   onExit: () => void;
+  /**
+   * Extra environment for the session's own processes (the campus CLI's
+   * credentials). Note the SDK REPLACES the child env with what it is given,
+   * so this is merged over process.env rather than passed on its own.
+   */
+  env?: Record<string, string>;
+  /** Lets the agent decorate its own office character (campus tools). */
+  selfHandlers?: SelfToolHandlers;
   /** Backing store for the workspace-scoped tasks tools. */
   taskHandlers?: TaskToolHandlers;
   /** Builds custom MCP servers (runs with the loaded SDK — main is CJS). */
@@ -526,6 +544,9 @@ export function startChatSession(opts: {
   const claudeExecutable = resolveClaudeExecutable();
   const sdkOptions: Options = {
     cwd,
+    // The SDK REPLACES the child environment with this, so process.env has to
+    // be spread in or the session loses PATH, HOME and the user's whole shell.
+    ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
     // Explicit path so packaged builds spawn the real unpacked binary
     // instead of the SDK's asar-internal default (see resolveClaudeExecutable)
     ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
@@ -612,14 +633,58 @@ export function startChatSession(opts: {
           append: opts.systemPromptAppend,
         };
       }
+      // Servers accumulate: before this, each source ASSIGNED mcpServers and
+      // allowedTools, so whichever ran last silently disowned the others'
+      // tools. Three sources now, so they merge.
+      const mcpServers: NonNullable<Options['mcpServers']> = {};
+      const allowedTools: string[] = [];
+
       if (opts.toolsFactory) {
         const built = opts.toolsFactory(sdk, z);
-        sdkOptions.mcpServers = built.mcpServers;
-        sdkOptions.allowedTools = built.allowedTools;
+        Object.assign(mcpServers, built.mcpServers);
+        allowedTools.push(...built.allowedTools);
       }
+
+      const self = opts.selfHandlers;
+      if (self) {
+        mcpServers.me = sdk.createSdkMcpServer({
+          name: 'me',
+          tools: [
+            sdk.tool(
+              'set_status',
+              'Show a short line under your character in the office, e.g. "migrating the schema". Call it when you start something long so the human can see what you are on without opening your tab. An empty string clears it.',
+              { text: z.string().describe('A few words. Empty clears the status.') },
+              async (args) => {
+                self.setStatus(args.text);
+                return { content: [{ type: 'text', text: 'Status shown.' }] };
+              },
+            ),
+            sdk.tool(
+              'set_progress',
+              'Draw a progress bar at your character\u2019s feet (0 to 1). Useful when working through a known number of steps, files or tests.',
+              { value: z.number().min(0).max(1).describe('0 = just started, 1 = done') },
+              async (args) => {
+                self.setProgress(args.value);
+                return { content: [{ type: 'text', text: 'Progress shown.' }] };
+              },
+            ),
+            sdk.tool(
+              'notify',
+              'Get the human\u2019s attention: raises a bubble over your character and, if the app is in the background, a desktop notification. For things they asked to be told about \u2014 not for routine progress.',
+              { text: z.string().describe('One line, e.g. "the migration is done"') },
+              async (args) => {
+                self.notify(args.text);
+                return { content: [{ type: 'text', text: 'They have been told.' }] };
+              },
+            ),
+          ],
+        });
+        allowedTools.push('mcp__me__set_status', 'mcp__me__set_progress', 'mcp__me__notify');
+      }
+
       const th = opts.taskHandlers;
       if (th) {
-        sdkOptions.mcpServers = {
+        Object.assign(mcpServers, {
           tasks: sdk.createSdkMcpServer({
             name: 'tasks',
             tools: [
@@ -657,12 +722,17 @@ export function startChatSession(opts: {
               ),
             ],
           }),
-        };
-        sdkOptions.allowedTools = [
+        });
+        allowedTools.push(
           'mcp__tasks__list_tasks',
           'mcp__tasks__add_task',
           'mcp__tasks__complete_task',
-        ];
+        );
+      }
+
+      if (Object.keys(mcpServers).length > 0) {
+        sdkOptions.mcpServers = mcpServers;
+        sdkOptions.allowedTools = allowedTools;
       }
       query = sdk.query({ prompt: input.iterable, options: sdkOptions });
       for await (const msg of query) {

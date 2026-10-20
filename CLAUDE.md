@@ -55,6 +55,28 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 Per-workspace layout files (~/.pixel-agents/layouts/) are sent on
                                 webviewReady AND hot-reloaded via a layouts-dir watcher (debounced,
                                 own-write suppression) — external edits apply without restart
+  campusServer.ts / campusCli.ts / campusShim.ts
+                              — THE CAMPUS SOCKET: the one channel that flows agent → office.
+                                Everything else here deduces a character's state from a transcript;
+                                this lets a running session (or any script it spawns — a build, a
+                                git hook) decorate ITSELF: `campus status "<text>"`,
+                                `campus progress 60%`, `campus notify "<text>"`, `campus ping`.
+                                Transport is HTTP/1.1 over a unix socket (named pipe on Windows),
+                                one request per connection — HTTP so node's parser owns framing and
+                                limits, and so `curl --unix-socket` stays a viable client. The
+                                socket lives in os.tmpdir(), NOT ~/.pixel-agents: the path is capped
+                                at 104 bytes on macOS and a deep home blows it, failing mutely
+                                (the test harness's own HOME does). A home-path hash keeps dev,
+                                packaged and test instances apart. CLI delivery needs no node and no
+                                packaging change: the shim execs our own Electron with
+                                ELECTRON_RUN_AS_NODE=1 on campusCli.js, COPIED OUT of the asar with
+                                its one local dependency (CLI_RUNTIME_FILES — copying only the entry
+                                point installs cleanly and dies with MODULE_NOT_FOUND on first use).
+                                Shims are rewritten every launch, which is the whole self-healing
+                                story for a moved or upgraded app. TRUST: a per-agent token keyed by
+                                SESSION (not the numeric agent id, which changes across restart,
+                                restore and resume) — it prevents ACCIDENTS, not attackers, and is a
+                                same-user boundary, not a security feature
   worktrees.ts                — Git worktrees: a private checkout per agent (opt-in), so two agents
                                 in one repo stop overwriting each other. Checkouts live in
                                 ~/.pixel-agents/worktrees/<repo>-<hash>/<branch> (never beside the
@@ -381,6 +403,22 @@ are the office a new workspace is born with, not whichever office you happen to 
 
 **Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix. Same palette + hueShift as parent. Click focuses parent terminal. Not persisted. Spawn at closest free seat to parent (Manhattan distance); fallback: closest walkable tile. **Sub-agent permission detection**: when a sub-agent runs a non-exempt tool, `startPermissionTimer` fires on the parent agent; if 5s elapse with no data, permission bubbles appear on both parent and sub-agent characters. `activeSubagentToolNames` (parentToolId → subToolId → toolName) tracks which sub-tools are active for the exempt check. Cleared when data resumes or Task completes.
 
+**Agent self-reporting (`AgentDecor`)**: what an agent says about itself — a status line and a
+0..1 progress bar — reaching the office through the campus socket or, for chat agents, the `me`
+MCP tools (`mcp__me__set_status` / `set_progress` / `notify`, built in chatAgent.ts, which is how a
+model actually discovers the feature; a terminal agent needs a hook or script to call the CLI).
+Session state, NOT transcript: held on `AgentState.decor`, re-sent on `webviewReady` like
+`chat-mode`, never persisted in `AgentSeatMeta` — a progress bar from yesterday's build has no
+business returning on resume. A new user prompt retires it (`clearAgentDecor` on `onUserPrompt`),
+deliberately not every tool start, since an agent's own build hook runs mid-turn. Pushes are
+coalesced per agent on a 100ms trailing edge, because a build loop can call `progress` hundreds of
+times a second. The bar is drawn at the character's FEET (`renderProgressBars`), scaled like
+bubbles so it keeps a constant on-screen size — and deliberately NOT a bubble: 60% through a
+migration is not "there is something here for you". `campus notify` IS that, so it raises the
+unread bubble and puts its text on the status line (a bubble you can't read is a mystery when
+you're sitting right there). `officeState.setAgentDecor` is three-valued on purpose: absent leaves
+a field alone, null clears it, a value sets it — so a notify can't wipe a running progress bar.
+
 **Speech bubbles**: the office's attention channel, and the design rule is strict — **a bubble
 always means "there is something here for you"; ordinary work carries no bubble at all**. The
 premise is that nobody watches agents work: you leave and come back, so the office must
@@ -547,7 +585,11 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
 - `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (suites include
   transcriptParser, actionSuggestions, fileWatcher, roles, achievements, claudeAuth, schedules,
-  transcriptHistory, attention, worktrees). `worktrees.integration.test.ts` drives REAL git in a
+  transcriptHistory, attention, worktrees, campusServer).
+  `campusSocket.integration.test.ts` drives a REAL socket through the shipped client
+  (`sendCampusCommand`), and its most important case is the one that would otherwise take the whole
+  app down: a client killed mid-write emits EPIPE, and an unhandled socket 'error' kills the main
+  process — every agent's host — over one interrupted CLI call. `worktrees.integration.test.ts` drives REAL git in a
   temp repo with HOME redirected — it asserts the isolation the feature exists for (an edit in one
   checkout leaves the repo untouched), so keep the HOME override if you touch it. `vitest.config.ts` scopes it; the webview has no test setup
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,

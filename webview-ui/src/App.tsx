@@ -165,6 +165,7 @@ function App() {
     agentTools,
     agentStatuses,
     agentNames,
+    agentStatusTexts,
     subagentTools,
     subagentCharacters,
     layoutReady,
@@ -427,6 +428,7 @@ function App() {
       state: activeTool ? 'working' : isWaiting ? 'waiting' : 'idle',
       needsPermission,
       activity: activeTool?.status ?? null,
+      spokenStatus: agentStatusTexts[id] ?? null,
       currentPlanItem: planItem?.content ?? null,
       suggestions: agentSuggestions[id] ?? [],
     };

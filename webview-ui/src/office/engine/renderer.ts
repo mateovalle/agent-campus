@@ -41,6 +41,13 @@ import {
   OFFSCREEN_MARKER_COLORS,
   OFFSCREEN_MARKER_SIZE_PX,
   OUTLINE_Z_SORT_OFFSET,
+  PROGRESS_BAR_BORDER_COLOR,
+  PROGRESS_BAR_BORDER_PX,
+  PROGRESS_BAR_FILL_COLOR,
+  PROGRESS_BAR_FOOT_GAP_PX,
+  PROGRESS_BAR_HEIGHT_PX,
+  PROGRESS_BAR_TRACK_COLOR,
+  PROGRESS_BAR_WIDTH_PX,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
   SEAT_BUSY_COLOR,
@@ -598,6 +605,41 @@ export function bubbleTopPoint(
   };
 }
 
+/**
+ * Progress bars at characters' feet — what an agent says about its own work.
+ *
+ * Deliberately NOT a bubble: bubbles mean "there is something here for you",
+ * and a build at 60% is not that. At the feet, too, so it never collides with
+ * the bubble above the head or the overlay anchored to it. Like bubbles, it
+ * is a UI layer pinned to the character rather than a world object, so it
+ * keeps a constant on-screen size and stays legible at campus zoom.
+ */
+export function renderProgressBars(
+  ctx: CanvasRenderingContext2D,
+  characters: Character[],
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+): void {
+  const scale = bubbleScale(zoom);
+  const width = PROGRESS_BAR_WIDTH_PX * scale;
+  const height = PROGRESS_BAR_HEIGHT_PX * scale;
+  const border = PROGRESS_BAR_BORDER_PX * scale;
+
+  for (const ch of characters) {
+    if (ch.progress === undefined || ch.matrixEffect) continue;
+    const x = Math.round(offsetX + ch.x * zoom - width / 2);
+    const y = Math.round(offsetY + ch.y * zoom + PROGRESS_BAR_FOOT_GAP_PX * scale);
+
+    ctx.fillStyle = PROGRESS_BAR_BORDER_COLOR;
+    ctx.fillRect(x - border, y - border, width + border * 2, height + border * 2);
+    ctx.fillStyle = PROGRESS_BAR_TRACK_COLOR;
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = PROGRESS_BAR_FILL_COLOR;
+    ctx.fillRect(x, y, Math.round(width * Math.min(1, Math.max(0, ch.progress))), height);
+  }
+}
+
 export function renderBubbles(
   ctx: CanvasRenderingContext2D,
   characters: Character[],
@@ -925,6 +967,7 @@ export function renderOffice(
     office.hoveredAgentId,
   );
 
+  renderProgressBars(ctx, characters, offsetX, offsetY, zoom);
   if (showBubbles) renderBubbles(ctx, characters, offsetX, offsetY, zoom);
 }
 

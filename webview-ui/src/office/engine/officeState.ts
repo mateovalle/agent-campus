@@ -428,6 +428,27 @@ export class OfficeState {
     else delete ch.name;
   }
 
+  /**
+   * Applies what an agent said about itself.
+   *
+   * Field semantics are three-valued on purpose: absent leaves a field alone,
+   * null clears it, a value sets it. A `campus notify` only has something to
+   * say about the status line and must not wipe a progress bar that is still
+   * running underneath it.
+   */
+  setAgentDecor(id: number, decor: { status?: string | null; progress?: number | null }): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    if (decor.status !== undefined) {
+      if (decor.status) ch.status = decor.status;
+      else delete ch.status;
+    }
+    if (decor.progress !== undefined) {
+      if (decor.progress !== null) ch.progress = decor.progress;
+      else delete ch.progress;
+    }
+  }
+
   /** Tags a character with the worktree branch its agent runs on. */
   setAgentBranch(id: number, branch: string | undefined): void {
     const ch = this.characters.get(id);
