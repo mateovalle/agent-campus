@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import * as fs from 'fs';
 import * as pty from 'node-pty';
@@ -75,6 +75,7 @@ import {
   restorableAgents,
   saveOpenAgents,
 } from './openAgents.js';
+import { type LineEditor, openFileRef } from './openInEditor.js';
 import {
   addSchedule,
   collectDueSchedules,
@@ -1767,6 +1768,28 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
           `discover follow-up work worth tracking, record it with add_task.`,
         roleForTaskText(todo.text),
       );
+    }
+  } else if (msg.type === 'openFile') {
+    const agent = msg.agentId !== undefined ? ctx.agents.get(msg.agentId) : undefined;
+    const outcome = openFileRef(msg.path, msg.line, {
+      // An agent's cwd is where its relative paths mean something — for a
+      // worktree agent that is the checkout, not the repo.
+      cwd: agent?.cwd,
+      home: os.homedir(),
+      openDefault: (file) => void shell.openPath(file),
+      spawnEditor: (editor: LineEditor, args) => {
+        try {
+          spawn(editor, args, { detached: true, stdio: 'ignore' }).unref();
+        } catch (err) {
+          console.error('[Agent Campus] Could not start the editor:', err);
+          void shell.openPath(msg.path);
+        }
+      },
+    });
+    if (outcome.kind === 'missing') {
+      notify('error', `No file at ${outcome.file}`);
+    } else if (outcome.kind === 'unresolved') {
+      notify('error', `Cannot tell where ${outcome.raw} is — no agent to resolve it against.`);
     }
   } else if (msg.type === 'listWorktrees') {
     sendWorktrees(msg.workspacePath);

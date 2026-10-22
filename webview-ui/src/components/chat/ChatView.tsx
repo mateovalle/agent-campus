@@ -41,6 +41,7 @@ import {
   emptyChatModel,
   parseAskUserQuestions,
 } from './chatModel.js';
+import { ChatAgentContext } from './fileRefContext.js';
 import { Markdown } from './Markdown.js';
 import type { PermissionRequestInfo } from './PermissionCard.js';
 import { PermissionCard } from './PermissionCard.js';
@@ -1153,205 +1154,210 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const stripPermissions = permissions.filter((p) => !inlineRequestIds.has(p.requestId));
 
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: visible ? 'flex' : 'none',
-        flexDirection: 'column',
-        background: 'var(--pixel-bg)',
-        position: 'relative',
-      }}
-      onKeyDown={handleKeyDown}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      {dragActive && <div style={dropOverlayStyle}>Drop files</div>}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <div
-          ref={listRef}
-          onScroll={handleScroll}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            overflowY: 'auto',
-            padding: '10px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-          }}
-        >
-          {buildRenderNodes(model.items, CHAT_TOOL_GROUP_MIN).map((node) =>
-            node.type === 'group' ? (
-              <ToolGroup key={node.items[0].key} items={node.items} />
-            ) : (
-              // Each of the user's messages starts a turn, and so doubles as
-              // the jump anchor for the arrows above.
-              <div
-                key={node.item.key}
-                {...(node.item.kind === 'user' ? { [CHAT_TURN_ANCHOR_ATTR]: '' } : {})}
-              >
-                <ChatItemView
-                  item={node.item}
-                  askRequest={
-                    node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
-                  }
-                  onPermissionRespond={handlePermissionResponse}
-                />
-              </div>
-            ),
-          )}
-        </div>
-        {turnCount > 1 && (
+    // Every path rendered below resolves against THIS agent's cwd
+    <ChatAgentContext.Provider value={agentId}>
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: visible ? 'flex' : 'none',
+          flexDirection: 'column',
+          background: 'var(--pixel-bg)',
+          position: 'relative',
+        }}
+        onKeyDown={handleKeyDown}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragActive && <div style={dropOverlayStyle}>Drop files</div>}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <div
+            ref={listRef}
+            onScroll={handleScroll}
             style={{
               position: 'absolute',
-              top: 8,
-              right: 14,
+              inset: 0,
+              overflowY: 'auto',
+              padding: '10px 14px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 2,
+              gap: 4,
             }}
           >
-            <button
-              style={turnNavBtnStyle}
-              onClick={() => jumpTurn('up')}
-              title="Previous message (Alt+↑)"
-            >
-              ▲
-            </button>
-            <button
-              style={turnNavBtnStyle}
-              onClick={() => jumpTurn('down')}
-              title="Next message (Alt+↓)"
-            >
-              ▼
-            </button>
+            {buildRenderNodes(model.items, CHAT_TOOL_GROUP_MIN).map((node) =>
+              node.type === 'group' ? (
+                <ToolGroup key={node.items[0].key} items={node.items} />
+              ) : (
+                // Each of the user's messages starts a turn, and so doubles as
+                // the jump anchor for the arrows above.
+                <div
+                  key={node.item.key}
+                  {...(node.item.kind === 'user' ? { [CHAT_TURN_ANCHOR_ATTR]: '' } : {})}
+                >
+                  <ChatItemView
+                    item={node.item}
+                    askRequest={
+                      node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
+                    }
+                    onPermissionRespond={handlePermissionResponse}
+                  />
+                </div>
+              ),
+            )}
           </div>
-        )}
-        {hasNew && (
-          <button style={newMessagesBtnStyle} onClick={scrollToBottom}>
-            ↓ new messages
-          </button>
-        )}
-      </div>
+          {turnCount > 1 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+            >
+              <button
+                style={turnNavBtnStyle}
+                onClick={() => jumpTurn('up')}
+                title="Previous message (Alt+↑)"
+              >
+                ▲
+              </button>
+              <button
+                style={turnNavBtnStyle}
+                onClick={() => jumpTurn('down')}
+                title="Next message (Alt+↓)"
+              >
+                ▼
+              </button>
+            </div>
+          )}
+          {hasNew && (
+            <button style={newMessagesBtnStyle} onClick={scrollToBottom}>
+              ↓ new messages
+            </button>
+          )}
+        </div>
 
-      {stripPermissions.length > 0 && (
-        <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto' }}>
-          {stripPermissions.map((request) => {
-            // AskUserQuestion is not a yes/no permission: the host UI must
-            // collect answers and return them via updatedInput (a plain
-            // Allow executes the tool without answers and errors the turn).
-            // Normally it renders inline on its tool card; this is the
-            // fallback for requests without a matching tool item.
-            const questions =
-              request.toolName === 'AskUserQuestion' ? parseAskUserQuestions(request.input) : null;
-            return questions ? (
-              <div key={request.requestId} style={{ margin: '0 8px' }}>
-                <QuestionCard
-                  questions={questions}
-                  status="running"
-                  resultSummary={null}
+        {stripPermissions.length > 0 && (
+          <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto' }}>
+            {stripPermissions.map((request) => {
+              // AskUserQuestion is not a yes/no permission: the host UI must
+              // collect answers and return them via updatedInput (a plain
+              // Allow executes the tool without answers and errors the turn).
+              // Normally it renders inline on its tool card; this is the
+              // fallback for requests without a matching tool item.
+              const questions =
+                request.toolName === 'AskUserQuestion'
+                  ? parseAskUserQuestions(request.input)
+                  : null;
+              return questions ? (
+                <div key={request.requestId} style={{ margin: '0 8px' }}>
+                  <QuestionCard
+                    questions={questions}
+                    status="running"
+                    resultSummary={null}
+                    request={request}
+                    onRespond={handlePermissionResponse}
+                  />
+                </div>
+              ) : (
+                <PermissionCard
+                  key={request.requestId}
                   request={request}
                   onRespond={handlePermissionResponse}
                 />
-              </div>
-            ) : (
-              <PermissionCard
-                key={request.requestId}
-                request={request}
-                onRespond={handlePermissionResponse}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {attachWarning !== null && (
-        <div className="pixel-chat-body" style={attachWarningStyle}>
-          {attachWarning}
-        </div>
-      )}
-
-      {attachments.length > 0 && (
-        <div style={attachTrayStyle}>
-          {attachments.map((attachment) => (
-            <div key={attachment.id} style={attachThumbWrapStyle}>
-              <img src={attachment.previewUrl} alt="attached image" style={attachThumbImgStyle} />
-              <button
-                style={attachRemoveBtnStyle}
-                onClick={() => removeAttachment(attachment.id)}
-                title="Remove image"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {suggestionVisible && (
-        <div style={suggestionRowStyle}>
-          <button
-            style={suggestionBtnStyle}
-            onClick={acceptSuggestion}
-            title="Use this suggested prompt (Tab)"
-          >
-            {suggestion}
-          </button>
-          <span style={suggestionKeyStyle}>Tab</span>
-        </div>
-      )}
-
-      <div style={composerRowStyle}>
-        <SessionSettings
-          mode={mode}
-          onSelectMode={handleModeSelect}
-          models={modelOptions}
-          activeModel={activeModel}
-          onSelectModel={handleModelSelect}
-        />
-        <textarea
-          ref={textareaRef}
-          className="pixel-chat-body"
-          rows={1}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPaste={handlePaste}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            } else if (e.key === 'Tab' && !e.shiftKey && suggestionVisible) {
-              e.preventDefault(); // otherwise Tab leaves the composer
-              acceptSuggestion();
-            }
-          }}
-          placeholder={ended ? CHAT_COMPOSER_ENDED_PLACEHOLDER : CHAT_COMPOSER_PLACEHOLDER}
-          disabled={ended}
-          style={textareaStyle}
-        />
-        {busy && !ended ? (
-          <button
-            style={stopBtnStyle}
-            onClick={handleStop}
-            title="Interrupt the current turn (Esc)"
-          >
-            Stop
-          </button>
-        ) : (
-          <button
-            style={sendDisabled ? sendBtnDisabledStyle : sendBtnStyle}
-            onClick={sendDisabled ? undefined : handleSend}
-            disabled={sendDisabled}
-            title="Send message"
-          >
-            Send
-          </button>
+              );
+            })}
+          </div>
         )}
+
+        {attachWarning !== null && (
+          <div className="pixel-chat-body" style={attachWarningStyle}>
+            {attachWarning}
+          </div>
+        )}
+
+        {attachments.length > 0 && (
+          <div style={attachTrayStyle}>
+            {attachments.map((attachment) => (
+              <div key={attachment.id} style={attachThumbWrapStyle}>
+                <img src={attachment.previewUrl} alt="attached image" style={attachThumbImgStyle} />
+                <button
+                  style={attachRemoveBtnStyle}
+                  onClick={() => removeAttachment(attachment.id)}
+                  title="Remove image"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {suggestionVisible && (
+          <div style={suggestionRowStyle}>
+            <button
+              style={suggestionBtnStyle}
+              onClick={acceptSuggestion}
+              title="Use this suggested prompt (Tab)"
+            >
+              {suggestion}
+            </button>
+            <span style={suggestionKeyStyle}>Tab</span>
+          </div>
+        )}
+
+        <div style={composerRowStyle}>
+          <SessionSettings
+            mode={mode}
+            onSelectMode={handleModeSelect}
+            models={modelOptions}
+            activeModel={activeModel}
+            onSelectModel={handleModelSelect}
+          />
+          <textarea
+            ref={textareaRef}
+            className="pixel-chat-body"
+            rows={1}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              } else if (e.key === 'Tab' && !e.shiftKey && suggestionVisible) {
+                e.preventDefault(); // otherwise Tab leaves the composer
+                acceptSuggestion();
+              }
+            }}
+            placeholder={ended ? CHAT_COMPOSER_ENDED_PLACEHOLDER : CHAT_COMPOSER_PLACEHOLDER}
+            disabled={ended}
+            style={textareaStyle}
+          />
+          {busy && !ended ? (
+            <button
+              style={stopBtnStyle}
+              onClick={handleStop}
+              title="Interrupt the current turn (Esc)"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              style={sendDisabled ? sendBtnDisabledStyle : sendBtnStyle}
+              onClick={sendDisabled ? undefined : handleSend}
+              disabled={sendDisabled}
+              title="Send message"
+            >
+              Send
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+    </ChatAgentContext.Provider>
   );
 }

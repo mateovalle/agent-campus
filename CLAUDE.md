@@ -55,6 +55,15 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 Per-workspace layout files (~/.pixel-agents/layouts/) are sent on
                                 webviewReady AND hot-reloaded via a layouts-dir watcher (debounced,
                                 own-write suppression) — external edits apply without restart
+  openInEditor.ts             — Clicking a file an agent mentioned. Agents write RELATIVE paths
+                                ("electron/main.ts"), which only mean something against that
+                                agent's cwd — for a worktree agent its checkout, not the repo — and
+                                LINE numbers ("main.ts:412"), which the default application for a
+                                .ts file cannot accept. So: resolveRefPath() against the agent's
+                                cwd, then an editor CLI (cursor/code/windsurf/zed/subl, first on
+                                PATH) when there is a line to jump to, else shell.openPath. A file
+                                that isn't there becomes a hostNotice naming the resolved path
+                                rather than a silent no-op. All pure except the spawn
   campusServer.ts / campusCli.ts / campusShim.ts
                               — THE CAMPUS SOCKET: the one channel that flows agent → office.
                                 Everything else here deduces a character's state from a transcript;
@@ -188,7 +197,18 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 → human review on the Board → budget-capped dispatch on approval.
                                 Clicking whiteboard furniture in the office also opens the Board
                                 (OfficeCanvas onBoardFurnitureClick)
-  components/chat/            — Rich chat UI for SDK agents. chatModel.ts is the pure
+  components/chat/            — Rich chat UI for SDK agents. filePaths.ts turns the paths an agent
+                                writes into click-to-open links (a terminal does this; the chat tab
+                                left them as dead text, worst exactly when it matters). Detection is
+                                OPTIMISTIC and the styling deliberately quiet — prose is full of
+                                things shaped like filenames, the webview cannot check the disk, and
+                                the host reports what is really missing on click. URL spans are
+                                excluded whole (in "https://h/a.md" the candidate starts at the
+                                SECOND slash, so inspecting the preceding characters is not enough),
+                                and PROSE_JS_WORDS stops "node.js" becoming a link. fileRefContext.ts
+                                carries the agent id paths resolve against — a separate module from
+                                FileRefText.tsx because a file exporting both a component and a
+                                context breaks fast refresh. chatModel.ts is the pure
                                 ChatEvent[] → ChatItem[] reducer (stable monotonic React keys);
                                 ChatView (message list + composer + image attachments +
                                 SessionSettings ⚙ popover (permission mode + model) +
@@ -591,7 +611,9 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   app down: a client killed mid-write emits EPIPE, and an unhandled socket 'error' kills the main
   process — every agent's host — over one interrupted CLI call. `worktrees.integration.test.ts` drives REAL git in a
   temp repo with HOME redirected — it asserts the isolation the feature exists for (an edit in one
-  checkout leaves the repo untouched), so keep the HOME override if you touch it. `vitest.config.ts` scopes it; the webview has no test setup
+  checkout leaves the repo untouched), so keep the HOME override if you touch it. `vitest.config.ts` scopes it. The webview has no DOM test setup and needs none, but its PURE
+  modules ARE covered (`webview-ui/src/**/*.test.ts` — filePaths): component files stay out by
+  matching only `*.test.ts`
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
 - `package-electron.json` at the repo root is DEAD (gitignored leftover of the deleted
