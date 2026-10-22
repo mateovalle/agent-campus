@@ -16,6 +16,7 @@ import {
 import { PixelIcon } from '../PixelIcon.js';
 import type { ToolCallStatus } from './chatModel.js';
 import { summarizeToolInput, truncateChars } from './chatModel.js';
+import { useOpenFileRef } from './fileRefContext.js';
 import { Markdown } from './Markdown.js';
 import type { ToolMeta } from './toolMeta.js';
 import {
@@ -384,6 +385,11 @@ export function ToolCard({ name, input, status, resultSummary }: ToolCardProps) 
   const meta: ToolMeta = resolveToolMeta(name, input);
   const color = categoryColor(meta.category);
   const summary = summarizeToolInput(name, input);
+  // Tool cards show a basename; the full path is right there in the input, so
+  // the file an agent just touched is one click away.
+  const rawFilePath = input.file_path ?? input.notebook_path;
+  const filePath = typeof rawFilePath === 'string' && rawFilePath ? rawFilePath : null;
+  const openFile = useOpenFileRef();
 
   const cardStyle: React.CSSProperties = {
     border: '2px solid var(--pixel-border)',
@@ -412,7 +418,25 @@ export function ToolCard({ name, input, status, resultSummary }: ToolCardProps) 
             {meta.badge}
           </span>
         )}
-        <span style={summaryStyle}>{summary}</span>
+        {filePath ? (
+          <span
+            style={{
+              ...summaryStyle,
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              textDecorationStyle: 'dotted',
+            }}
+            title={`Open ${filePath}`}
+            onClick={(e) => {
+              e.stopPropagation(); // the card header toggles; this opens
+              openFile({ path: filePath });
+            }}
+          >
+            {summary}
+          </span>
+        ) : (
+          <span style={summaryStyle}>{summary}</span>
+        )}
         <StatChip name={name} input={input} />
         <StatusGlyph status={status} />
         <span style={{ color: 'var(--pixel-text-dim)', fontSize: 10, flexShrink: 0 }}>

@@ -5,6 +5,7 @@ import {
   CHAT_CODE_FONT_SIZE_PX,
   CHAT_COPY_FEEDBACK_MS,
 } from '../../constants.js';
+import { FileRefText } from './FileRefText.js';
 
 const paragraphStyle: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
@@ -175,16 +176,20 @@ function renderInline(text: string, keyBase: string): React.ReactNode[] {
   while (rest.length > 0) {
     const m = INLINE_TOKEN_RE.exec(rest);
     if (!m) {
-      out.push(rest);
+      out.push(<FileRefText key={`${keyBase}t${k++}`} text={rest} />);
       break;
     }
-    if (m.index > 0) out.push(rest.slice(0, m.index));
+    if (m.index > 0) {
+      out.push(<FileRefText key={`${keyBase}t${k++}`} text={rest.slice(0, m.index)} />);
+    }
     const tok = m[0];
     const key = `${keyBase}i${k++}`;
     if (m[1]) {
+      // Backticks are where agents put paths most of the time, so this is the
+      // case that matters more than prose.
       out.push(
         <code key={key} className="pixel-chat-mono" style={inlineCodeStyle}>
-          {tok.slice(1, -1)}
+          <FileRefText text={tok.slice(1, -1)} />
         </code>,
       );
     } else if (m[2]) {

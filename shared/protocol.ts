@@ -540,6 +540,12 @@ export type WebviewToHostMessage =
   | { type: 'openChatAgent'; folderPath?: string; worktree?: WorktreeRequest }
   /** Per-workspace setup command run in every new worktree (empty clears it). */
   | { type: 'setWorkspaceSetupCommand'; path: string; command: string }
+  /**
+   * Open a file an agent mentioned. `agentId` resolves a RELATIVE path against
+   * that agent's cwd (its worktree, when it has one); a line opens an editor
+   * that can jump to it, when one is installed.
+   */
+  | { type: 'openFile'; agentId?: number; path: string; line?: number }
   /** Asks for a repo's checkouts (answered with worktreesLoaded). */
   | { type: 'listWorktrees'; workspacePath: string }
   /**
