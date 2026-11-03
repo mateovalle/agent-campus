@@ -12,11 +12,19 @@ export interface PermissionRequestInfo {
   title?: string;
   description?: string;
   input: Record<string, unknown>;
+  /** How far an "always allow" reaches — absent when the CLI offered no rule. */
+  alwaysAllowScope?: string;
 }
 
 interface PermissionCardProps {
   request: PermissionRequestInfo;
-  onRespond: (requestId: string, allow: boolean, message?: string) => void;
+  onRespond: (
+    requestId: string,
+    allow: boolean,
+    message?: string,
+    updatedInput?: Record<string, unknown>,
+    alwaysAllow?: boolean,
+  ) => void;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -106,6 +114,18 @@ export function PermissionCard({ request, onRespond }: PermissionCardProps) {
         <button style={allowBtnStyle} onClick={() => onRespond(request.requestId, true)}>
           Allow
         </button>
+        {/* Only when the CLI actually offered a rule, and labelled with how
+            far that rule reaches: "always" means something very different for
+            one session than for a settings file this user shares with a team. */}
+        {request.alwaysAllowScope && (
+          <button
+            style={allowBtnStyle}
+            title={`Allow this, and stop asking ${request.alwaysAllowScope}`}
+            onClick={() => onRespond(request.requestId, true, undefined, undefined, true)}
+          >
+            Always
+          </button>
+        )}
         <button style={denyBtnStyle} onClick={deny}>
           Deny
         </button>

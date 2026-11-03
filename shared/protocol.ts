@@ -524,6 +524,14 @@ export type HostToWebviewMessage =
       /** Human-readable subtitle with extra context. */
       description?: string;
       input: Record<string, unknown>;
+      /**
+       * How far an "always allow" would reach, in words, when the CLI offered
+       * a rule for it — absent when it offered none, which is the UI's signal
+       * not to show the button at all. The scope comes from the suggestion's
+       * own destination, because "always" means something different for this
+       * session than for the project's settings file.
+       */
+      alwaysAllowScope?: string;
     }
   /** The request was resolved elsewhere (abort/turn end) — remove the card. */
   | { type: 'chat-permission-resolved'; agentId: number; requestId: string }
@@ -595,6 +603,8 @@ export type WebviewToHostMessage =
       allow: boolean;
       /** Optional feedback delivered to Claude on deny. */
       message?: string;
+      /** Allow, and stop asking — returns the CLI's own suggested rules. */
+      alwaysAllow?: boolean;
       /**
        * Replacement tool input delivered on allow. Used by AskUserQuestion:
        * the host UI collects the user's answers and returns them here

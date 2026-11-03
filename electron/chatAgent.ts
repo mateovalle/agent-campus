@@ -12,6 +12,7 @@
 import type {
   Options,
   PermissionResult,
+  PermissionUpdate,
   Query,
   SDKMessage,
   SDKUserMessage,
@@ -47,6 +48,24 @@ const SUPPORTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', '
 const SDK_NATIVE_PACKAGE_PREFIX = '@anthropic-ai/claude-agent-sdk-';
 const ASAR_DIR_NAME = 'app.asar';
 const ASAR_UNPACKED_DIR_NAME = 'app.asar.unpacked';
+/**
+ * How far an "always allow" actually reaches, in words for a button.
+ *
+ * The scope is the suggestion's own `destination`, and it matters: a session
+ * rule is forgotten when the agent closes, while a settings rule outlives it
+ * and applies to work this user has not started yet. A button that said only
+ * "Always allow" would be hiding the difference.
+ */
+function describePermissionScope(updates: PermissionUpdate[]): string {
+  const destinations = new Set(updates.map((u) => u.destination));
+  if (destinations.size === 1 && destinations.has('session')) return 'for this session';
+  if (destinations.has('userSettings')) return 'for every project, saved in your settings';
+  if (destinations.has('projectSettings') || destinations.has('localSettings')) {
+    return 'for this project, saved in its settings';
+  }
+  return 'from now on';
+}
+
 const STARTUP_ERROR_PREFIX = "Couldn't start Claude session: ";
 const BAD_MESSAGE_PREFIX = 'Some output could not be displayed: ';
 const STARTUP_ERROR_HINT =
@@ -224,6 +243,8 @@ export interface ChatSession {
     allow: boolean,
     message?: string,
     updatedInput?: Record<string, unknown>,
+    /** Allow, and return the CLI's own suggested rules so it stops asking. */
+    alwaysAllow?: boolean,
   ): void;
   /** Re-sends still-pending permission requests (chatReady after a webview reload). */
   replayPendingPermissions(): void;
@@ -288,6 +309,13 @@ export function startChatSession(opts: {
     string,
     Extract<HostToWebviewMessage, { type: 'chat-permission-request' }>
   >();
+  /**
+   * The rules the CLI itself suggested for each pending request. Kept rather
+   * than invented: the SDK's contract is that the FULL set it offered comes
+   * back as `updatedPermissions`, and composing a rule from the tool name
+   * would grant something broader than what the user was shown.
+   */
+  const pendingPermissionRules = new Map<string, PermissionUpdate[]>();
   let query: Query | null = null;
   let disposed = false;
   /** True once the SDK reported `system init` — the CLI process launched. */
@@ -384,15 +412,24 @@ export function startChatSession(opts: {
       allow: boolean,
       message?: string,
       updatedInput?: Record<string, unknown>,
+      alwaysAllow?: boolean,
     ): void {
       const resolve = pendingPermissions.get(requestId);
       if (!resolve) return;
       pendingPermissions.delete(requestId);
       pendingPermissionMsgs.delete(requestId);
+      const rules = pendingPermissionRules.get(requestId);
+      pendingPermissionRules.delete(requestId);
       send({ type: 'chat-permission-resolved', agentId, requestId });
       resolve(
         allow
-          ? { behavior: 'allow', ...(updatedInput ? { updatedInput } : {}) }
+          ? {
+              behavior: 'allow',
+              ...(updatedInput ? { updatedInput } : {}),
+              // Handed back unedited: these are the CLI's own rules for "stop
+              // asking about this", and the user agreed to them as described.
+              ...(alwaysAllow && rules ? { updatedPermissions: rules } : {}),
+            }
           : { behavior: 'deny', message: message || 'The user declined this action.' },
       );
     },
@@ -605,6 +642,8 @@ export function startChatSession(opts: {
           return;
         }
         pendingPermissions.set(callOpts.requestId, resolve);
+        const suggestions = callOpts.suggestions ?? [];
+        if (suggestions.length > 0) pendingPermissionRules.set(callOpts.requestId, suggestions);
         const requestMsg = {
           type: 'chat-permission-request' as const,
           agentId,
@@ -614,6 +653,9 @@ export function startChatSession(opts: {
           title: callOpts.title,
           description: callOpts.description,
           input: toolInput,
+          ...(suggestions.length > 0
+            ? { alwaysAllowScope: describePermissionScope(suggestions) }
+            : {}),
         };
         pendingPermissionMsgs.set(callOpts.requestId, requestMsg);
         send(requestMsg);

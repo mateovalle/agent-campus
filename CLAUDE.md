@@ -289,6 +289,14 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 FileRefText.tsx because a file exporting both a component and a
                                 context breaks fast refresh. chatModel.ts is the pure
                                 ChatEvent[] → ChatItem[] reducer (stable monotonic React keys);
+                                PermissionCard's "Always" button, which appears ONLY when the CLI
+                                offered rules (`canUseTool`'s `suggestions`) and is labelled with
+                                how far they reach — `describePermissionScope` reads the
+                                suggestion's own `destination`, because "always" means one thing
+                                for a session and another for a settings file shared with a team.
+                                The rules go back unedited as `PermissionResult.updatedPermissions`:
+                                composing one from the tool name would grant something broader than
+                                what the user was shown.
                                 ChatView (message list + composer + image attachments +
                                 SessionSettings ⚙ popover (permission mode + model) +
                                 prompt-suggestion row); PermissionCard; ResumePicker;
