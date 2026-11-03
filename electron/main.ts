@@ -88,7 +88,15 @@ import {
   SCHEDULER_TICK_MS,
   setScheduleEnabled,
 } from './schedules.js';
-import { addTodo, deleteTodo, getAllTodoPaths, getTodos, toggleTodo } from './todos.js';
+import {
+  addTodo,
+  deleteTodo,
+  editTodo,
+  getAllTodoPaths,
+  getTodos,
+  moveTodo,
+  toggleTodo,
+} from './todos.js';
 import { isSyntheticUserText, loadTranscriptHistory } from './transcriptHistory.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
@@ -1297,7 +1305,8 @@ const ASSISTANT_PLANNING_PROCEDURE =
   'acceptance criteria ("Done when: ..."). A task must be executable by an agent with ' +
   'no other context than its text. ' +
   '(3) CONFIRM, do not dispatch: after writing the tasks, tell the user to review ' +
-  'them on the Board (they can edit/delete/reorder there). Only call create_agent ' +
+  'them on the Board, where they can edit the text, delete a task, or move it up and ';
+'down the backlog. Only call create_agent ' +
   'once the user approves dispatch. ' +
   '(4) DISPATCH with a budget: check agents_status first and keep at most 3 agents ' +
   'busy at once unless the user says otherwise; prefer assigning to an idle agent in ' +
@@ -1799,6 +1808,18 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     if (wasOpen) trackAchievement('taskCompleted');
   } else if (msg.type === 'deleteTodo') {
     ctx.send({ type: 'workspaceTodos', path: msg.path, todos: deleteTodo(msg.path, msg.id) });
+  } else if (msg.type === 'editTodo') {
+    ctx.send({
+      type: 'workspaceTodos',
+      path: msg.path,
+      todos: editTodo(msg.path, msg.id, msg.text),
+    });
+  } else if (msg.type === 'moveTodo') {
+    ctx.send({
+      type: 'workspaceTodos',
+      path: msg.path,
+      todos: moveTodo(msg.path, msg.id, msg.direction),
+    });
   } else if (msg.type === 'assignTodo') {
     const todo = getTodos(msg.path).find((t) => t.id === msg.id);
     if (todo) {

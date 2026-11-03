@@ -627,6 +627,9 @@ export type WebviewToHostMessage =
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
   | { type: 'deleteTodo'; path: string; id: string }
+  | { type: 'editTodo'; path: string; id: string; text: string }
+  /** Move an open task one place among the open tasks of its workspace. */
+  | { type: 'moveTodo'; path: string; id: string; direction: 'up' | 'down' }
   /** Open (or focus) the global Assistant chat session; `prompt` is sent into it. */
   | { type: 'openAssistant'; prompt?: string }
   /** Spawn a chat agent in the workspace with the todo's text as first prompt. */

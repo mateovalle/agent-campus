@@ -207,7 +207,11 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 for the label plate (setTodayUsage / getTodayUsd)
   components/TasksDrawer.tsx  — per-workspace human todos (assignable to agents) + live agent TodoWrite plans
   components/BoardPanel.tsx   — campus-wide kanban overlay (Board button in toolbar): Backlog (open
-                                todos, ▶ Assign) / In Progress (working agents + activity + plan) /
+                                todos — ▶ Assign, double-click to edit the text, ▲▼ to move one
+                                place among the open todos OF ITS OWN WORKSPACE (the column groups
+                                by office, so an arrow across a boundary would appear to do
+                                nothing), ✕ two-step delete in the worktree manager's armed-red
+                                idiom) / In Progress (working agents + activity + plan) /
                                 Needs You (permission/waiting/idle agents + suggestion buttons) /
                                 Done. Data composed in App.tsx (boardAgents); "✦ Plan" header button
                                 opens the Assistant with BOARD_PLAN_KICKOFF_PROMPT (openAssistant

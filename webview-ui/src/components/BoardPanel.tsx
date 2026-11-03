@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { AgentActionSuggestion, TodoItem, WorkspaceInfo } from '../../../shared/protocol.js';
 import {
@@ -169,32 +169,154 @@ function AgentCard({
   );
 }
 
-function TodoCard({ workspace, todo }: { workspace: WorkspaceInfo; todo: TodoItem }) {
+/**
+ * One task on the board. Editable, because the Assistant tells users they can
+ * edit, delete and reorder here and the card could do none of those — a
+ * promise the UI didn't keep.
+ *
+ * Double-click to rename, which is already how a tab is renamed, so it costs
+ * no new idiom. Deleting is two-step, like removing an office or a worktree:
+ * the task is the user's own note and nothing else in the app would bring it
+ * back.
+ */
+function TodoCard({
+  workspace,
+  todo,
+  canMoveUp = false,
+  canMoveDown = false,
+}: {
+  workspace: WorkspaceInfo;
+  todo: TodoItem;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+}) {
   const done = todo.status === 'done';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(todo.text);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const commit = () => {
+    setEditing(false);
+    const text = draft.trim();
+    if (text && text !== todo.text) {
+      vscode.postMessage({ type: 'editTodo', path: workspace.path, id: todo.id, text });
+    } else {
+      setDraft(todo.text);
+    }
+  };
+
+  const move = (direction: 'up' | 'down') =>
+    vscode.postMessage({ type: 'moveTodo', path: workspace.path, id: todo.id, direction });
+
   return (
     <div style={cardStyle}>
-      <div
-        style={{
-          ...cardTitleStyle,
-          textDecoration: done ? 'line-through' : 'none',
-          opacity: done ? 'var(--pixel-btn-disabled-opacity)' : 1,
-        }}
-      >
-        {todo.text}
-      </div>
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            else if (e.key === 'Escape') {
+              setDraft(todo.text);
+              setEditing(false);
+            }
+            // The board closes on Escape and arrows could reach the office:
+            // while this field has focus, its keys are its own.
+            e.stopPropagation();
+          }}
+          style={{
+            ...cardTitleStyle,
+            width: '100%',
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+            background: 'var(--pixel-bg)',
+            border: '2px solid var(--pixel-accent)',
+            borderRadius: 0,
+            padding: '2px 4px',
+          }}
+        />
+      ) : (
+        <div
+          onDoubleClick={() => {
+            if (!done) {
+              setDraft(todo.text);
+              setEditing(true);
+            }
+          }}
+          title={done ? undefined : 'Double-click to edit'}
+          style={{
+            ...cardTitleStyle,
+            textDecoration: done ? 'line-through' : 'none',
+            opacity: done ? 'var(--pixel-btn-disabled-opacity)' : 1,
+          }}
+        >
+          {todo.text}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ ...cardMetaStyle, flex: 1 }}>{workspace.name}</span>
         {!done && (
-          <button
-            onClick={() =>
-              vscode.postMessage({ type: 'assignTodo', path: workspace.path, id: todo.id })
-            }
-            title="Start an agent on this task"
-            style={{ ...smallBtnStyle, color: 'var(--pixel-green)' }}
-          >
-            ▶ Assign
-          </button>
+          <>
+            {(canMoveUp || canMoveDown) && (
+              <>
+                <button
+                  onClick={() => move('up')}
+                  disabled={!canMoveUp}
+                  title="Higher up the backlog"
+                  style={{
+                    ...smallBtnStyle,
+                    opacity: canMoveUp ? 1 : 'var(--pixel-btn-disabled-opacity)',
+                    cursor: canMoveUp ? 'pointer' : 'default',
+                  }}
+                >
+                  ▲
+                </button>
+                <button
+                  onClick={() => move('down')}
+                  disabled={!canMoveDown}
+                  title="Further down the backlog"
+                  style={{
+                    ...smallBtnStyle,
+                    opacity: canMoveDown ? 1 : 'var(--pixel-btn-disabled-opacity)',
+                    cursor: canMoveDown ? 'pointer' : 'default',
+                  }}
+                >
+                  ▼
+                </button>
+              </>
+            )}
+            <button
+              onClick={() =>
+                vscode.postMessage({ type: 'assignTodo', path: workspace.path, id: todo.id })
+              }
+              title="Start an agent on this task"
+              style={{ ...smallBtnStyle, color: 'var(--pixel-green)' }}
+            >
+              ▶ Assign
+            </button>
+          </>
         )}
+        <button
+          onClick={() => {
+            if (confirmingDelete) {
+              vscode.postMessage({ type: 'deleteTodo', path: workspace.path, id: todo.id });
+            } else {
+              setConfirmingDelete(true);
+            }
+          }}
+          onBlur={() => setConfirmingDelete(false)}
+          title={confirmingDelete ? 'Click again to delete' : 'Delete this task'}
+          // Armed state borrows the worktree manager's look, which is the
+          // app's existing word for "this one really destroys something".
+          style={{
+            ...smallBtnStyle,
+            ...(confirmingDelete ? { background: 'var(--pixel-danger-bg)', color: '#fff' } : {}),
+          }}
+        >
+          {confirmingDelete ? '✕ Sure?' : '✕'}
+        </button>
       </div>
     </div>
   );
@@ -306,8 +428,16 @@ export function BoardPanel({
           {backlog.length === 0 ? (
             <div style={emptyStyle}>No open tasks</div>
           ) : (
-            backlog.map(({ workspace, todo }) => (
-              <TodoCard key={todo.id} workspace={workspace} todo={todo} />
+            backlog.map(({ workspace, todo }, i) => (
+              <TodoCard
+                key={todo.id}
+                workspace={workspace}
+                todo={todo}
+                // Only within its own workspace: the column groups by office,
+                // so an arrow across a boundary would appear to do nothing.
+                canMoveUp={backlog[i - 1]?.workspace.path === workspace.path}
+                canMoveDown={backlog[i + 1]?.workspace.path === workspace.path}
+              />
             ))
           )}
         </Column>
