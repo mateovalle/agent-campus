@@ -189,7 +189,7 @@ function renderInline(text: string, keyBase: string): React.ReactNode[] {
       // case that matters more than prose.
       out.push(
         <code key={key} className="pixel-chat-mono" style={inlineCodeStyle}>
-          <FileRefText text={tok.slice(1, -1)} />
+          <FileRefText text={tok.slice(1, -1)} whole />
         </code>,
       );
     } else if (m[2]) {
