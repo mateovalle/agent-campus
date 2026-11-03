@@ -31,23 +31,13 @@ jobs:
         run: npm run lint
       - name: Lint (webview)
         run: npm run lint:webview
-      # TEMPORARY, three steps instead of one: something in the campus socket
-      # suite hangs on Linux and nothing else does, and a hang in the event
-      # loop (a blocking socket read, execFileSync) defeats vitest's own
-      # per-test timeouts, so the run dies by wall-clock with no failure to
-      # read. Isolating the suspects names the culprit in a single run.
-      - name: Test (everything but the campus socket)
-        timeout-minutes: 3
-        run: npm test -- --no-file-parallelism --exclude '**/campusServer.test.ts' --exclude '**/campusSocket.integration.test.ts'
-      - name: Test (campus socket, unit)
-        timeout-minutes: 2
-        # TAP streams a line per test as it finishes, so if this still hangs
-        # the log names the test instead of the file. The default reporter
-        # prints nothing until a whole file completes.
-        run: npm test -- campusServer.test --reporter=tap-flat
-      - name: Test (campus socket, integration)
-        timeout-minutes: 2
-        run: npm test -- campusSocket.integration
+      - name: Test (core)
+        # Capped: these suites touch real git, real sockets and real files, and
+        # a block in the EVENT LOOP (execFileSync, a socket read) defeats
+        # vitest's own per-test timeouts — a hung run then dies by wall clock
+        # with no failure to read. Found exactly that here once already.
+        timeout-minutes: 4
+        run: npm test
       - name: Build webview
         run: npm run build:webview
       - name: Build electron main
