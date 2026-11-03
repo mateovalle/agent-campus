@@ -1,4 +1,5 @@
-import { formatFileRef, splitFileRefs } from './filePaths.js';
+import type { TextChunk } from './filePaths.js';
+import { formatFileRef, splitFileRefs, wholeFileRef } from './filePaths.js';
 import { useOpenFileRef } from './fileRefContext.js';
 
 /**
@@ -19,10 +20,16 @@ const refStyle: React.CSSProperties = {
  *
  * Renders the input unchanged when it holds no paths, which is the common
  * case and costs one array check.
+ *
+ * `whole` marks text that came from a code span, where the whole string may
+ * be ONE path — including the spaces a tokeniser would shred it on (see
+ * `wholeFileRef`). It is a hint, not a promise: a span holding a command or a
+ * list of files falls through to the usual per-token detection.
  */
-export function FileRefText({ text }: { text: string }) {
+export function FileRefText({ text, whole }: { text: string; whole?: boolean }) {
   const openRef = useOpenFileRef();
-  const chunks = splitFileRefs(text);
+  const spanning = whole ? wholeFileRef(text) : null;
+  const chunks: TextChunk[] = spanning ? [spanning] : splitFileRefs(text);
   if (chunks.length === 1 && typeof chunks[0] === 'string') return <>{text}</>;
 
   return (

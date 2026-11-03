@@ -205,7 +205,13 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 the host reports what is really missing on click. URL spans are
                                 excluded whole (in "https://h/a.md" the candidate starts at the
                                 SECOND slash, so inspecting the preceding characters is not enough),
-                                and PROSE_JS_WORDS stops "node.js" becoming a link. fileRefContext.ts
+                                and PROSE_JS_WORDS stops "node.js" becoming a link. Inside
+                                BACKTICKS the span is first tried as ONE path, spaces and all
+                                (wholeFileRef): a tokeniser turns `~/Downloads/My Report.html`
+                                into rubble, and the only crumb still shaped like a file resolves
+                                against the agent's cwd to nothing. Conservative — needs a
+                                separator, a linkable extension and no shell punctuation, and a
+                                span whose every word is path-shaped is a LIST, not one path. fileRefContext.ts
                                 carries the agent id paths resolve against — a separate module from
                                 FileRefText.tsx because a file exporting both a component and a
                                 context breaks fast refresh. chatModel.ts is the pure

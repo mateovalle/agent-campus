@@ -175,3 +175,43 @@ export function hasFileRef(text: string): boolean {
 export function formatFileRef(ref: FileRef): string {
   return ref.line === undefined ? ref.path : `${ref.path}:${ref.line}`;
 }
+
+/**
+ * Characters that mean a code span is a COMMAND (or an expression), not a
+ * path: no filename anyone opens from chat contains them, and they are what
+ * `npm run build -- --flag`, `a = b` or `rm *.log` are made of.
+ */
+const NOT_IN_A_PATH_RE = /[\n`|*?<>"'=$;&(){}[\],]/;
+/** Nothing sane is longer; keeps a pasted paragraph out of the guesswork. */
+const WHOLE_REF_MAX = 300;
+
+/**
+ * A code span read as ONE path, spaces and all.
+ *
+ * `splitFileRefs` tokenises on whitespace, so a real path like
+ * `~/Downloads/Vertedero Nasca - rotacion.html` arrives as rubble: the user
+ * clicks the only piece that still looks like a file ("rotacion.html") and the
+ * host dutifully reports no such file. Inside backticks that guesswork is
+ * unnecessary — an agent writing a path in a code span means the whole span.
+ *
+ * Still conservative, because code spans also hold commands: it must contain a
+ * directory separator, end in a linkable extension, and carry no shell
+ * punctuation. Returns null (fall back to `splitFileRefs`) for spans with no
+ * space — the tokeniser already handles those, including `:line` — and for a
+ * span whose every word is path-shaped, which is a LIST of paths rather than
+ * one path that happens to contain spaces.
+ */
+export function wholeFileRef(text: string): FileRef | null {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > WHOLE_REF_MAX) return null;
+  if (!trimmed.includes(' ')) return null;
+  if (NOT_IN_A_PATH_RE.test(trimmed)) return null;
+
+  const ref = parseRef(trimmed);
+  if (!ref.path.includes('/')) return null;
+  const base = ref.path.slice(ref.path.lastIndexOf('/') + 1);
+  if (!base || !looksLikePath(base)) return null;
+  if (trimmed.split(/\s+/).every(looksLikePath)) return null;
+
+  return ref;
+}

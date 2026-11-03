@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FileRef, TextChunk } from './filePaths.js';
-import { formatFileRef, hasFileRef, splitFileRefs } from './filePaths.js';
+import { formatFileRef, hasFileRef, splitFileRefs, wholeFileRef } from './filePaths.js';
 
 /** The refs found in a string, for terse assertions. */
 const refs = (text: string): FileRef[] =>
@@ -120,5 +120,43 @@ describe('formatFileRef', () => {
   it('writes a path back as a human would', () => {
     expect(formatFileRef({ path: 'a/b.ts' })).toBe('a/b.ts');
     expect(formatFileRef({ path: 'a/b.ts', line: 9 })).toBe('a/b.ts:9');
+  });
+});
+
+describe('wholeFileRef', () => {
+  it('reads a code span with spaces as one path', () => {
+    expect(wholeFileRef('~/Downloads/Vertedero Nasca - rotacion.html')).toEqual({
+      path: '~/Downloads/Vertedero Nasca - rotacion.html',
+    });
+  });
+
+  it('keeps a line number off the end', () => {
+    expect(wholeFileRef('/tmp/My Notes/plan b.md:42')).toEqual({
+      path: '/tmp/My Notes/plan b.md',
+      line: 42,
+    });
+  });
+
+  it('declines spans the tokeniser already handles', () => {
+    expect(wholeFileRef('electron/main.ts')).toBeNull();
+    expect(wholeFileRef('electron/main.ts:12')).toBeNull();
+  });
+
+  it('declines commands', () => {
+    expect(wholeFileRef('npm run build')).toBeNull();
+    expect(wholeFileRef('cd webview-ui && npm install')).toBeNull();
+    expect(wholeFileRef('rm -rf dist/*.js')).toBeNull();
+    expect(wholeFileRef('node scripts/build.ts --watch')).toBeNull();
+    expect(wholeFileRef('open "a/b c.html"')).toBeNull();
+  });
+
+  it('declines a list of paths, which is not one path with spaces', () => {
+    expect(wholeFileRef('src/a.ts src/b.ts')).toBeNull();
+  });
+
+  it('needs a directory and a real extension', () => {
+    expect(wholeFileRef('Vertedero Nasca.html')).toBeNull();
+    expect(wholeFileRef('~/Downloads/Vertedero Nasca')).toBeNull();
+    expect(wholeFileRef('a very long sentence about things')).toBeNull();
   });
 });
