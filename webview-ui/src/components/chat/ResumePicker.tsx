@@ -100,7 +100,7 @@ export function ResumePicker({ folderPath, sessions, onClose }: ResumePickerProp
           width: '100%',
           height: '100%',
           background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 49,
+          zIndex: 'var(--pixel-modal-backdrop-z)',
         }}
       />
       {/* Centered modal */}
@@ -110,7 +110,7 @@ export function ResumePicker({ folderPath, sessions, onClose }: ResumePickerProp
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          zIndex: 50,
+          zIndex: 'var(--pixel-modal-z)',
           background: 'var(--pixel-bg)',
           border: '2px solid var(--pixel-border)',
           borderRadius: 0,

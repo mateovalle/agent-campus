@@ -95,7 +95,7 @@ export function WorktreesModal({ workspace, worktrees, agents, onClose }: Worktr
           position: 'fixed',
           inset: 0,
           background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 59,
+          zIndex: 'var(--pixel-modal-backdrop-z)',
         }}
       />
       <div
@@ -108,7 +108,7 @@ export function WorktreesModal({ workspace, worktrees, agents, onClose }: Worktr
           maxHeight: WORKTREES_MODAL_MAX_HEIGHT_PX,
           display: 'flex',
           flexDirection: 'column',
-          zIndex: 60,
+          zIndex: 'var(--pixel-modal-z)',
           background: 'var(--pixel-bg)',
           border: '2px solid var(--pixel-border)',
           borderRadius: 0,

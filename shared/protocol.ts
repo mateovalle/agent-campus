@@ -99,6 +99,19 @@ export interface RoleSpriteSet {
 export type AgentStatus = 'active' | 'waiting';
 
 /** Serialized office layout (validated structurally, not deeply typed). */
+/** What happened to a file, as the Changes panel labels it. */
+export type GitFileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked';
+
+/** One changed file in an agent's working directory, measured against HEAD. */
+export interface GitFileChange {
+  path: string;
+  /** Set only for a rename: where the file came from. */
+  oldPath?: string;
+  status: GitFileStatus;
+  added: number;
+  removed: number;
+}
+
 export type LayoutData = Record<string, unknown>;
 
 /**
@@ -429,6 +442,17 @@ export type HostToWebviewMessage =
    * refused to create, a setup command that exited non-zero.
    */
   | { type: 'hostNotice'; level: 'info' | 'error'; text: string }
+  /** Everything an agent has changed in its working directory. */
+  | {
+      type: 'agentChanges';
+      agentId: number;
+      cwd: string;
+      branch?: string;
+      files: GitFileChange[];
+      /** Set when the directory could not be read as a repo at all. */
+      error?: string;
+    }
+  | { type: 'agentFileDiff'; agentId: number; file: string; patch: string }
   /** A repo's checkouts, for the worktree manager. */
   | { type: 'worktreesLoaded'; workspacePath: string; worktrees: WorktreeSummary[] }
   /** An agent decorated itself (campus status/progress). Replayed on reload. */
@@ -624,6 +648,8 @@ export type WebviewToHostMessage =
   /** Register a new workspace via folder picker (host replies 'workspacesLoaded'). */
   | { type: 'addWorkspace' }
   | { type: 'removeWorkspace'; path: string }
+  | { type: 'requestAgentChanges'; agentId: number }
+  | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
   | { type: 'deleteTodo'; path: string; id: string }

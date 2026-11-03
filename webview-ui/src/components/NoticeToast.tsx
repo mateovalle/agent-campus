@@ -5,7 +5,6 @@ import {
   NOTICE_TOAST_ERROR_COLOR,
   NOTICE_TOAST_INFO_COLOR,
   NOTICE_TOAST_MAX_WIDTH_PX,
-  NOTICE_TOAST_Z_INDEX,
 } from '../constants.js';
 
 export interface HostNotice {
@@ -52,7 +51,7 @@ export function NoticeToast({ queue, onDismiss }: NoticeToastProps) {
         bottom: 12,
         left: '50%',
         transform: 'translateX(-50%)',
-        zIndex: NOTICE_TOAST_Z_INDEX,
+        zIndex: 'var(--pixel-notice-z)',
         maxWidth: NOTICE_TOAST_MAX_WIDTH_PX,
         background: 'var(--pixel-bg)',
         border: `2px solid ${
