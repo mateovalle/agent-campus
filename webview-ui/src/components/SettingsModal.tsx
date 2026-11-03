@@ -129,7 +129,7 @@ function UsageSection({ liveSummary }: { liveSummary: UsageSummary | null }) {
   }, []);
 
   const summary = liveSummary ?? fetched;
-  if (!summary || summary.turnCount === 0) return null;
+  if (!summary) return null;
 
   return (
     <div style={{ borderTop: '1px solid var(--pixel-border)', marginTop: 4, paddingTop: 4 }}>
@@ -140,39 +140,51 @@ function UsageSection({ liveSummary }: { liveSummary: UsageSummary | null }) {
         Estimate at API list prices, not a bill. A Claude subscription charges none of it — that
         usage comes out of the plan&apos;s limits. Terminal agents are not counted.
       </div>
-      <DailyBarChart days={summary.days} />
-      <div style={usageRowStyle}>
-        <span>Today</span>
-        <span>{formatUsd(summary.todayUsd)}</span>
-      </div>
-      <div style={usageRowStyle}>
-        <span>This month</span>
-        <span>{formatUsd(summary.monthUsd)}</span>
-      </div>
-      <div style={usageRowStyle}>
-        <span>All time</span>
-        <span>{formatUsd(summary.allTimeUsd)}</span>
-      </div>
-      {summary.perProject.length > 0 && (
-        <div style={{ marginTop: 3 }}>
-          {summary.perProject.map((p) => (
-            <div key={p.path} style={{ ...usageRowStyle, fontSize: '16px' }} title={p.path}>
-              <span
-                style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 180,
-                }}
-              >
-                {p.folder}
-              </span>
-              <span style={{ flexShrink: 0 }}>
-                {formatUsd(p.monthUsd)} <span style={{ opacity: 0.5 }}>/ mo</span>
-              </span>
+      {/*
+        An empty ledger still shows its header and that note. Hiding the whole
+        section at zero turns meant anyone who works in terminal tabs saw no
+        spending panel at all and no hint why — the explanation was behind the
+        very condition that needed explaining.
+      */}
+      {summary.turnCount === 0 ? (
+        <div style={usageNoteStyle}>No chat-agent turns recorded yet.</div>
+      ) : (
+        <>
+          <DailyBarChart days={summary.days} />
+          <div style={usageRowStyle}>
+            <span>Today</span>
+            <span>{formatUsd(summary.todayUsd)}</span>
+          </div>
+          <div style={usageRowStyle}>
+            <span>This month</span>
+            <span>{formatUsd(summary.monthUsd)}</span>
+          </div>
+          <div style={usageRowStyle}>
+            <span>All time</span>
+            <span>{formatUsd(summary.allTimeUsd)}</span>
+          </div>
+          {summary.perProject.length > 0 && (
+            <div style={{ marginTop: 3 }}>
+              {summary.perProject.map((p) => (
+                <div key={p.path} style={{ ...usageRowStyle, fontSize: '16px' }} title={p.path}>
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: 180,
+                    }}
+                  >
+                    {p.folder}
+                  </span>
+                  <span style={{ flexShrink: 0 }}>
+                    {formatUsd(p.monthUsd)} <span style={{ opacity: 0.5 }}>/ mo</span>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
