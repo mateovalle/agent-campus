@@ -17,14 +17,30 @@ import { DATA_DIR_NAME } from '../src/core/constants.js';
 
 const FILE = path.join(os.homedir(), DATA_DIR_NAME, 'achievements.json');
 
-export type AchievementEvent =
-  | 'agentSpawned'
-  | 'taskAssigned'
-  | 'taskCompleted'
-  | 'agentTaskCompleted'
-  | 'turnCompleted'
-  | 'workspaceAdded'
-  | 'scheduleRan';
+/**
+ * Every event the host can record. A LIST rather than a bare union so a test
+ * can walk it: `workspaceAdded` sat in the union, handled by applyEvent and
+ * fired by nobody, which left the 'campus' milestone unreachable without
+ * anything failing. A type cannot be enumerated at runtime; this can.
+ */
+export const ACHIEVEMENT_EVENTS = [
+  'agentSpawned',
+  'taskAssigned',
+  'taskCompleted',
+  'agentTaskCompleted',
+  'turnCompleted',
+  'workspaceAdded',
+  'scheduleRan',
+] as const;
+
+export type AchievementEvent = (typeof ACHIEVEMENT_EVENTS)[number];
+
+/** What an event carries beyond its own occurrence. */
+export interface AchievementEventDetail {
+  concurrentAgents?: number;
+  workspaces?: number;
+  role?: string;
+}
 
 export interface AchievementCounters {
   agentsSpawned: number;
@@ -224,17 +240,26 @@ export function listAchievements(): AchievementInfo[] {
   }));
 }
 
-/** Records an event; returns any achievements newly unlocked by it. */
-export function recordAchievementEvent(
+/**
+ * An event's effect on the counters — pure, so every event's arithmetic is
+ * testable without a home directory. Returns a new object; the caller decides
+ * whether to keep it.
+ */
+export function applyEvent(
+  counters: AchievementCounters,
   event: AchievementEvent,
-  detail?: { concurrentAgents?: number; workspaces?: number; role?: string },
-): AchievementInfo[] {
-  const st = load();
-  const c = st.counters;
+  detail: AchievementEventDetail = {},
+  now: Date = new Date(),
+): AchievementCounters {
+  const c: AchievementCounters = {
+    ...counters,
+    activeDays: [...counters.activeDays],
+    rolesUsed: [...counters.rolesUsed],
+  };
   if (event === 'agentSpawned') {
     c.agentsSpawned++;
-    c.maxConcurrentAgents = Math.max(c.maxConcurrentAgents, detail?.concurrentAgents ?? 0);
-    if (detail?.role && !c.rolesUsed.includes(detail.role)) c.rolesUsed.push(detail.role);
+    c.maxConcurrentAgents = Math.max(c.maxConcurrentAgents, detail.concurrentAgents ?? 0);
+    if (detail.role && !c.rolesUsed.includes(detail.role)) c.rolesUsed.push(detail.role);
   } else if (event === 'taskAssigned') {
     c.tasksAssigned++;
   } else if (event === 'taskCompleted') {
@@ -244,17 +269,26 @@ export function recordAchievementEvent(
     c.tasksCompleted++;
   } else if (event === 'turnCompleted') {
     c.turns++;
-    const now = new Date();
     const today = now.toISOString().slice(0, 10);
     if (!c.activeDays.includes(today)) c.activeDays.push(today);
     if (now.getHours() < 5) c.nightTurns++;
   } else if (event === 'workspaceAdded') {
-    c.workspaces = Math.max(c.workspaces, detail?.workspaces ?? 0);
+    c.workspaces = Math.max(c.workspaces, detail.workspaces ?? 0);
   } else if (event === 'scheduleRan') {
     c.scheduledRuns++;
   }
+  return c;
+}
 
-  const fresh = newlyUnlocked(c, st.unlocked, Date.now());
+/** Records an event; returns any achievements newly unlocked by it. */
+export function recordAchievementEvent(
+  event: AchievementEvent,
+  detail?: AchievementEventDetail,
+): AchievementInfo[] {
+  const st = load();
+  st.counters = applyEvent(st.counters, event, detail);
+
+  const fresh = newlyUnlocked(st.counters, st.unlocked, Date.now());
   for (const a of fresh) st.unlocked[a.id] = a.unlockedAt as number;
   save();
   return fresh;

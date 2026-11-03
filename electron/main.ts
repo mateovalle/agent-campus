@@ -918,7 +918,11 @@ function launchAgent(place: AgentPlacement, resumeSessionId?: string): void {
     workspacePath,
     ...(place.branch ? { branch: place.branch } : {}),
   });
-  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(workspacePath) });
+  registerWorkspace(workspacePath);
+  // A terminal agent is as much an agent as a chat one; counting only the
+  // latter made 'first-agent', 'multitasker' and 'full-floor' under-report for
+  // anyone who works in a PTY. No role: '+ Terminal' has no role picker.
+  trackAchievement('agentSpawned', { concurrentAgents: ctx.agents.size });
   ensureProjectScan(agent.projectDir);
 }
 
@@ -1053,9 +1057,12 @@ function launchChatAgent(
     ...(place.branch ? { branch: place.branch } : {}),
     ...(role ? { role: role.id } : {}),
   });
-  ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(workspacePath) });
+  registerWorkspace(workspacePath);
+  // ctx.agents, not chatSessions: that map also holds the Assistant (which has
+  // no character) and sessions already disposed but kept for tab replay, while
+  // it misses every terminal agent. ctx.agents is exactly the live characters.
   trackAchievement('agentSpawned', {
-    concurrentAgents: chatSessions.size,
+    concurrentAgents: ctx.agents.size,
     ...(role ? { role: role.id } : {}),
   });
   if (initialPrompt) {
@@ -1228,11 +1235,26 @@ function reassignAgentToFile(agent: AgentState, newFilePath: string): void {
 
 function trackAchievement(
   event: AchievementEvent,
-  detail?: { concurrentAgents?: number; workspaces?: number },
+  detail?: { concurrentAgents?: number; workspaces?: number; role?: string },
 ): void {
   for (const a of recordAchievementEvent(event, detail)) {
     ctx.send({ type: 'achievementUnlocked', achievement: a });
   }
+}
+
+/**
+ * Registers (or touches) a workspace, tells the webview, and COUNTS it.
+ *
+ * The counting is the reason this is a function. `touchWorkspace` had three
+ * call sites and not one of them fed the achievement, so `counters.workspaces`
+ * stayed at 0 forever and the 'campus' milestone ('Register 3 workspaces') was
+ * unreachable by construction. Every path that puts an office on the campus
+ * goes through here now, so a new one cannot forget again.
+ */
+function registerWorkspace(workspacePath: string): void {
+  const workspaces = touchWorkspace(workspacePath);
+  ctx.send({ type: 'workspacesLoaded', workspaces });
+  trackAchievement('workspaceAdded', { workspaces: workspaces.length });
 }
 
 // ── The Assistant ────────────────────────────────────────────
@@ -1743,7 +1765,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     void (async () => {
       const cwd = await resolveAgentCwd(undefined);
       if (cwd) {
-        ctx.send({ type: 'workspacesLoaded', workspaces: touchWorkspace(cwd) });
+        registerWorkspace(cwd);
       }
     })();
   } else if (msg.type === 'addTodo') {
