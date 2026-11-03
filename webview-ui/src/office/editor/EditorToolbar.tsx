@@ -374,22 +374,15 @@ export function EditorToolbar({
   onFurnitureTypeChange,
   loadedAssets,
 }: EditorToolbarProps) {
-  const [activeCategory, setActiveCategory] = useState<FurnitureCategory>('desks');
+  // Null until the user picks one: the catalog does not exist yet at mount
+  // (assets load later), so the default tab has to be DERIVED rather than
+  // written into state from an effect — which is what this did, and what
+  // react-hooks/set-state-in-effect is right to call a cascading render.
+  const [pickedCategory, setPickedCategory] = useState<FurnitureCategory | null>(null);
   const [showColor, setShowColor] = useState(false);
   const [showWallColor, setShowWallColor] = useState(false);
   const [showFurnitureColor, setShowFurnitureColor] = useState(false);
   const [furnitureQuery, setFurnitureQuery] = useState('');
-
-  // Catalog is built in useExtensionMessages when assets load —
-  // here we only reset to the first available category
-  useEffect(() => {
-    if (loadedAssets) {
-      const firstCat = getActiveCategories()[0]?.id;
-      if (firstCat) {
-        setActiveCategory(firstCat);
-      }
-    }
-  }, [loadedAssets]);
 
   const handleColorChange = useCallback(
     (key: keyof FloorColor, value: number) => {
@@ -416,6 +409,18 @@ export function EditorToolbar({
 
   // A search spans every category: with ~165 pieces, knowing a piece's name
   // beats guessing which tab it was filed under.
+  // Keyed on `loadedAssets` because that prop is the SIGNAL, not data: the
+  // catalog lives in module state, so this component only learns that it grew
+  // when the prop accompanying it changes identity. Drop the dependency and
+  // the palette keeps showing whatever categories existed at mount.
+  // The dependency is real and invisible to the linter: getActiveCategories()
+  // reads module state, and loadedAssets is the prop that announces it changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const categories = useMemo(() => getActiveCategories(), [loadedAssets]);
+  // The user's pick wins once there is one; 'desks' only matters before any
+  // category exists at all.
+  const activeCategory: FurnitureCategory = pickedCategory ?? categories[0]?.id ?? 'desks';
+
   const query = furnitureQuery.trim().toLowerCase();
   const categoryItems = query
     ? getActiveCatalog().filter(
@@ -710,12 +715,12 @@ export function EditorToolbar({
         <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 4 }}>
           {/* Category tabs + Pick — just above tool row */}
           <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            {getActiveCategories().map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat.id}
                 style={activeCategory === cat.id && !query ? activeTabStyle : tabStyle}
                 onClick={() => {
-                  setActiveCategory(cat.id);
+                  setPickedCategory(cat.id);
                   setFurnitureQuery('');
                 }}
               >

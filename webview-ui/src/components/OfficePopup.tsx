@@ -125,6 +125,10 @@ export function OfficePopup({
     if (!el) return;
     const available = el.offsetParent?.clientHeight ?? window.innerHeight;
     const overflow = y + el.offsetHeight + OFFICE_POPUP_MARGIN_PX - available;
+    // Measurement: the lift depends on the popup's own rendered height, which
+    // does not exist until it has rendered. A layout effect runs before paint,
+    // so the extra render never reaches the screen.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLiftY(overflow > 0 ? Math.max(0, Math.min(overflow, y - OFFICE_POPUP_MARGIN_PX)) : 0);
     // Ticking the worktree box adds two fields and a hint, so the popup can
     // grow past the bottom edge long after it was placed — re-measure then too.
