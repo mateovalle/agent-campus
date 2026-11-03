@@ -34,10 +34,20 @@ src/core/                     — Host-agnostic backend core (no vscode/electron
   fileWatcher.ts              — startFileWatching/stopFileWatching/readNewLines (fs.watch + watchFile +
                                 poll, byte-level UTF-8-safe line carry, truncation reset, error handlers)
   assetLoader.ts              — PNG parsing, sprite conversion, asset/layout loading, sendX(send, ...) helpers
-  layoutPersistence.ts        — Just isValidLayout() now. It used to own the VS Code host's single
-                                ~/.pixel-agents/layout.json (atomic write + cross-window watcher);
-                                the campus replaced that with one file per workspace, owned by
-                                electron/main.ts, so the rest was deleted
+  layoutPersistence.ts        — Layout VALIDATION, the check every path that takes a layout from
+                                outside has to make (import dialog, starter-office file, layouts-dir
+                                watcher). parseLayout() is a zod schema plus the consistency the
+                                shape can't express — tiles.length === cols*rows, one tileColor per
+                                tile — and it answers with a REASON, because a boolean left the
+                                import dialog with nothing to say but `return`. Deliberately loose
+                                where the data is open-ended: unknown fields pass through (saving
+                                back must not delete what a newer version wrote), furniture `row`
+                                may be NEGATIVE (wall decorations hang above the grid) and a
+                                tileColor may be null (untinted). isValidLayout() survives as the
+                                type-guard wrapper for callers with nowhere to show a reason. It
+                                used to own the VS Code host's single ~/.pixel-agents/layout.json
+                                (atomic write + cross-window watcher); the campus replaced that
+                                with one file per workspace, owned by electron/main.ts
 
 electron/                     — Electron desktop host (imports src/core; tsconfig rootDir=.. →
                                 dist-electron/electron/main.js + dist-electron/src/core/)
@@ -407,9 +417,13 @@ the webview runs `pruneUnknownFurniture()` (furnitureCatalog.ts): items whose ty
 the loaded catalog (ids from retired asset packs) are dropped in memory and disappear from disk on
 the user's next save; no-op until the dynamic catalog is ready.
 **Export/Import**: Settings offers Export Layout (save dialog → the STARTER office as JSON, or
-the bundled default when no starter is set) and Import Layout (open dialog → `isValidLayout` →
+the bundled default when no starter is set) and Import Layout (open dialog → `parseLayout` →
 becomes the starter office + pushes `layoutLoaded`). The pair is symmetric on purpose: both ends
-are the office a new workspace is born with, not whichever office you happen to be looking at.
+are the office a new workspace is born with, not whichever office you happen to be looking at —
+and since importing REPLACES that office, it asks first, but only when the user has a starter of
+their own to lose (with none, new offices come from the bundled layout, which isn't their work).
+Both ends report: a file that fails validation names the reason it failed, where the handler used
+to answer `return` and leave the user staring at a dialog that did nothing.
 
 ## Office UI
 
