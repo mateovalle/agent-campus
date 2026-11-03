@@ -34,6 +34,7 @@ import {
   DATA_DIR_NAME,
   JSONL_POLL_INTERVAL_MS,
   JSONL_POLL_TIMEOUT_MS,
+  LOGIN_SHELL_TIMEOUT_MS,
   PROJECT_SCAN_INTERVAL_MS,
 } from '../src/core/constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
@@ -111,6 +112,7 @@ import {
   gitRepoRoot,
   listWorktrees,
   removeWorktree as removeWorktreeDir,
+  samePath,
   summarizeWorktrees,
   worktreeRemovalBlocker,
 } from './worktrees.js';
@@ -359,7 +361,7 @@ function fixPathEnv(): void {
     const userShell = process.env.SHELL || '/bin/zsh';
     const loginPath = execFileSync(userShell, ['-l', '-c', 'echo -n "$PATH"'], {
       encoding: 'utf-8',
-      timeout: 5000,
+      timeout: LOGIN_SHELL_TIMEOUT_MS,
     });
     if (loginPath && loginPath.length > (process.env.PATH?.length ?? 0)) {
       process.env.PATH = loginPath;
@@ -650,7 +652,7 @@ function worktreesWithAgents(repoRoot: string): WorktreeSummary[] {
   const summaries = summarizeWorktrees(repoRoot);
   for (const summary of summaries) {
     summary.agentIds = [...ctx.agents.values()]
-      .filter((agent) => path.resolve(agent.cwd) === path.resolve(summary.path))
+      .filter((agent) => samePath(agent.cwd, summary.path))
       .map((agent) => agent.id);
   }
   return summaries;

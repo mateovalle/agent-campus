@@ -15,6 +15,23 @@ export const TOOL_DONE_DELAY_MS = 300;
 export const PERMISSION_TIMER_DELAY_MS = 7000;
 export const TEXT_IDLE_DELAY_MS = 5000;
 
+// ── Child processes on the main process ─────────────────────
+/**
+ * Deadlines for the synchronous commands the host shells out to.
+ *
+ * Every one of them runs `execFileSync` on the process that owns every PTY,
+ * every chat session, the scheduler tick and the campus socket — and a
+ * synchronous child blocks the EVENT LOOP, so a command that never returns
+ * takes the whole app with it and no timer can rescue it. A locked git index,
+ * a repo on a network mount, an antivirus holding a handle: none of them are
+ * exotic.
+ */
+export const GIT_COMMAND_TIMEOUT_MS = 10_000;
+/** `which` / `where` — a PATH lookup is either instant or broken. */
+export const COMMAND_LOOKUP_TIMEOUT_MS = 2_000;
+/** A login shell runs the user's whole profile, which can be slow on purpose. */
+export const LOGIN_SHELL_TIMEOUT_MS = 5_000;
+
 // ── Action Suggestions ───────────────────────────────────────
 // Tool errors in a turn before "Investigate" is suggested.
 export const SUGGESTION_ERROR_THRESHOLD = 3;
