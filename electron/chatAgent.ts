@@ -29,6 +29,7 @@ import type {
   HostToWebviewMessage,
 } from '../shared/protocol.js';
 import type { TodoItem } from '../shared/protocol.js';
+import { COMMAND_LOOKUP_TIMEOUT_MS } from '../src/core/constants.js';
 import type { Send } from '../src/core/types.js';
 
 /** Host-side handlers backing the per-workspace `tasks` MCP tools. */
@@ -94,7 +95,12 @@ export function resolveClaudeExecutable(): string | undefined {
 
   try {
     const lookup = process.platform === 'win32' ? 'where' : 'which';
-    const found = execFileSync(lookup, ['claude'], { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
+    const found = execFileSync(lookup, ['claude'], {
+      encoding: 'utf-8',
+      timeout: COMMAND_LOOKUP_TIMEOUT_MS,
+    })
+      .split(/\r?\n/)[0]
+      .trim();
     if (found && fs.existsSync(found)) {
       cachedClaudeExecutable = found;
       return found;

@@ -16,6 +16,7 @@ import {
   isGitRepo,
   listWorktrees,
   removeWorktree,
+  samePath,
   summarizeWorktrees,
 } from '../worktrees.js';
 
@@ -25,18 +26,6 @@ const realHome = process.env.HOME;
 
 const git = (args: string[], cwd: string) =>
   execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
-
-/**
- * "The same directory", asked of the OS rather than of the strings.
- *
- * `realpathSync.native`, not `realpathSync`: on Windows the runner's TEMP is
- * an 8.3 short path (C:\Users\RUNNER~1\...) while git answers with the long
- * form (C:\Users\runneradmin\...), and only the native call canonicalises
- * that. The plain one left this suite failing on Windows the first time CI
- * ever ran there. (The product has the same comparison to make and makes it
- * with path.resolve, which also cannot — see #53.)
- */
-const samePath = (a: string, b: string) => fs.realpathSync.native(a) === fs.realpathSync.native(b);
 
 beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-wt-'));
@@ -173,5 +162,34 @@ describe('summarizeWorktrees', () => {
 
   it('leaves agentIds for the host to fill in', () => {
     expect(summarizeWorktrees(repo).every((w) => Array.isArray(w.agentIds))).toBe(true);
+  });
+});
+
+describe('samePath', () => {
+  it('says yes to a directory reached by two different strings', () => {
+    expect(samePath(repo, path.join(repo, '..', 'repo'))).toBe(true);
+  });
+
+  it('says no to two different directories', () => {
+    expect(samePath(repo, tmp)).toBe(false);
+  });
+
+  // The case `path.resolve` cannot answer, and the reason this helper exists:
+  // the two strings have nothing in common, yet they are one directory.
+  // (Windows has the same problem with 8.3 names and junctions, but creating
+  // a symlink there needs a privilege CI does not hand out.)
+  it.skipIf(process.platform === 'win32')('sees through a symlink', () => {
+    const link = path.join(tmp, 'link-to-repo');
+    fs.symlinkSync(repo, link);
+    expect(path.resolve(link)).not.toBe(path.resolve(repo));
+    expect(samePath(link, repo)).toBe(true);
+  });
+
+  it('falls back to comparing the strings when a path is gone', () => {
+    // `git worktree list` reports checkouts whose directory was deleted by
+    // hand, and nothing can be canonicalised about those.
+    const ghost = path.join(tmp, 'deleted-by-hand');
+    expect(samePath(ghost, ghost)).toBe(true);
+    expect(samePath(ghost, repo)).toBe(false);
   });
 });

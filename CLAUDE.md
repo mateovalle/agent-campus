@@ -109,7 +109,17 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 summarizeWorktrees() adds what a removal decision needs: dirty
                                 (uncommitted), ahead (commits the repo's branch lacks) and isMain;
                                 main.ts fills agentIds by matching each agent's cwd. The policy
-                                itself is the pure, tested worktreeRemovalBlocker()
+                                itself is the pure, tested worktreeRemovalBlocker().
+                                samePath() answers "the same directory" via fs.realpathSync.native
+                                (falling back to a resolved, case-folded compare for a path that is
+                                gone): path.resolve cannot reconcile a Windows 8.3 name, a junction,
+                                a symlink or letter case, and that comparison is what decides
+                                whether a checkout has agents in it — a false negative offers
+                                Remove, with force, while someone is working there. Every git call
+                                here carries GIT_COMMAND_TIMEOUT_MS: execFileSync blocks the EVENT
+                                LOOP of the process that owns every PTY, so a locked index or a
+                                network mount would otherwise freeze the whole app with no timer
+                                able to rescue it (the same property that once hung CI unkillably)
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger (per-turn DELTAS derived from the
                                 SDK's cumulative total_cost_usd — summing that field raw inflates

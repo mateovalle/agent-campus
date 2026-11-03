@@ -13,6 +13,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { COMMAND_LOOKUP_TIMEOUT_MS } from '../src/core/constants.js';
+
 /**
  * Editors whose CLI can jump to a line, in the order we would rather use
  * them. Each is only used if it is actually on PATH.
@@ -64,6 +66,7 @@ function commandExists(cmd: string): boolean {
   try {
     execFileSync(process.platform === 'win32' ? 'where' : 'which', [cmd], {
       stdio: ['ignore', 'ignore', 'ignore'],
+      timeout: COMMAND_LOOKUP_TIMEOUT_MS,
     });
     return true;
   } catch {

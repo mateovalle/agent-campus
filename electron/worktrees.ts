@@ -24,7 +24,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { WorktreeSummary } from '../shared/protocol.js';
-import { DATA_DIR_NAME } from '../src/core/constants.js';
+import { DATA_DIR_NAME, GIT_COMMAND_TIMEOUT_MS } from '../src/core/constants.js';
 
 /**
  * Where checkouts live. Resolved per call rather than at import: the home dir
@@ -169,6 +169,37 @@ export function worktreeRemovalBlocker(worktree: {
   return null;
 }
 
+/**
+ * Whether two paths are the same directory — asked of the filesystem, not of
+ * the strings.
+ *
+ * `path.resolve` normalises separators and `..` segments and stops there. It
+ * cannot reconcile a Windows 8.3 short name (C:\\Users\\RUNNER~1 vs
+ * C:\\Users\\runneradmin), a junction, a symlink, or letter case — and macOS
+ * hands out /tmp paths that are really /private/tmp. The gap is not cosmetic:
+ * this comparison decides which agents live in a checkout, and
+ * `worktreeRemovalBlocker` only refuses a removal when that count is non-zero,
+ * so a false negative offers Remove — with force, on a dirty checkout — while
+ * an agent is working there.
+ *
+ * A path that does not exist cannot be canonicalised, so it falls back to a
+ * resolved comparison (case-insensitively where the platform is). `git
+ * worktree list` reports checkouts whose directory was deleted by hand, and
+ * no agent can be running in one of those anyway.
+ */
+export function samePath(a: string, b: string): boolean {
+  return canonicalPath(a) === canonicalPath(b);
+}
+
+function canonicalPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    const resolved = path.resolve(p);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+}
+
 // ── Git plumbing ─────────────────────────────────────────────
 
 /** Runs git in `cwd`, returning trimmed stdout, or null if it failed. */
@@ -178,6 +209,7 @@ function git(args: string[], cwd: string): string | null {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: GIT_COMMAND_TIMEOUT_MS,
     }).trim();
   } catch {
     return null;
@@ -191,9 +223,15 @@ function gitOrThrow(args: string[], cwd: string): string {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: GIT_COMMAND_TIMEOUT_MS,
     }).trim();
   } catch (err) {
-    const e = err as { stderr?: string; message?: string };
+    const e = err as { stderr?: string; message?: string; signal?: string };
+    // A timeout kills the child, so there is no stderr to quote and the raw
+    // message is about a signal — useless to anyone reading a toast.
+    if (e.signal) {
+      throw new Error(`git ${args[0]} gave up after ${GIT_COMMAND_TIMEOUT_MS / 1000}s`);
+    }
     const reason = (e.stderr || e.message || '').trim().split('\n').slice(-3).join(' ');
     throw new Error(reason || `git ${args[0]} failed`);
   }
