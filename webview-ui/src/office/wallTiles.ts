@@ -33,7 +33,7 @@ export function setWallSprites(sprites: SpriteData[]): void {
     styles.push(sprites.slice(i, i + PIECES_PER_STYLE));
   }
   wallStyles = styles.length > 0 ? styles : null;
-  wallInstanceCache = null;
+  wallInstanceCache = new WeakMap();
   edgeCache.clear();
 }
 
@@ -166,14 +166,24 @@ export function getColorizedWallSprite(
   return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
 }
 
-/** Memoized wall instances — rebuilt only when the layout-derived inputs change.
- *  Keyed by reference: rebuildFromLayout creates fresh tileMap/tileColors arrays. */
-let wallInstanceCache: {
-  tileMap: TileTypeVal[][];
-  tileColors: Array<FloorColor | null> | undefined;
-  cols: number | undefined;
-  instances: FurnitureInstance[];
-} | null = null;
+/**
+ * Memoized wall instances — rebuilt only when the layout-derived inputs change.
+ * Keyed by reference: rebuildFromLayout creates fresh tileMap/tileColors arrays.
+ *
+ * One entry PER TILE MAP, i.e. per office. This was a single slot, which a
+ * campus defeats completely: renderScene asks for each visible office's walls
+ * in turn, every office evicted the previous one's entry, and the hit rate at
+ * two or more offices was exactly zero — every tile map re-walked at 60fps.
+ * A WeakMap also lets a closed office's instances go with it.
+ */
+let wallInstanceCache = new WeakMap<
+  TileTypeVal[][],
+  {
+    tileColors: Array<FloorColor | null> | undefined;
+    cols: number | undefined;
+    instances: FurnitureInstance[];
+  }
+>();
 
 /**
  * Build FurnitureInstance-like objects for all wall tiles so they can participate
@@ -185,13 +195,9 @@ export function getWallInstances(
   cols?: number,
 ): FurnitureInstance[] {
   if (!wallStyles) return [];
-  if (
-    wallInstanceCache &&
-    wallInstanceCache.tileMap === tileMap &&
-    wallInstanceCache.tileColors === tileColors &&
-    wallInstanceCache.cols === cols
-  ) {
-    return wallInstanceCache.instances;
+  const cached = wallInstanceCache.get(tileMap);
+  if (cached && cached.tileColors === tileColors && cached.cols === cols) {
+    return cached.instances;
   }
   const tmRows = tileMap.length;
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
@@ -214,7 +220,7 @@ export function getWallInstances(
       });
     }
   }
-  wallInstanceCache = { tileMap, tileColors, cols, instances };
+  wallInstanceCache.set(tileMap, { tileColors, cols, instances });
   return instances;
 }
 
