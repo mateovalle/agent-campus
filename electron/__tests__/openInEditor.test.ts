@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LineEditor, OpenOutcome } from '../openInEditor.js';
@@ -6,10 +7,20 @@ import { editorArgs, expandHome, openFileRef, resolveRefPath } from '../openInEd
 const HOME = '/Users/me';
 const CWD = '/Users/me/project';
 
+/**
+ * The expected path, composed the way the platform composes it.
+ *
+ * These assertions used to spell out POSIX strings, which made them assertions
+ * about the separator rather than about the resolution — and nine of them
+ * failed the first time CI ran on Windows, where the code under test (join +
+ * normalize) answers with backslashes and is perfectly right to.
+ */
+const abs = (...parts: string[]) => path.normalize(path.join(...parts));
+
 describe('expandHome', () => {
   it('expands a leading tilde', () => {
     expect(expandHome('~/.pixel-agents/settings.json', HOME)).toBe(
-      '/Users/me/.pixel-agents/settings.json',
+      path.join(HOME, '.pixel-agents/settings.json'),
     );
   });
 
@@ -24,26 +35,22 @@ describe('expandHome', () => {
 
 describe('resolveRefPath', () => {
   it('resolves a relative path against the agent cwd', () => {
-    expect(resolveRefPath('electron/main.ts', CWD, HOME)).toBe(
-      '/Users/me/project/electron/main.ts',
-    );
+    expect(resolveRefPath('electron/main.ts', CWD, HOME)).toBe(abs(CWD, 'electron/main.ts'));
   });
 
   it('keeps an absolute path as it is', () => {
-    expect(resolveRefPath('/etc/hosts', CWD, HOME)).toBe('/etc/hosts');
+    expect(resolveRefPath('/etc/hosts', CWD, HOME)).toBe(abs('/etc/hosts'));
   });
 
   it('normalizes a ./ prefix away', () => {
-    expect(resolveRefPath('./scripts/build.sh', CWD, HOME)).toBe(
-      '/Users/me/project/scripts/build.sh',
-    );
+    expect(resolveRefPath('./scripts/build.sh', CWD, HOME)).toBe(abs(CWD, 'scripts/build.sh'));
   });
 
   // A worktree agent's cwd is its checkout: the same relative path must land
   // in the branch it is working on, not in the repo.
   it('follows the cwd it is given, worktree included', () => {
     const worktree = '/Users/me/.pixel-agents/worktrees/project-abc/agent-1';
-    expect(resolveRefPath('src/app.ts', worktree, HOME)).toBe(`${worktree}/src/app.ts`);
+    expect(resolveRefPath('src/app.ts', worktree, HOME)).toBe(abs(worktree, 'src/app.ts'));
   });
 
   it('cannot resolve a relative path with no agent behind it', () => {
@@ -51,7 +58,7 @@ describe('resolveRefPath', () => {
   });
 
   it('still resolves an absolute path with no agent', () => {
-    expect(resolveRefPath('/tmp/x.ts', undefined, HOME)).toBe('/tmp/x.ts');
+    expect(resolveRefPath('/tmp/x.ts', undefined, HOME)).toBe(abs('/tmp/x.ts'));
   });
 });
 
@@ -84,11 +91,11 @@ describe('openFileRef', () => {
     expect(out).toEqual({
       kind: 'opened',
       how: 'editor',
-      file: '/Users/me/project/electron/main.ts',
+      file: abs(CWD, 'electron/main.ts'),
     });
     expect(deps.spawnEditor).toHaveBeenCalledWith('code', [
       '-g',
-      '/Users/me/project/electron/main.ts:412',
+      `${abs(CWD, 'electron/main.ts')}:412`,
     ]);
     expect(deps.openDefault).not.toHaveBeenCalled();
   });
@@ -98,7 +105,7 @@ describe('openFileRef', () => {
   it('uses the default application when there is no line', () => {
     const deps = base();
     expect(openFileRef('electron/main.ts', undefined, deps).kind).toBe('opened');
-    expect(deps.openDefault).toHaveBeenCalledWith('/Users/me/project/electron/main.ts');
+    expect(deps.openDefault).toHaveBeenCalledWith(abs(CWD, 'electron/main.ts'));
     expect(deps.spawnEditor).not.toHaveBeenCalled();
   });
 
@@ -112,7 +119,7 @@ describe('openFileRef', () => {
     const deps = base({ exists: () => false });
     expect(openFileRef('ghost.ts', undefined, deps)).toEqual({
       kind: 'missing',
-      file: '/Users/me/project/ghost.ts',
+      file: abs(CWD, 'ghost.ts'),
     });
     expect(deps.openDefault).not.toHaveBeenCalled();
   });
