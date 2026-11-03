@@ -667,6 +667,7 @@ function ChatItemView({
     allow: boolean,
     message?: string,
     updatedInput?: Record<string, unknown>,
+    alwaysAllow?: boolean,
   ) => void;
 }) {
   switch (item.kind) {
@@ -802,6 +803,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
           title: msg.title,
           description: msg.description,
           input: msg.input,
+          alwaysAllowScope: msg.alwaysAllowScope,
         };
         setPermissions((prev) => [
           ...prev.filter((p) => p.requestId !== request.requestId),
@@ -1080,6 +1082,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       allow: boolean,
       message?: string,
       updatedInput?: Record<string, unknown>,
+      alwaysAllow?: boolean,
     ) => {
       vscode.postMessage({
         type: 'chatPermissionResponse',
@@ -1088,6 +1091,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
         allow,
         message,
         updatedInput,
+        alwaysAllow,
       });
       setPermissions((prev) => prev.filter((p) => p.requestId !== requestId));
     },

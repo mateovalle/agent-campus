@@ -1858,7 +1858,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'chatPermissionResponse') {
     chatSessions
       .get(msg.id)
-      ?.respondPermission(msg.requestId, msg.allow, msg.message, msg.updatedInput);
+      ?.respondPermission(msg.requestId, msg.allow, msg.message, msg.updatedInput, msg.alwaysAllow);
   } else if (msg.type === 'chatSetPermissionMode') {
     chatSessions.get(msg.id)?.setMode(msg.mode);
   } else if (msg.type === 'chatSetModel') {
