@@ -28,6 +28,8 @@ interface ToolOverlayProps {
   /** Available role skins (empty until loaded — hides the picker). */
   roles: Array<{ id: string; name: string }>;
   onSetRole: (id: number, role: string | null) => void;
+  /** Open the Changes panel for an agent (absent for workspaces without git). */
+  onShowChanges: (id: number) => void;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -68,6 +70,7 @@ export function ToolOverlay({
   onRunAction,
   roles,
   onSetRole,
+  onShowChanges,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   /** Agent id whose role dropdown is open, or null. */
@@ -427,6 +430,45 @@ export function ToolOverlay({
                     {s.label}
                   </button>
                 ))}
+              </div>
+            )}
+            {/*
+              Separate from the suggestions, and shown while the agent is
+              still working too: "what has it changed so far" is a fair
+              question mid-turn, and the suggestions row deliberately hides
+              itself then because those actions would interrupt.
+            */}
+            {isSelected && !isSub && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowChanges(id);
+                  }}
+                  title="What this agent has changed in its working directory"
+                  style={{
+                    background: 'var(--pixel-bg)',
+                    border: '2px solid var(--pixel-border)',
+                    borderRadius: 0,
+                    boxShadow: 'var(--pixel-shadow)',
+                    color: 'var(--vscode-foreground)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '18px',
+                    lineHeight: 1,
+                    padding: '4px 8px',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor =
+                      'var(--pixel-border-light)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor = 'var(--pixel-border)';
+                  }}
+                >
+                  Changes
+                </button>
               </div>
             )}
           </div>

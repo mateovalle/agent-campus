@@ -63,7 +63,7 @@ export function WelcomeModal({ auth, onStartDemo }: WelcomeModalProps) {
           position: 'fixed',
           inset: 0,
           background: 'rgba(0, 0, 0, 0.6)',
-          zIndex: 79,
+          zIndex: 'var(--pixel-modal-backdrop-z)',
         }}
       />
       <div
@@ -74,7 +74,7 @@ export function WelcomeModal({ auth, onStartDemo }: WelcomeModalProps) {
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          zIndex: 80,
+          zIndex: 'var(--pixel-modal-z)',
           background: 'var(--pixel-bg)',
           border: '2px solid var(--pixel-border)',
           borderRadius: 0,

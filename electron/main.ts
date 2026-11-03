@@ -66,6 +66,7 @@ import {
 import { campusBinDir, installCampusShims } from './campusShim.js';
 import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
+import { changedFiles, currentBranch, fileDiff } from './git.js';
 import {
   clearOfficeTemplate,
   officeTemplatePath,
@@ -1802,6 +1803,30 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
         registerWorkspace(cwd);
       }
     })();
+  } else if (msg.type === 'requestAgentChanges') {
+    const agent = ctx.agents.get(msg.agentId);
+    if (!agent) return;
+    // gitRepoRoot answers null outside a repo, which is the one case worth
+    // distinguishing from "a repo with nothing changed in it".
+    const inRepo = gitRepoRoot(agent.cwd) !== null;
+    const branch = currentBranch(agent.cwd);
+    ctx.send({
+      type: 'agentChanges',
+      agentId: msg.agentId,
+      cwd: agent.cwd,
+      ...(branch ? { branch } : {}),
+      files: inRepo ? changedFiles(agent.cwd) : [],
+      ...(inRepo ? {} : { error: 'This agent is not working in a git repository.' }),
+    });
+  } else if (msg.type === 'requestAgentFileDiff') {
+    const agent = ctx.agents.get(msg.agentId);
+    if (!agent) return;
+    ctx.send({
+      type: 'agentFileDiff',
+      agentId: msg.agentId,
+      file: msg.file,
+      patch: fileDiff(agent.cwd, msg.file, msg.untracked),
+    });
   } else if (msg.type === 'addTodo') {
     ctx.send({ type: 'workspaceTodos', path: msg.path, todos: addTodo(msg.path, msg.text) });
   } else if (msg.type === 'toggleTodo') {

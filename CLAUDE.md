@@ -96,6 +96,18 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 SESSION (not the numeric agent id, which changes across restart,
                                 restore and resume) — it prevents ACCIDENTS, not attackers, and is a
                                 same-user boundary, not a security feature
+  git.ts                      — What an agent CHANGED: `changedFiles(cwd)` (status --porcelain=v1
+                                -z -uall merged with diff --numstat -z HEAD), `fileDiff()` and
+                                `currentBranch()`. Read-only, every call timed out like worktrees.ts.
+                                The parsers are exported and unit-tested because git's porcelain is
+                                fiddly exactly where it matters: a rename is TWO NUL fields (the
+                                record carries the new name, the old one follows — split-and-map
+                                invents a phantom file), numstat empties the path for a rename and
+                                follows with both names, a binary file reports its counts as dashes,
+                                and an untracked file has no HEAD to be diffed against (counted by
+                                reading it, capped at UNTRACKED_COUNT_MAX_BYTES; its patch comes
+                                from `diff --no-index`, which signals "they differ" by EXITING 1, so
+                                the output has to be read off the thrown error)
   worktrees.ts                — Git worktrees: a private checkout per agent (opt-in), so two agents
                                 in one repo stop overwriting each other. Checkouts live in
                                 ~/.pixel-agents/worktrees/<repo>-<hash>/<branch> (never beside the
@@ -231,6 +243,15 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 → human review on the Board → budget-capped dispatch on approval.
                                 Clicking whiteboard furniture in the office also opens the Board
                                 (OfficeCanvas onBoardFurnitureClick)
+  components/changes/         — What an agent changed, as a reviewable list: ChangesModal (files
+                                with status + line counts, each expandable) over the pure
+                                diffModel.ts (`parseUnifiedDiff` → classified lines with per-side
+                                line numbers, capped at DIFF_MAX_LINES because a lockfile diff
+                                would otherwise lock the window) and DiffView. Opened from the
+                                selected character's overlay, including while it is still working —
+                                "what has it changed so far" is a fair question mid-turn, which is
+                                why that button is NOT in the suggestions row (that row hides
+                                itself during a turn, since those actions would interrupt)
   components/chat/            — Rich chat UI for SDK agents. filePaths.ts turns the paths an agent
                                 writes into click-to-open links (a terminal does this; the chat tab
                                 left them as dead text, worst exactly when it matters). Detection is
@@ -460,6 +481,13 @@ to answer `return` and leave the user staring at a dialog that did nothing.
 ## Office UI
 
 **Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.max(ZOOM_MIN, Math.round(ZOOM_DEFAULT_DPR_FACTOR * devicePixelRatio))`. Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan.
+
+**Stacking order**: one scale, in `index.css` — controls 50, character overlays 100 (selected
+110), modal backdrop 200, modal 210, notices 300. Modals used to hardcode 59/60 (and Settings
+49/50, Welcome 79/80) while a selected character's overlay sat at 110, so opening a dialog FROM a
+character left its label floating on top of the dialog; the Changes panel made that unmissable
+because it opens from exactly there. Notices stay above modals deliberately: a notice is usually
+the answer to something clicked inside one.
 
 **UI styling**: Pixel art aesthetic — all overlays use sharp corners (`borderRadius: 0`), solid backgrounds (`#1e1e2e`), `2px solid` borders, hard offset shadows (`2px 2px 0px #0a0a14`, no blur). CSS variables defined in `index.css` `:root` (`--pixel-bg`, `--pixel-border`, `--pixel-accent`, etc.). Pixel font: FS Pixel Sans (`webview-ui/src/fonts/`), loaded via `@font-face` in `index.css`, applied globally.
 

@@ -47,11 +47,20 @@
   --pixel-status-permission: var(--vscode-charts-yellow, #cca700);
   --pixel-status-active: var(--vscode-charts-blue, #3794ff);
 
-  /* ToolOverlay z-index layers */
-  --pixel-overlay-z: 100;
-  --pixel-overlay-selected-z: 110;
-  --pixel-controls-z: 50;
-  --pixel-modal-z: 200;
+  /* Stacking order, low to high. The office is the floor; everything else
+     is a layer over it, and the only rule that matters is that each layer can
+     cover the one it interrupts. A selected character's overlay used to sit
+     at 110 while every modal was hardcoded at 60, so opening a dialog from a
+     character left its label floating on top of the dialog. */
+  --pixel-controls-z: 50; /* toolbars, zoom, office popup, tasks drawer */
+  --pixel-overlay-z: 100; /* character labels */
+  --pixel-overlay-selected-z: 110; /* the selected one, over its neighbours */
+  --pixel-modal-backdrop-z: 200;
+  --pixel-modal-z: 210;
+  /* Above modals on purpose: a notice is usually the ANSWER to something
+     clicked inside one, and trapped behind it the click looks like it did
+     nothing. */
+  --pixel-notice-z: 300;
 
   /* Chat UI */
   --pixel-chat-amber: #f9e2af;

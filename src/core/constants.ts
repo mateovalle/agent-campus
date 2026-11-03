@@ -31,6 +31,12 @@ export const GIT_COMMAND_TIMEOUT_MS = 10_000;
 export const COMMAND_LOOKUP_TIMEOUT_MS = 2_000;
 /** A login shell runs the user's whole profile, which can be slow on purpose. */
 export const LOGIN_SHELL_TIMEOUT_MS = 5_000;
+/**
+ * How much of an untracked file to read just to count its lines. Past this it
+ * is not something anyone reviews line by line, and reading it would stall
+ * the main process for no one's benefit.
+ */
+export const UNTRACKED_COUNT_MAX_BYTES = 1024 * 1024;
 
 // ── Action Suggestions ───────────────────────────────────────
 // Tool errors in a turn before "Investigate" is suggested.

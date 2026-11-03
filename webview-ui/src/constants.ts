@@ -4,6 +4,13 @@ import type { FloorColor } from './office/types.js';
 export const TILE_SIZE = 16;
 export const DEFAULT_COLS = 20;
 export const DEFAULT_ROWS = 11;
+/**
+ * Most diff lines a Changes panel will render. A generated lockfile or a
+ * vendored bundle runs to tens of thousands, and nobody reviews those line by
+ * line — but the renderer would still try, and the window would stop.
+ */
+export const DIFF_MAX_LINES = 2000;
+
 export const MAX_COLS = 64;
 export const MAX_ROWS = 64;
 
@@ -273,7 +280,6 @@ export const NOTICE_TOAST_MAX_WIDTH_PX = 520;
  * to something clicked in one — a worktree git refused to remove — so a toast
  * trapped behind the modal would make the click look like it did nothing.
  */
-export const NOTICE_TOAST_Z_INDEX = 80;
 
 // ── Agent self-reported progress (campus CLI / `me` tools) ───
 // A bar at the character's feet. In SPRITE pixels: the renderer multiplies by
@@ -288,6 +294,10 @@ export const PROGRESS_BAR_TRACK_COLOR = '#45475a';
 export const PROGRESS_BAR_FILL_COLOR = '#a6e3a1';
 
 // ── Worktree manager ─────────────────────────────────────────
+export const CHANGES_MODAL_WIDTH_PX = 620;
+export const CHANGES_MODAL_MAX_HEIGHT_PX = '78vh';
+/** One file's diff scrolls inside the list rather than pushing it off screen. */
+export const DIFF_VIEW_MAX_HEIGHT_PX = 320;
 export const WORKTREES_MODAL_WIDTH_PX = 520;
 export const WORKTREES_MODAL_MAX_HEIGHT_PX = '70vh';
 /** Uncommitted changes — the only thing a removal can destroy. */

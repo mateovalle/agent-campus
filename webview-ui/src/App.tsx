@@ -9,6 +9,7 @@ import { AchievementToast } from './components/AchievementToast.js';
 import type { BoardAgent } from './components/BoardPanel.js';
 import { BoardPanel } from './components/BoardPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
+import { ChangesModal } from './components/changes/ChangesModal.js';
 import { ResumePicker } from './components/chat/ResumePicker.js';
 import { DebugView } from './components/DebugView.js';
 import { DemoBanner } from './components/DemoBanner.js';
@@ -389,6 +390,9 @@ function App() {
    */
   const agentDisplayName = (id: number): string => agentNames[id] ?? `Agent ${id}`;
 
+  /** Whose Changes panel is open, if any. */
+  const [changesAgentId, setChangesAgentId] = useState<number | null>(null);
+
   const tasksWorkspace = tasksDrawerPath
     ? (workspaces.find((w) => w.path === tasksDrawerPath) ?? null)
     : null;
@@ -628,6 +632,7 @@ function App() {
           onRunAction={handleRunAction}
           roles={roles}
           onSetRole={handleSetRole}
+          onShowChanges={setChangesAgentId}
         />
 
         {officePopup && !editor.isEditMode && (
@@ -642,6 +647,14 @@ function App() {
             onOpenTasks={() => handleOpenTasks(officePopup.workspace.path)}
             onOpenWorktrees={() => setWorktreesPath(officePopup.workspace.path)}
             onClose={handleCloseOfficePopup}
+          />
+        )}
+
+        {changesAgentId !== null && !editor.isEditMode && (
+          <ChangesModal
+            agentId={changesAgentId}
+            agentName={agentDisplayName(changesAgentId)}
+            onClose={() => setChangesAgentId(null)}
           />
         )}
 
