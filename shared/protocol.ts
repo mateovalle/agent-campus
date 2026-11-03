@@ -439,7 +439,6 @@ export type HostToWebviewMessage =
    * replayed — a two-hour-old "build done" is noise, not news.
    */
   | { type: 'agentNotice'; id: number; text: string }
-  | { type: 'workspaceFolders'; folders: Array<{ name: string; path: string }> }
   // Terminal tabs (Electron only)
   // agentId/workspacePath/folderName let the tab bar group tabs per workspace
   // and track the owning agent's activity without a separate lookup message.

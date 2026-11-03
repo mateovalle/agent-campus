@@ -420,8 +420,11 @@ activeToolStatuses, activeSubagentToolNames, turnStats, isWaiting`.
 
 **Persistence**: Seats, palettes, hue shifts and roles are persisted by SESSION id (see
 `saveAgentSeats`). Layouts are per-workspace files under `~/.pixel-agents/layouts/`, written
-atomically (`.tmp` + rename) by `src/core/layoutPersistence.ts` and hot-reloaded through a
-layouts-dir watcher (debounced, own-write suppression) so external edits apply without a restart.
+atomically (`.tmp` + rename) by `electron/main.ts` and hot-reloaded through a layouts-dir watcher
+(debounced, own-write suppression) so external edits apply without a restart — unless the editor
+has unsaved work, which cannot be overwritten; that case now raises a notice ("this office changed
+on disk"), once per streak, where it used to be dropped with a console.log while the docs claimed
+otherwise.
 **Default layout**: a workspace with no design of its own is born from the starter office
 (`~/.pixel-agents/office-template.json`) when present, else the bundled `default-layout.json`.
 That bundled default is GENERATED: `node --experimental-strip-types scripts/asset-gen/default-layout.ts`
@@ -659,8 +662,9 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   matching only `*.test.ts`
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
-- `package-electron.json` at the repo root is DEAD (gitignored leftover of the deleted
-  swap-target system; it still declares `use:vscode` and `@types/vscode`). Don't resurrect it
+- Tests live in `__tests__/` (every one of them — the electron-builder `files` list excludes
+  those directories and `.map` files, so a stray test beside its module would otherwise ship
+  inside the asar importing vitest, a devDependency)
 
 Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKILL.md + Playwright REPL `driver.mjs`, isolated HOME, screenshots/clicks/keys) — use it to verify UI, editor and furniture changes in the real app.
 

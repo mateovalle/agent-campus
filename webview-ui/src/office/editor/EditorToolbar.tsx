@@ -386,7 +386,6 @@ export function EditorToolbar({
     if (loadedAssets) {
       const firstCat = getActiveCategories()[0]?.id;
       if (firstCat) {
-        console.log(`[EditorToolbar] Setting active category to: ${firstCat}`);
         setActiveCategory(firstCat);
       }
     }

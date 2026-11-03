@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, electron-migration]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -31,6 +31,8 @@ jobs:
         run: npm run lint
       - name: Lint (webview)
         run: npm run lint:webview
+      - name: Formatting
+        run: npm run format:check
       - name: Test (core)
         # Capped: these suites touch real git, real sockets and real files, and
         # a block in the EVENT LOOP (execFileSync, a socket read) defeats
