@@ -63,6 +63,52 @@ export function toggleTodo(workspacePath: string, id: string): TodoItem[] {
   return list;
 }
 
+export function editTodo(workspacePath: string, id: string, text: string): TodoItem[] {
+  const list = getTodos(workspacePath);
+  const item = list.find((t) => t.id === id);
+  const trimmed = text.trim();
+  // An empty edit is a mistake, not a request to blank the card: the UI
+  // cancels on empty too, and deleting is its own button.
+  if (item && trimmed) {
+    item.text = trimmed;
+    save();
+  }
+  return list;
+}
+
+/**
+ * Move a task one place among the OPEN tasks of its list — pure, so the
+ * neighbour-finding is testable.
+ *
+ * Among the open ones, because the Board's backlog column is the only place
+ * order is visible and it shows nothing else. Swapping with a `done` entry
+ * would look like the arrow did nothing.
+ */
+export function applyMove(
+  list: readonly TodoItem[],
+  id: string,
+  direction: 'up' | 'down',
+): TodoItem[] {
+  const next = [...list];
+  const from = next.findIndex((t) => t.id === id);
+  if (from < 0 || next[from].status !== 'open') return next;
+
+  const step = direction === 'up' ? -1 : 1;
+  let to = from + step;
+  while (to >= 0 && to < next.length && next[to].status !== 'open') to += step;
+  if (to < 0 || to >= next.length) return next;
+
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
+export function moveTodo(workspacePath: string, id: string, direction: 'up' | 'down'): TodoItem[] {
+  const all = load();
+  all[workspacePath] = applyMove(all[workspacePath] ?? [], id, direction);
+  save();
+  return all[workspacePath];
+}
+
 export function deleteTodo(workspacePath: string, id: string): TodoItem[] {
   const all = load();
   all[workspacePath] = (all[workspacePath] ?? []).filter((t) => t.id !== id);
