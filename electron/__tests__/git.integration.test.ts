@@ -13,7 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { changedFiles, currentBranch, fileDiff } from '../git.js';
+import { changedFiles, commitAll, currentBranch, fileDiff, pushBranch } from '../git.js';
 
 let repo: string;
 
@@ -104,5 +104,105 @@ describe('currentBranch', () => {
     const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-notgit-'));
     expect(currentBranch(notARepo)).toBeNull();
     fs.rmSync(notARepo, { recursive: true, force: true });
+  });
+});
+
+describe('commitAll', () => {
+  it('stages everything and commits it, leaving a clean tree', async () => {
+    // A fresh repo of its own: the shared fixture's changes are what the
+    // read tests above assert on.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-commit-'));
+    const run = (args: string[]) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    run(['init', '-q', '-b', 'main']);
+    run(['config', 'user.email', 'test@example.com']);
+    run(['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'first.txt'), 'hello\n');
+    run(['add', '-A']);
+    run(['commit', '-qm', 'init']);
+
+    // An edit AND a brand-new file: `add -A` has to pick up both, because
+    // "what this agent did" includes the files it created.
+    fs.writeFileSync(path.join(dir, 'first.txt'), 'hello again\n');
+    fs.writeFileSync(path.join(dir, 'second.txt'), 'new\n');
+
+    const result = await commitAll(dir, 'agent work');
+    expect(result.ok).toBe(true);
+    expect(changedFiles(dir)).toEqual([]);
+    expect(run(['log', '-1', '--pretty=%s'])).toContain('agent work');
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports git's own complaint when there is nothing to commit", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-commit-'));
+    const run = (args: string[]) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    run(['init', '-q', '-b', 'main']);
+    run(['config', 'user.email', 'test@example.com']);
+    run(['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'x\n');
+    run(['add', '-A']);
+    run(['commit', '-qm', 'init']);
+
+    const result = await commitAll(dir, 'nothing to see');
+    expect(result.ok).toBe(false);
+    expect(result.message.toLowerCase()).toContain('nothing');
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('pushBranch', () => {
+  it('pushes to origin and sets the upstream', async () => {
+    // A bare repo on disk is a real remote: no network, same code path.
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-push-'));
+    const run = (args: string[]) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    run(['init', '-q', '-b', 'agent/1']);
+    run(['config', 'user.email', 'test@example.com']);
+    run(['config', 'user.name', 'Test']);
+    run(['remote', 'add', 'origin', remote]);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'x\n');
+    run(['add', '-A']);
+    run(['commit', '-qm', 'work']);
+
+    const result = await pushBranch(dir, 'agent/1');
+    expect(result.ok).toBe(true);
+    // The branch is there, and -u recorded where it goes.
+    expect(
+      execFileSync('git', ['branch', '--list', 'agent/1'], {
+        cwd: remote,
+        encoding: 'utf-8',
+      }),
+    ).toContain('agent/1');
+    expect(run(['rev-parse', '--abbrev-ref', 'agent/1@{upstream}']).trim()).toBe('origin/agent/1');
+
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(remote, { recursive: true, force: true });
+  });
+
+  it('says there is no remote, rather than quoting git about access rights', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-push-'));
+    const run = (args: string[]) =>
+      execFileSync('git', args, { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    run(['init', '-q', '-b', 'main']);
+    run(['config', 'user.email', 'test@example.com']);
+    run(['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'x\n');
+    run(['add', '-A']);
+    run(['commit', '-qm', 'work']);
+
+    const result = await pushBranch(dir, 'main');
+    expect(result.ok).toBe(false);
+    // git's own answer here is "make sure you have the correct access
+    // rights", because it tries 'origin' as a URL — a sentence that sends the
+    // user hunting for a permissions problem that does not exist.
+    expect(result.message).toBe('This repository has no "origin" remote to push to.');
+
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

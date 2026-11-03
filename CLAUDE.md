@@ -107,7 +107,19 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 and an untracked file has no HEAD to be diffed against (counted by
                                 reading it, capped at UNTRACKED_COUNT_MAX_BYTES; its patch comes
                                 from `diff --no-index`, which signals "they differ" by EXITING 1, so
-                                the output has to be read off the thrown error)
+                                the output has to be read off the thrown error).
+                                The three WRITES — commitAll (`add -A` then commit), pushBranch
+                                (`push -u origin`) and createPullRequest (`gh pr create --fill`,
+                                so no second form) — are ASYNC, unlike every read: a commit runs
+                                the project's own pre-commit hooks and the other two are network
+                                calls, and synchronously any of them would freeze every PTY and
+                                chat session for their whole duration. They run with
+                                GIT_TERMINAL_PROMPT=0 and GIT_ASKPASS/SSH_ASKPASS neutered, because
+                                a credential or passphrase prompt has no terminal to appear on here
+                                and would simply wait out the timeout. pushBranch checks for an
+                                `origin` remote FIRST: without one git treats 'origin' as a URL and
+                                answers "make sure you have the correct access rights", sending the
+                                user after a permissions problem they do not have
   worktrees.ts                — Git worktrees: a private checkout per agent (opt-in), so two agents
                                 in one repo stop overwriting each other. Checkouts live in
                                 ~/.pixel-agents/worktrees/<repo>-<hash>/<branch> (never beside the
@@ -251,7 +263,13 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 selected character's overlay, including while it is still working —
                                 "what has it changed so far" is a fair question mid-turn, which is
                                 why that button is NOT in the suggestions row (that row hides
-                                itself during a turn, since those actions would interrupt)
+                                itself during a turn, since those actions would interrupt). The
+                                action row under the list closes the loop: a commit message
+                                pre-filled with the agent's NAME (host-derived from its first
+                                prompt, so "fix-auth-timeout" beats an empty box), then Commit /
+                                Push / Open PR. Every request answers, including when the agent was
+                                closed while its panel was open — a button that is pressed and
+                                never hears back spins forever
   components/chat/            — Rich chat UI for SDK agents. filePaths.ts turns the paths an agent
                                 writes into click-to-open links (a terminal does this; the chat tab
                                 left them as dead text, worst exactly when it matters). Detection is

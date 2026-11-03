@@ -453,6 +453,14 @@ export type HostToWebviewMessage =
       error?: string;
     }
   | { type: 'agentFileDiff'; agentId: number; file: string; patch: string }
+  /** How a commit / push / PR attempt went, in words the panel shows as-is. */
+  | {
+      type: 'agentGitResult';
+      agentId: number;
+      action: 'commit' | 'push' | 'pr';
+      ok: boolean;
+      message: string;
+    }
   /** A repo's checkouts, for the worktree manager. */
   | { type: 'worktreesLoaded'; workspacePath: string; worktrees: WorktreeSummary[] }
   /** An agent decorated itself (campus status/progress). Replayed on reload. */
@@ -649,6 +657,9 @@ export type WebviewToHostMessage =
   | { type: 'addWorkspace' }
   | { type: 'removeWorkspace'; path: string }
   | { type: 'requestAgentChanges'; agentId: number }
+  | { type: 'commitAgentWork'; agentId: number; message: string }
+  | { type: 'pushAgentWork'; agentId: number }
+  | { type: 'createAgentPr'; agentId: number }
   | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
