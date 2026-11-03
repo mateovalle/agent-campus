@@ -26,7 +26,7 @@ import { DATA_DIR_NAME } from '../src/core/constants.js';
 const USAGE_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'usage.jsonl');
 const MAX_PROJECTS_IN_SUMMARY = 10;
 
-interface UsageEntry {
+export interface UsageEntry {
   /** Epoch ms of turn completion. */
   t: number;
   /** This turn's cost in USD (a delta, not a session running total). */
@@ -37,6 +37,22 @@ interface UsageEntry {
   p: string;
   /** Session that produced the turn. Absent on entries written before it was recorded. */
   s?: string;
+}
+
+/**
+ * The ledger, parsed once.
+ *
+ * It used to be read and JSON.parsed from disk on every single turn, by every
+ * agent, synchronously, on the process that owns every PTY and chat session —
+ * so the cost of finishing a turn grew with the user's entire history. The
+ * file is append-only and this is the only writer, so memory can simply stay
+ * in step with it.
+ */
+let entries: UsageEntry[] | null = null;
+
+function allEntries(): UsageEntry[] {
+  entries ??= readEntries();
+  return entries;
 }
 
 export function recordTurnUsage(
@@ -53,6 +69,9 @@ export function recordTurnUsage(
     p: cwd,
     ...(sessionId ? { s: sessionId } : {}),
   };
+  // Counted even if the write fails: a read-only home should cost the user
+  // today's figure on the next launch, not the one they are looking at.
+  allEntries().push(entry);
   try {
     fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
     fs.appendFileSync(USAGE_FILE, JSON.stringify(entry) + '\n', 'utf-8');
@@ -83,7 +102,13 @@ function readEntries(): UsageEntry[] {
   return entries;
 }
 
+/** Summary of the ledger on disk. */
 export function summarizeUsage(now = new Date()): UsageSummary {
+  return summarizeEntries(allEntries(), now);
+}
+
+/** The aggregation itself, pure: entries in, summary out. */
+export function summarizeEntries(list: readonly UsageEntry[], now = new Date()): UsageSummary {
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
@@ -98,7 +123,7 @@ export function summarizeUsage(now = new Date()): UsageSummary {
   const seriesStart = startOfDay - (DAYS_IN_SERIES - 1) * DAY_MS;
   const todayByWorkspace: Record<string, number> = {};
 
-  for (const e of readEntries()) {
+  for (const e of list) {
     turnCount++;
     allTimeUsd += e.c;
     if (e.t >= startOfMonth) monthUsd += e.c;

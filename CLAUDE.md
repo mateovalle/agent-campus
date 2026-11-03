@@ -113,7 +113,13 @@ electron/                     — Electron desktop host (imports src/core; tscon
   workspaces.ts / todos.ts / usage.ts — persisted registries (~/.pixel-agents/): offices, per-workspace
                                 task lists, per-turn cost ledger (per-turn DELTAS derived from the
                                 SDK's cumulative total_cost_usd — summing that field raw inflates
-                                spend quadratically; figures are API-list estimates, not plan spend)
+                                spend quadratically; figures are API-list estimates, not plan spend).
+                                The ledger is parsed ONCE and kept in memory, with the aggregation
+                                split out as the pure `summarizeEntries(list, now)` (tested): it was
+                                re-reading and re-parsing the whole append-only file on every turn of
+                                every agent, synchronously, on the process that owns every PTY — so
+                                finishing a turn cost the user's entire history. Appends still go
+                                straight to disk; this module is the only writer
   openAgents.ts               — Which agents were open, so a restart can offer them back
                                 (~/.pixel-agents/open-agents.json). Written on every open and close,
                                 not at quit, so a crash can't lose the list and every platform behaves
