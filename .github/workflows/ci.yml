@@ -9,8 +9,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     # A hung step otherwise burns the runner's full six-hour budget and the PR
-    # never reports. Everything here finishes in ~90s.
-    timeout-minutes: 12
+    # never reports at all. Everything here finishes in a few minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,3 +44,50 @@ jobs:
         run: npm run build:webview
       - name: Build electron main
         run: npm run build:electron
+      # Packaging ran only on a release tag, so the whole class of bug that
+      # only exists in a packaged app — asar layout, an unpacked binary that
+      # moved, a file list that forgot something — surfaced at release.
+      # --dir stops before the installers: it builds the asar, which is where
+      # those bugs live, in a fraction of the time.
+      - name: Package (unpacked)
+        run: npx electron-builder --dir
+      - name: The package carries no tests and no sourcemaps
+        # Encodes a bug this gate was added for: a test file beside its module
+        # compiled into dist-electron and shipped INSIDE the asar, importing
+        # vitest — a devDependency absent from the installed app.
+        run: |
+          npx @electron/asar list release/linux-unpacked/resources/app.asar > asar-contents.txt
+          if grep -E '__tests__|\.map$' asar-contents.txt; then
+            echo "::error::the lines above should not be in the packaged app"
+            exit 1
+          fi
+
+  # The suites that touch the OS — named pipes vs unix sockets, shim quoting,
+  # real git, the macOS Keychain auth probe — had never run anywhere but Linux,
+  # which is how a test asserting an unwritable HOME via a path that happens
+  # not to exist on macOS came to hang ubuntu for twenty minutes.
+  platforms:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      # Each platform's answer is worth having on its own; one failing must not
+      # hide the others.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # No scripts: postinstall is electron-rebuild, which builds node-pty
+      # against Electron's ABI and costs minutes. Nothing under test imports
+      # it — main.ts is read as TEXT by one test, never loaded.
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+      - name: Test (core)
+        timeout-minutes: 4
+        run: npm test
