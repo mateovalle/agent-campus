@@ -260,18 +260,29 @@ describe('shim rendering', () => {
   });
 });
 
+const isWindowsHost = process.platform === 'win32';
+
 describe('installCampusShims', () => {
-  const realHome = process.env.HOME;
+  // BOTH, because the code under test asks os.homedir(), and os.homedir()
+  // reads USERPROFILE on Windows and ignores HOME entirely — so overriding
+  // only HOME left this suite writing into the real user profile there.
+  const realEnv = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   let tmp: string;
+
+  const setEnv = (key: 'HOME' | 'USERPROFILE', value: string | undefined) => {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'shim-'));
-    process.env.HOME = path.join(tmp, 'home');
+    setEnv('HOME', path.join(tmp, 'home'));
+    setEnv('USERPROFILE', path.join(tmp, 'home'));
   });
 
   afterEach(() => {
-    if (realHome === undefined) delete process.env.HOME;
-    else process.env.HOME = realHome;
+    setEnv('HOME', realEnv.HOME);
+    setEnv('USERPROFILE', realEnv.USERPROFILE);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -284,13 +295,24 @@ describe('installCampusShims', () => {
     return path.join(dir, 'campusCli.js');
   }
 
-  it('installs a runnable shim and an executable bit', () => {
+  it('installs both shims, so git-bash on Windows gets one too', () => {
     const out = installCampusShims({
       electronPath: '/bin/echo',
       cliSource: fakeBuild(),
       version: '1',
     });
     expect(out).not.toBeNull();
+    expect(fs.existsSync(out!.campus)).toBe(true);
+    expect(fs.existsSync(path.join(out!.binDir, 'campus.cmd'))).toBe(true);
+  });
+
+  // Windows has no executable bit, and `campus.cmd` is what runs there.
+  it.skipIf(isWindowsHost)('marks the POSIX shim executable', () => {
+    const out = installCampusShims({
+      electronPath: '/bin/echo',
+      cliSource: fakeBuild(),
+      version: '1',
+    });
     expect(fs.statSync(out!.campus).mode & 0o111).toBeTruthy();
   });
 
@@ -307,18 +329,22 @@ describe('installCampusShims', () => {
     }
   });
 
-  // Skipped as root, where the scenario cannot exist: root writes anywhere.
-  it.skipIf(process.getuid?.() === 0)('survives a home directory it cannot write to', () => {
-    // An empty directory with the write bit off, not '/proc/nonexistent-for-sure'
-    // as this once used: /proc does not exist on macOS and IS procfs on Linux,
-    // so that was a test of the operating system rather than of this code. Its
-    // parent stays writable, so afterEach can still remove it.
-    const readOnly = path.join(tmp, 'read-only');
-    fs.mkdirSync(readOnly);
-    fs.chmodSync(readOnly, 0o500);
-    process.env.HOME = readOnly;
-    expect(
-      installCampusShims({ electronPath: '/bin/echo', cliSource: fakeBuild(), version: '1' }),
-    ).toBeNull();
-  });
+  // Skipped where the scenario cannot be built: root writes anywhere, and
+  // chmod does not take a directory's write permission away on Windows.
+  it.skipIf(isWindowsHost || process.getuid?.() === 0)(
+    'survives a home directory it cannot write to',
+    () => {
+      // An empty directory with the write bit off, not '/proc/nonexistent-for-sure'
+      // as this once used: /proc does not exist on macOS and IS procfs on Linux,
+      // so that was a test of the operating system rather than of this code. Its
+      // parent stays writable, so afterEach can still remove it.
+      const readOnly = path.join(tmp, 'read-only');
+      fs.mkdirSync(readOnly);
+      fs.chmodSync(readOnly, 0o500);
+      setEnv('HOME', readOnly);
+      expect(
+        installCampusShims({ electronPath: '/bin/echo', cliSource: fakeBuild(), version: '1' }),
+      ).toBeNull();
+    },
+  );
 });
