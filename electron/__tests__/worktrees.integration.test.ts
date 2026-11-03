@@ -26,6 +26,18 @@ const realHome = process.env.HOME;
 const git = (args: string[], cwd: string) =>
   execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
 
+/**
+ * "The same directory", asked of the OS rather than of the strings.
+ *
+ * `realpathSync.native`, not `realpathSync`: on Windows the runner's TEMP is
+ * an 8.3 short path (C:\Users\RUNNER~1\...) while git answers with the long
+ * form (C:\Users\runneradmin\...), and only the native call canonicalises
+ * that. The plain one left this suite failing on Windows the first time CI
+ * ever ran there. (The product has the same comparison to make and makes it
+ * with path.resolve, which also cannot — see #53.)
+ */
+const samePath = (a: string, b: string) => fs.realpathSync.native(a) === fs.realpathSync.native(b);
+
 beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-wt-'));
   process.env.HOME = path.join(tmp, 'home');
@@ -49,12 +61,12 @@ afterAll(() => {
 
 describe('gitRepoRoot', () => {
   it('finds the root of a plain checkout', () => {
-    expect(fs.realpathSync(gitRepoRoot(repo) ?? '')).toBe(fs.realpathSync(repo));
+    expect(samePath(gitRepoRoot(repo) ?? '', repo)).toBe(true);
   });
 
   it('answers the MAIN repo from inside a worktree, not the worktree itself', () => {
     const wt = createWorktree(repo, 'probe/root');
-    expect(fs.realpathSync(gitRepoRoot(wt.path) ?? '')).toBe(fs.realpathSync(repo));
+    expect(samePath(gitRepoRoot(wt.path) ?? '', repo)).toBe(true);
   });
 
   it('returns null outside a repo', () => {
@@ -136,7 +148,7 @@ describe('summarizeWorktrees', () => {
     createWorktree(repo, 'sum/one');
     const all = summarizeWorktrees(repo);
     expect(all.filter((w) => w.isMain)).toHaveLength(1);
-    expect(fs.realpathSync(all.find((w) => w.isMain)!.path)).toBe(fs.realpathSync(repo));
+    expect(samePath(all.find((w) => w.isMain)!.path, repo)).toBe(true);
   });
 
   it('reports a clean checkout as clean and a touched one as dirty', () => {
