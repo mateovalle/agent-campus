@@ -62,11 +62,6 @@ export interface FurnitureAsset {
   backgroundTiles?: number;
 }
 
-export interface WorkspaceFolder {
-  name: string;
-  path: string;
-}
-
 export interface ExtensionMessageState {
   agents: number[];
   selectedAgent: number | null;
@@ -80,7 +75,6 @@ export interface ExtensionMessageState {
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> };
-  workspaceFolders: WorkspaceFolder[];
   workspaces: WorkspaceInfo[];
   /** Human todos per workspace path (replaced wholesale on each message). */
   workspaceTodos: Record<string, TodoItem[]>;
@@ -163,7 +157,6 @@ export function useExtensionMessages(
   const [loadedAssets, setLoadedAssets] = useState<
     { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined
   >();
-  const [workspaceFolders, setWorkspaceFolders] = useState<WorkspaceFolder[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [workspaceTodos, setWorkspaceTodos] = useState<Record<string, TodoItem[]>>({});
   const [agentTodos, setAgentTodos] = useState<Record<number, AgentTodo[]>>({});
@@ -172,6 +165,8 @@ export function useExtensionMessages(
   const [claudeAuth, setClaudeAuth] = useState<ClaudeAuthState | null>(null);
   const [unlockQueue, setUnlockQueue] = useState<AchievementInfo[]>([]);
   const [noticeQueue, setNoticeQueue] = useState<HostNotice[]>([]);
+  /** Whether the user has already been told the file on disk moved ahead. */
+  const externalLayoutSkippedRef = useRef(false);
   const [worktrees, setWorktrees] = useState<{
     workspacePath: string;
     list: WorktreeSummary[];
@@ -258,11 +253,26 @@ export function useExtensionMessages(
       const msg = e.data as HostToWebviewMessage;
 
       if (msg.type === 'layoutLoaded') {
-        // Skip external layout updates while editor has unsaved changes
+        // An external edit to the layout file cannot be applied over unsaved
+        // work in the editor — but dropping it with a console.log made the
+        // documented behaviour ("external edits apply without a restart")
+        // quietly untrue, and the user's file edit look lost. Say it instead,
+        // once per streak: the watcher can fire several times for one save.
         if (layoutReadyRef.current && isEditDirtyRef.current?.()) {
-          console.log('[Webview] Skipping external layout update — editor has unsaved changes');
+          if (!externalLayoutSkippedRef.current) {
+            externalLayoutSkippedRef.current = true;
+            setNoticeQueue((prev) => [
+              ...prev,
+              {
+                id: nextNoticeId++,
+                level: 'info',
+                text: 'This office changed on disk. Save or reset your edits to pick up that version.',
+              },
+            ]);
+          }
           return;
         }
+        externalLayoutSkippedRef.current = false;
         const rawLayout = msg.layout as OfficeLayout | null;
         const layout =
           rawLayout && rawLayout.version === 1
@@ -662,10 +672,8 @@ export function useExtensionMessages(
           up: string[][][];
           right: string[][][];
         }>;
-        console.log(`[Webview] Received ${characters.length} pre-colored character sprites`);
         setCharacterTemplates(characters);
       } else if (msg.type === 'roleSpritesLoaded') {
-        console.log(`[Webview] Received ${msg.roles.length} role skins`);
         setRoleSprites(
           msg.roles.map((r) => ({
             id: r.id,
@@ -675,14 +683,10 @@ export function useExtensionMessages(
         setRoles(msg.roles.map((r) => ({ id: r.id, name: r.name })));
       } else if (msg.type === 'floorTilesLoaded') {
         const sprites = msg.sprites as string[][][];
-        console.log(`[Webview] Received ${sprites.length} floor tile patterns`);
         setFloorSprites(sprites);
       } else if (msg.type === 'wallTilesLoaded') {
         const sprites = msg.sprites as string[][][];
-        console.log(`[Webview] Received ${sprites.length} wall tile sprites`);
         setWallSprites(sprites);
-      } else if (msg.type === 'workspaceFolders') {
-        setWorkspaceFolders(msg.folders);
       } else if (msg.type === 'workspaceTodos') {
         const path = msg.path;
         const todos = msg.todos;
@@ -763,7 +767,6 @@ export function useExtensionMessages(
         try {
           const catalog = msg.catalog as FurnitureAsset[];
           const sprites = msg.sprites as Record<string, string[][]>;
-          console.log(`📦 Webview: Loaded ${catalog.length} furniture assets`);
           // Build dynamic catalog immediately so getCatalogEntry() works when layoutLoaded arrives next
           buildDynamicCatalog({ catalog, sprites });
           setLoadedAssets({ catalog, sprites });
@@ -787,7 +790,6 @@ export function useExtensionMessages(
     subagentCharacters,
     layoutReady,
     loadedAssets,
-    workspaceFolders,
     workspaces,
     workspaceTodos,
     agentTodos,

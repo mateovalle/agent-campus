@@ -327,10 +327,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     .filter((c): c is FurnitureCategory => !!c)
     .sort();
 
-  const rotGroupCount = new Set(Array.from(rotationGroups.values())).size;
-  console.log(
-    `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs)`,
-  );
   return true;
 }
 

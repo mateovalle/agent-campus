@@ -37,7 +37,9 @@
     },
     "files": [
       "dist-electron/**/*",
-      "dist/webview/**/*"
+      "dist/webview/**/*",
+      "!dist-electron/**/*.map",
+      "!dist-electron/**/__tests__/**"
     ],
     "asarUnpack": [
       "node_modules/@anthropic-ai/claude-agent-sdk-*/**"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AttentionTracker } from './attention.js';
+import { AttentionTracker } from '../attention.js';
 
 const MIN = 60_000;
 
