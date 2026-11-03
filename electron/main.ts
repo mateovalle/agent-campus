@@ -36,7 +36,8 @@ import {
   PROJECT_SCAN_INTERVAL_MS,
 } from '../src/core/constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
-import { isValidLayout } from '../src/core/layoutPersistence.js';
+import type { LayoutParseResult } from '../src/core/layoutPersistence.js';
+import { isValidLayout, parseLayout } from '../src/core/layoutPersistence.js';
 import { AGENT_ROLE_DEFS, DISPATCH_ROLE_IDS, roleForTaskText } from '../src/core/roles.js';
 import {
   cancelPermissionTimer,
@@ -2206,12 +2207,22 @@ async function exportLayout(): Promise<void> {
   if (result.filePath) {
     try {
       fs.writeFileSync(result.filePath, JSON.stringify(layout, null, 2), 'utf-8');
+      notify('info', `Saved the starter office to ${path.basename(result.filePath)}.`);
     } catch (err) {
-      console.error('[Agent Campus] Failed to export layout:', err);
+      notify(
+        'error',
+        `Could not write ${path.basename(result.filePath)}: ${(err as Error).message}`,
+      );
     }
   }
 }
 
+/**
+ * Import the STARTER office. Two things used to happen in silence here: a file
+ * that failed validation was answered with `return` — the user picked
+ * something and nothing at all happened — and a file that passed REPLACED the
+ * layout every new workspace is born with, unasked.
+ */
 async function importLayout(): Promise<void> {
   if (!mainWindow) return;
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -2219,15 +2230,44 @@ async function importLayout(): Promise<void> {
     properties: ['openFile'],
   });
   if (result.filePaths.length === 0) return;
+  const file = result.filePaths[0];
+  const name = path.basename(file);
+
+  let parsed: LayoutParseResult;
   try {
-    const raw = fs.readFileSync(result.filePaths[0], 'utf-8');
-    const imported = JSON.parse(raw) as Record<string, unknown>;
-    if (!isValidLayout(imported)) return;
-    writeOfficeTemplate(imported);
-    ctx.send({ type: 'layoutLoaded', layout: imported });
+    parsed = parseLayout(JSON.parse(fs.readFileSync(file, 'utf-8')));
   } catch (err) {
-    console.error('[Agent Campus] Failed to import layout:', err);
+    notify('error', `Could not read ${name}: ${(err as Error).message}`);
+    return;
   }
+  if (!parsed.ok) {
+    notify('error', `${name} is not an office layout — ${parsed.reason}`);
+    return;
+  }
+
+  // Only ask when there is something to lose: with no starter of their own,
+  // new offices come from the layout the app ships with, and that is not the
+  // user's work. One they chose deliberately is.
+  if (readOfficeTemplate()) {
+    const choice = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Replace', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      message: 'Replace the starter office?',
+      detail:
+        `${name} becomes the office every NEW workspace is born with, in place of the ` +
+        'one you set. Offices that already exist keep their own design.',
+    });
+    if (choice.response !== 0) return;
+  }
+
+  if (!writeOfficeTemplate(parsed.layout)) {
+    notify('error', `Could not save ${name} as the starter office.`);
+    return;
+  }
+  ctx.send({ type: 'layoutLoaded', layout: parsed.layout });
+  notify('info', `${name} is now the starter office for new workspaces.`);
 }
 
 // ── Window Creation ──────────────────────────────────────────

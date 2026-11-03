@@ -14,6 +14,21 @@ export const TEXT_IDLE_DELAY_MS = 5000;
 export const SUGGESTION_ERROR_THRESHOLD = 3;
 export const MAX_ACTION_SUGGESTIONS = 3;
 
+// ── Layout validation ───────────────────────────────────────
+/**
+ * The largest grid a layout may claim, matching the editor's own MAX_COLS /
+ * MAX_ROWS (webview constants — the editor refuses to expand past it). A file
+ * claiming more was not produced by this app and cannot be edited once
+ * loaded, so it is rejected at the door rather than half-rendered.
+ */
+export const LAYOUT_MAX_DIMENSION = 64;
+/**
+ * Highest tile value a layout may carry. The space is open-ended by design
+ * (floor pattern p is p up to 7 and p+1 from 8 on; wall style s >= 1 is
+ * 100 + s), so this is a sanity bound against garbage, not a catalogue.
+ */
+export const LAYOUT_MAX_TILE_VALUE = 200;
+
 // ── Display Truncation ──────────────────────────────────────
 export const BASH_COMMAND_DISPLAY_MAX_LENGTH = 30;
 export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
