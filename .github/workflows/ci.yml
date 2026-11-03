@@ -51,13 +51,17 @@ jobs:
       # those bugs live, in a fraction of the time.
       - name: Package (unpacked)
         run: npx electron-builder --dir
-      - name: The package carries no tests and no sourcemaps
+      - name: Our own build output carries no tests and no sourcemaps
         # Encodes a bug this gate was added for: a test file beside its module
         # compiled into dist-electron and shipped INSIDE the asar, importing
         # vitest — a devDependency absent from the installed app.
+        #
+        # Scoped to what we build. node-pty ships its own .test.js and .map
+        # files, and pruning a dependency's contents is a different argument
+        # from not shipping our own tests.
         run: |
           npx @electron/asar list release/linux-unpacked/resources/app.asar > asar-contents.txt
-          if grep -E '__tests__|\.map$' asar-contents.txt; then
+          if grep -vE '^/node_modules/' asar-contents.txt | grep -E '__tests__|\.test\.js|\.map$'; then
             echo "::error::the lines above should not be in the packaged app"
             exit 1
           fi
