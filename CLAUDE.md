@@ -174,7 +174,11 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 (webview selects, follows, acknowledges) + tab focus. "Desktop
                                 Notifications" toggle in Settings (settings.json notificationsEnabled)
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
-                                ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol,
+                                ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol
+                                (a message shape it cannot handle is logged, reported ONCE as a
+                                `kind: 'error'` event, and then skipped: the loop must keep draining,
+                                but swallowed in silence this left a busy character emitting nothing
+                                into a live chat tab — invisible without devtools),
                                 canUseTool → chat-permission-request/-response promise bridge, capped
                                 history buffer replayed on chatReady (seedable via initialHistory for
                                 resume), interrupt, dispose
@@ -357,7 +361,12 @@ suggestion/permission-request/-resolved`), terminals (`pty-*`), and campus data
 `schedulesLoaded`, `missedSchedules`, `achievements*`, `claudeAuth`, `settingsLoaded`).
 
 **Agent creation**: the host mints the session id up front, so the agent and its transcript
-watcher exist before the session does. "+ Agent" → `openChatAgent` → `launchChatAgent()` (SDK
+watcher exist before the session does. The watcher polls for the JSONL with a DEADLINE
+(`JSONL_POLL_TIMEOUT_MS`, 30s) and then says so in a `hostNotice`: a transcript can fail to appear
+for real reasons (a `claude` that never launched, a cwd that is gone, a worktree whose setup left
+no usable environment), and without a deadline the character sat at its desk forever while a 1s
+timer ran for the life of the app. It closes NOTHING — the session itself is usually fine, and
+what was lost is only the office's ability to follow it. "+ Agent" → `openChatAgent` → `launchChatAgent()` (SDK
 session + chat tab). "+ Terminal" → `openClaude` → a PTY running
 `claude --session-id <uuid>` (plus `--dangerously-skip-permissions` when the Settings toggle is
 on), then a 1s poll for `<uuid>.jsonl`.

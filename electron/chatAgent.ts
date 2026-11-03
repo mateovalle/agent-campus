@@ -47,6 +47,7 @@ const SDK_NATIVE_PACKAGE_PREFIX = '@anthropic-ai/claude-agent-sdk-';
 const ASAR_DIR_NAME = 'app.asar';
 const ASAR_UNPACKED_DIR_NAME = 'app.asar.unpacked';
 const STARTUP_ERROR_PREFIX = "Couldn't start Claude session: ";
+const BAD_MESSAGE_PREFIX = 'Some output could not be displayed: ';
 const STARTUP_ERROR_HINT =
   'Is Claude Code installed and logged in? Setup guide: ' +
   'https://github.com/mateovalle/agent-campus#installing-the-packaged-app';
@@ -285,6 +286,7 @@ export function startChatSession(opts: {
   let disposed = false;
   /** True once the SDK reported `system init` — the CLI process launched. */
   let initialized = false;
+  let reportedBadMessage = false;
 
   const session: ChatSession = {
     agentId,
@@ -740,7 +742,19 @@ export function startChatSession(opts: {
         try {
           handleMessage(msg);
         } catch (err) {
+          // Keep draining: one message shape we don't understand must not end
+          // a working session. But SAY it, once — swallowed, this left a busy
+          // character emitting nothing into a live chat tab, which is the most
+          // confusing state the UI has and was invisible without devtools. A
+          // new SDK variant would hit every message, hence once.
           console.error(`[Agent Campus] Chat ${agentId}: bad message`, err);
+          if (!reportedBadMessage && !disposed) {
+            reportedBadMessage = true;
+            emit({
+              kind: 'error',
+              message: BAD_MESSAGE_PREFIX + (err instanceof Error ? err.message : String(err)),
+            });
+          }
         }
       }
     } catch (err) {

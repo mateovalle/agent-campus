@@ -33,6 +33,7 @@ import {
 import {
   DATA_DIR_NAME,
   JSONL_POLL_INTERVAL_MS,
+  JSONL_POLL_TIMEOUT_MS,
   PROJECT_SCAN_INTERVAL_MS,
 } from '../src/core/constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
@@ -1072,13 +1073,34 @@ function launchChatAgent(
   return agent.id;
 }
 
-/** Poll until the agent's JSONL file appears, then start watching it. */
+/**
+ * Poll until the agent's JSONL file appears, then start watching it.
+ *
+ * With a DEADLINE, because there are real ways for it never to appear — a
+ * `claude` that failed to launch, a cwd that is gone, a worktree whose setup
+ * left no usable environment — and without one the character sat at its desk
+ * forever while a 1s timer ran for the life of the app. The session may well
+ * be fine (a terminal tab still works, a chat tab still streams); what is lost
+ * is the office's ability to FOLLOW it. So this reports and stops polling,
+ * and closes nothing.
+ */
 function pollForJsonlFile(agentId: number, skipToEnd = false): void {
+  const startedAt = Date.now();
   const timer = setInterval(() => {
     const agent = ctx.agents.get(agentId);
     if (!agent) {
       clearInterval(timer);
       jsonlPollTimers.delete(agentId);
+      return;
+    }
+    if (Date.now() - startedAt > JSONL_POLL_TIMEOUT_MS) {
+      clearInterval(timer);
+      jsonlPollTimers.delete(agentId);
+      notify(
+        'error',
+        `${agent.label} never wrote a transcript in ${agent.cwd}, so the office ` +
+          'cannot follow it. Its tab still works.',
+      );
       return;
     }
     try {
