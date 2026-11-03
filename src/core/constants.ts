@@ -37,6 +37,13 @@ export const LOGIN_SHELL_TIMEOUT_MS = 5_000;
  * the main process for no one's benefit.
  */
 export const UNTRACKED_COUNT_MAX_BYTES = 1024 * 1024;
+/**
+ * Deadline for git commands that WRITE. These run asynchronously — a commit
+ * can trigger a repo's own pre-commit hooks and a push is a network call, and
+ * neither belongs on the event loop at any length — so this is about not
+ * leaving a button spinning forever rather than about not freezing the app.
+ */
+export const GIT_WRITE_TIMEOUT_MS = 120_000;
 
 // ── Action Suggestions ───────────────────────────────────────
 // Tool errors in a turn before "Investigate" is suggested.

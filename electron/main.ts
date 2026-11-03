@@ -66,7 +66,15 @@ import {
 import { campusBinDir, installCampusShims } from './campusShim.js';
 import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
-import { changedFiles, currentBranch, fileDiff } from './git.js';
+import type { GitWriteResult } from './git.js';
+import {
+  changedFiles,
+  commitAll,
+  createPullRequest,
+  currentBranch,
+  fileDiff,
+  pushBranch,
+} from './git.js';
 import {
   clearOfficeTemplate,
   officeTemplatePath,
@@ -657,6 +665,73 @@ function worktreesWithAgents(repoRoot: string): WorktreeSummary[] {
       .map((agent) => agent.id);
   }
   return summaries;
+}
+
+/**
+ * Commit, push, or open a PR for one agent — the only three writes the app
+ * makes to a repository.
+ *
+ * Asynchronous, unlike every read: a commit runs the project's own hooks and
+ * the other two are network calls, and the main process cannot stop for any
+ * of them. The panel is told how it went either way, and a successful commit
+ * is followed by a fresh file list, because the old one is now a lie.
+ */
+async function runAgentGitWrite(
+  msg:
+    | { type: 'commitAgentWork'; agentId: number; message: string }
+    | { type: 'pushAgentWork'; agentId: number }
+    | { type: 'createAgentPr'; agentId: number },
+): Promise<void> {
+  const action =
+    msg.type === 'commitAgentWork' ? 'commit' : msg.type === 'pushAgentWork' ? 'push' : 'pr';
+  const agent = ctx.agents.get(msg.agentId);
+  // Every path out of here answers: a button that was pressed and never hears
+  // back spins forever, which is worse than being told the agent is gone.
+  if (!agent) {
+    ctx.send({
+      type: 'agentGitResult',
+      agentId: msg.agentId,
+      action,
+      ok: false,
+      message: 'That agent is gone, so there is nothing to act on.',
+    });
+    return;
+  }
+
+  let result: GitWriteResult;
+  if (msg.type === 'commitAgentWork') {
+    result = await commitAll(agent.cwd, msg.message);
+  } else if (msg.type === 'pushAgentWork') {
+    const branch = currentBranch(agent.cwd);
+    result = branch
+      ? await pushBranch(agent.cwd, branch)
+      : {
+          ok: false,
+          message: 'This checkout is on a detached HEAD, so there is no branch to push.',
+        };
+  } else {
+    result = await createPullRequest(agent.cwd);
+  }
+
+  ctx.send({
+    type: 'agentGitResult',
+    agentId: msg.agentId,
+    action,
+    ok: result.ok,
+    message: result.message,
+  });
+  // Opened here rather than handed to the webview: the browser is the host's
+  // to open, and the panel has nowhere to put a link anyway.
+  if (result.url) void shell.openExternal(result.url);
+  if (result.ok && action === 'commit') {
+    ctx.send({
+      type: 'agentChanges',
+      agentId: msg.agentId,
+      cwd: agent.cwd,
+      ...(currentBranch(agent.cwd) ? { branch: currentBranch(agent.cwd) as string } : {}),
+      files: changedFiles(agent.cwd),
+    });
+  }
 }
 
 /** Pushes a repo's checkouts to the worktree manager. */
@@ -1805,7 +1880,19 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     })();
   } else if (msg.type === 'requestAgentChanges') {
     const agent = ctx.agents.get(msg.agentId);
-    if (!agent) return;
+    // Closed while its panel was open. Answering with an error beats the
+    // silent `return` this used to do, which left the panel reading "Reading…"
+    // for as long as it stayed open.
+    if (!agent) {
+      ctx.send({
+        type: 'agentChanges',
+        agentId: msg.agentId,
+        cwd: '',
+        files: [],
+        error: 'That agent is gone.',
+      });
+      return;
+    }
     // gitRepoRoot answers null outside a repo, which is the one case worth
     // distinguishing from "a repo with nothing changed in it".
     const inRepo = gitRepoRoot(agent.cwd) !== null;
@@ -1818,9 +1905,19 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       files: inRepo ? changedFiles(agent.cwd) : [],
       ...(inRepo ? {} : { error: 'This agent is not working in a git repository.' }),
     });
+  } else if (
+    msg.type === 'commitAgentWork' ||
+    msg.type === 'pushAgentWork' ||
+    msg.type === 'createAgentPr'
+  ) {
+    void runAgentGitWrite(msg);
   } else if (msg.type === 'requestAgentFileDiff') {
     const agent = ctx.agents.get(msg.agentId);
-    if (!agent) return;
+    // Same as above: an unanswered request reads as a diff that never loads.
+    if (!agent) {
+      ctx.send({ type: 'agentFileDiff', agentId: msg.agentId, file: msg.file, patch: '' });
+      return;
+    }
     ctx.send({
       type: 'agentFileDiff',
       agentId: msg.agentId,

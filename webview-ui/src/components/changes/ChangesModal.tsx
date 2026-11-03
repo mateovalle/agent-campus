@@ -23,6 +23,12 @@ const buttonBase: React.CSSProperties = {
   color: 'var(--pixel-text)',
 };
 
+const actionButtonStyle = (disabled: boolean): React.CSSProperties => ({
+  ...buttonBase,
+  fontSize: '16px',
+  ...(disabled ? { opacity: 'var(--pixel-btn-disabled-opacity)', cursor: 'default' } : {}),
+});
+
 /** Colour per status, so the list reads before it is read. */
 const STATUS_COLOR: Record<GitFileChange['status'], string> = {
   added: 'var(--pixel-chat-green)',
@@ -57,6 +63,12 @@ export function ChangesModal({ agentId, agentName, onClose }: ChangesModalProps)
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [patches, setPatches] = useState<Record<string, string>>({});
+  // The message starts as the agent's own name, which the host derived from
+  // its first prompt — "fix-auth-timeout" is a better first draft of a commit
+  // subject than an empty box.
+  const [commitMessage, setCommitMessage] = useState(agentName);
+  const [busy, setBusy] = useState<'commit' | 'push' | 'pr' | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -67,6 +79,15 @@ export function ChangesModal({ agentId, agentName, onClose }: ChangesModalProps)
         setError(msg.error ?? null);
       } else if (msg.type === 'agentFileDiff' && msg.agentId === agentId) {
         setPatches((prev) => ({ ...prev, [msg.file]: msg.patch }));
+      } else if (msg.type === 'agentGitResult' && msg.agentId === agentId) {
+        setBusy(null);
+        setResult({ ok: msg.ok, text: msg.message });
+        // A successful commit invalidates every patch we are holding, and the
+        // host is already sending the new file list.
+        if (msg.ok && msg.action === 'commit') {
+          setPatches({});
+          setOpen(null);
+        }
       }
     };
     window.addEventListener('message', onMessage);
@@ -215,6 +236,97 @@ export function ChangesModal({ agentId, agentName, onClose }: ChangesModalProps)
             );
           })}
         </div>
+
+        {files && !error && (
+          <div
+            style={{
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: '2px solid var(--pixel-border)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <input
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Commit message"
+              style={{
+                flex: 1,
+                minWidth: 160,
+                fontFamily: 'inherit',
+                fontSize: '16px',
+                padding: '3px 6px',
+                borderRadius: 0,
+                border: '2px solid var(--pixel-border)',
+                background: 'var(--pixel-bg)',
+                color: 'var(--pixel-text)',
+              }}
+            />
+            <button
+              disabled={busy !== null || files.length === 0 || !commitMessage.trim()}
+              onClick={() => {
+                setResult(null);
+                setBusy('commit');
+                vscode.postMessage({
+                  type: 'commitAgentWork',
+                  agentId,
+                  message: commitMessage.trim(),
+                });
+              }}
+              title={
+                files.length === 0
+                  ? 'Nothing to commit'
+                  : `Commit every change on ${branch ?? 'this branch'}`
+              }
+              style={actionButtonStyle(
+                busy !== null || files.length === 0 || !commitMessage.trim(),
+              )}
+            >
+              {busy === 'commit' ? 'Committing…' : 'Commit'}
+            </button>
+            <button
+              disabled={busy !== null}
+              onClick={() => {
+                setResult(null);
+                setBusy('push');
+                vscode.postMessage({ type: 'pushAgentWork', agentId });
+              }}
+              title={`Push ${branch ?? 'this branch'} to origin`}
+              style={actionButtonStyle(busy !== null)}
+            >
+              {busy === 'push' ? 'Pushing…' : 'Push'}
+            </button>
+            <button
+              disabled={busy !== null}
+              onClick={() => {
+                setResult(null);
+                setBusy('pr');
+                vscode.postMessage({ type: 'createAgentPr', agentId });
+              }}
+              title="Open a pull request with the GitHub CLI, titled from the commits"
+              style={actionButtonStyle(busy !== null)}
+            >
+              {busy === 'pr' ? 'Opening…' : 'Open PR'}
+            </button>
+          </div>
+        )}
+
+        {result && (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: '14px',
+              overflowWrap: 'anywhere',
+              color: result.ok ? 'var(--pixel-chat-green)' : 'var(--pixel-chat-red)',
+            }}
+          >
+            {result.text}
+          </div>
+        )}
 
         {files && files.length > 0 && (
           <div

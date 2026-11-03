@@ -16,12 +16,16 @@
  * space in it is ordinary.
  */
 
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
 import type { GitFileChange, GitFileStatus } from '../shared/protocol.js';
-import { GIT_COMMAND_TIMEOUT_MS, UNTRACKED_COUNT_MAX_BYTES } from '../src/core/constants.js';
+import {
+  GIT_COMMAND_TIMEOUT_MS,
+  GIT_WRITE_TIMEOUT_MS,
+  UNTRACKED_COUNT_MAX_BYTES,
+} from '../src/core/constants.js';
 
 function git(args: string[], cwd: string): string | null {
   try {
@@ -170,4 +174,129 @@ function nullDevice(): string {
 export function currentBranch(cwd: string): string | null {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)?.trim();
   return branch && branch !== 'HEAD' ? branch : null;
+}
+
+// ── Writing ──────────────────────────────────────────────────
+//
+// Everything above reads, synchronously, because it is fast and bounded.
+// Nothing below is either: a commit runs the repository's own pre-commit
+// hooks (a lint-staged run is seconds, and this repo has one), a push is a
+// network call, and `gh pr create` is two. Synchronous, any of them would
+// freeze every PTY and chat session in the app for their whole duration —
+// which is the same failure as a hung git, just scheduled.
+
+/** What a write attempt did, in words the UI can show as-is. */
+export interface GitWriteResult {
+  ok: boolean;
+  message: string;
+  /** The pull request, when one was created. */
+  url?: string;
+}
+
+function runGit(args: string[], cwd: string): Promise<GitWriteResult> {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      args,
+      {
+        cwd,
+        encoding: 'utf-8',
+        timeout: GIT_WRITE_TIMEOUT_MS,
+        env: {
+          ...process.env,
+          // Never let git stop to ASK. A credential prompt or an ssh
+          // passphrase has no terminal to appear on here, so without these it
+          // would wait for an answer that cannot come until the timeout.
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_ASKPASS: 'echo',
+          SSH_ASKPASS: 'echo',
+          SSH_ASKPASS_REQUIRE: 'never',
+        },
+      },
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ ok: true, message: (stdout || stderr).trim() });
+        resolve({ ok: false, message: lastLines(stderr || stdout || err.message) });
+      },
+    );
+  });
+}
+
+/** git's real complaint, trimmed to what fits in a toast. */
+function lastLines(text: string, count = 2): string {
+  const lines = text.trim().split('\n').filter(Boolean);
+  return lines.slice(-count).join(' ').trim() || 'git failed';
+}
+
+/**
+ * Stage everything and commit it.
+ *
+ * `add -A`, because the unit here is "what this agent did" and an agent that
+ * created a file meant to create it. .gitignore still applies, so this does
+ * not sweep up build output.
+ */
+export async function commitAll(cwd: string, message: string): Promise<GitWriteResult> {
+  const staged = await runGit(['add', '-A'], cwd);
+  if (!staged.ok) return staged;
+  const committed = await runGit(['commit', '-m', message], cwd);
+  if (!committed.ok) return committed;
+  return { ok: true, message: lastLines(committed.message, 1) };
+}
+
+/**
+ * Push, setting upstream when there isn't one.
+ *
+ * `-u origin <branch>` unconditionally: an agent's branch is usually brand
+ * new, and re-setting an upstream that already points there is a no-op.
+ */
+export async function pushBranch(cwd: string, branch: string): Promise<GitWriteResult> {
+  // Checked first because of what git says otherwise: with no remote named
+  // origin it treats 'origin' as a URL, fails to reach it, and reports
+  // "make sure you have the correct access rights" — sending the user to look
+  // for a permissions problem they do not have.
+  const remotes = git(['remote'], cwd) ?? '';
+  if (!remotes.split('\n').some((r) => r.trim() === 'origin')) {
+    return { ok: false, message: 'This repository has no "origin" remote to push to.' };
+  }
+
+  const pushed = await runGit(['push', '-u', 'origin', branch], cwd);
+  if (!pushed.ok) return pushed;
+  return { ok: true, message: `Pushed ${branch} to origin.` };
+}
+
+/**
+ * Open a pull request with the GitHub CLI.
+ *
+ * `--fill` takes the title and body from the commits, which is the whole
+ * point of having committed with a real message a moment ago — and it means
+ * this button needs no second form.
+ */
+export function createPullRequest(cwd: string): Promise<GitWriteResult> {
+  return new Promise((resolve) => {
+    execFile(
+      'gh',
+      ['pr', 'create', '--fill'],
+      { cwd, encoding: 'utf-8', timeout: GIT_WRITE_TIMEOUT_MS },
+      (err, stdout, stderr) => {
+        if (!err) {
+          // gh prints the URL of the new PR and nothing else worth keeping.
+          const url = (stdout || '').trim().split('\n').pop()?.trim();
+          return resolve({
+            ok: true,
+            message: 'Pull request opened.',
+            ...(url?.startsWith('http') ? { url } : {}),
+          });
+        }
+        const text = stderr || stdout || err.message;
+        // The one failure worth explaining rather than quoting: gh missing
+        // entirely reads as an inscrutable ENOENT.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return resolve({
+            ok: false,
+            message: 'The GitHub CLI (gh) is not installed, so a PR cannot be opened from here.',
+          });
+        }
+        resolve({ ok: false, message: lastLines(text) });
+      },
+    );
+  });
 }
