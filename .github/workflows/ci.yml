@@ -8,6 +8,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A hung step otherwise burns the runner's full six-hour budget and the PR
+    # never reports. Everything here finishes in ~90s.
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +32,12 @@ jobs:
       - name: Lint (webview)
         run: npm run lint:webview
       - name: Test (core)
-        run: npm test
+        # Sequential and verbose on purpose, for now: a hanging test file is
+        # only identifiable from the log if the ones before it already
+        # reported. `execFileSync` and real sockets can block the event loop,
+        # which defeats vitest's own per-test timeouts.
+        timeout-minutes: 4
+        run: npm test -- --reporter=verbose --no-file-parallelism
       - name: Build webview
         run: npm run build:webview
       - name: Build electron main
