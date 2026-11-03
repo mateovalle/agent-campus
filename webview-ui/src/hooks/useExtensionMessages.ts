@@ -414,6 +414,15 @@ export function useExtensionMessages(
           if (status.startsWith('Subtask:')) {
             const label = status.slice('Subtask:'.length).trim();
             const subId = os.addSubagent(id, toolId, msg.subagentRole);
+            // A sub-agent exists only while it is working — its parent is
+            // blocked on it — so it starts busy rather than frozen at its
+            // seat. It cannot wait for `subagentToolStart` to look alive:
+            // CLI 2.1.x stopped forwarding sub-agent activity into the
+            // parent transcript (it writes <session>/subagents/*.jsonl
+            // instead), so on current CLIs that message never arrives.
+            // No currentTool: we don't know what it is doing, and the Task
+            // glyph would claim this character had delegated work of its own.
+            os.setAgentActive(subId, true);
             setSubagentCharacters((prev) => {
               if (prev.some((s) => s.id === subId)) return prev;
               return [...prev, { id: subId, parentAgentId: id, parentToolId: toolId, label }];

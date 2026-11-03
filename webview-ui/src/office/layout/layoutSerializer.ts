@@ -97,17 +97,22 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     // Visual sprite bottom == footprint bottom edge (bottom-anchored)
     let zY = (item.row + entry.footprintH) * TILE_SIZE;
 
-    // Chair z-sorting: ensure characters sitting on chairs render correctly
+    // Chair z-sorting: a seated character must stay VISIBLE.
+    //
+    // Back-facing chairs used to sort in front of whoever sat in them, on the
+    // theory that a backrest between you and a person really does hide them.
+    // It hid them completely: char_office_back's backrest covers y=6..23 of a
+    // 32px bottom-anchored sprite and a character occupies y=8..31, so an
+    // agent at that seat was a few pixels of hair above a chair — which is
+    // exactly how sub-agents, who are BORN at the nearest free seat and never
+    // walk anywhere, became invisible. Realism is not worth a feature whose
+    // whole point is watching the office work, so every chair now sorts behind
+    // the character: the backrest still peeks above and beside them, which
+    // reads as sitting IN the chair.
     if (entry.category === 'chairs') {
-      if (entry.orientation === 'back') {
-        // Back-facing chairs render IN FRONT of the seated character
-        // (the chair back visually occludes the character behind it)
-        zY = (item.row + 1) * TILE_SIZE + 1;
-      } else {
-        // All other chairs: cap zY to first row bottom so characters
-        // at any seat tile render in front of the chair
-        zY = (item.row + 1) * TILE_SIZE;
-      }
+      // Cap zY to the first row's bottom so a character at ANY seat tile of a
+      // multi-tile chair (a couch) renders in front of it.
+      zY = (item.row + 1) * TILE_SIZE;
     }
 
     // Surface items render in front of the desk they sit on
