@@ -255,8 +255,15 @@ function TodoCard({
           {todo.text}
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ ...cardMetaStyle, flex: 1 }}>{workspace.name}</span>
+      {/*
+        The office on its own line, the buttons on theirs. They shared a row
+        until this card grew from one button to four, at which point the
+        office name — the only thing saying WHERE a task lives, on a board
+        that mixes workspaces — was the flexible item and got squeezed to
+        nothing in a column this narrow.
+      */}
+      <div style={cardMetaStyle}>{workspace.name}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
         {!done && (
           <>
             {(canMoveUp || canMoveDown) && (
@@ -267,6 +274,7 @@ function TodoCard({
                   title="Higher up the backlog"
                   style={{
                     ...smallBtnStyle,
+                    padding: '3px 4px',
                     opacity: canMoveUp ? 1 : 'var(--pixel-btn-disabled-opacity)',
                     cursor: canMoveUp ? 'pointer' : 'default',
                   }}
@@ -279,6 +287,7 @@ function TodoCard({
                   title="Further down the backlog"
                   style={{
                     ...smallBtnStyle,
+                    padding: '3px 4px',
                     opacity: canMoveDown ? 1 : 'var(--pixel-btn-disabled-opacity)',
                     cursor: canMoveDown ? 'pointer' : 'default',
                   }}
@@ -292,7 +301,11 @@ function TodoCard({
                 vscode.postMessage({ type: 'assignTodo', path: workspace.path, id: todo.id })
               }
               title="Start an agent on this task"
-              style={{ ...smallBtnStyle, color: 'var(--pixel-green)' }}
+              style={{
+                ...smallBtnStyle,
+                color: 'var(--pixel-green)',
+                whiteSpace: 'nowrap',
+              }}
             >
               ▶ Assign
             </button>
@@ -308,10 +321,13 @@ function TodoCard({
           }}
           onBlur={() => setConfirmingDelete(false)}
           title={confirmingDelete ? 'Click again to delete' : 'Delete this task'}
+          // Last and apart: one button starts work, the other destroys the card.
           // Armed state borrows the worktree manager's look, which is the
           // app's existing word for "this one really destroys something".
           style={{
             ...smallBtnStyle,
+            marginLeft: 'auto',
+            whiteSpace: 'nowrap',
             ...(confirmingDelete ? { background: 'var(--pixel-danger-bg)', color: '#fff' } : {}),
           }}
         >
