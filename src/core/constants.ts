@@ -3,6 +3,12 @@
 
 // ── Timing (ms) ──────────────────────────────────────────────
 export const JSONL_POLL_INTERVAL_MS = 1000;
+/**
+ * How long to wait for an agent's transcript to appear before giving up and
+ * saying so. Generous: the file lands in a second or two normally, and a cold
+ * worktree with a setup command can push a launch out.
+ */
+export const JSONL_POLL_TIMEOUT_MS = 30_000;
 export const FILE_WATCHER_POLL_INTERVAL_MS = 1000;
 export const PROJECT_SCAN_INTERVAL_MS = 1000;
 export const TOOL_DONE_DELAY_MS = 300;
