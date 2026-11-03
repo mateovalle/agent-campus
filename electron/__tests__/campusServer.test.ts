@@ -307,8 +307,16 @@ describe('installCampusShims', () => {
     }
   });
 
-  it('survives a home directory it cannot write to', () => {
-    process.env.HOME = '/proc/nonexistent-for-sure';
+  // Skipped as root, where the scenario cannot exist: root writes anywhere.
+  it.skipIf(process.getuid?.() === 0)('survives a home directory it cannot write to', () => {
+    // An empty directory with the write bit off, not '/proc/nonexistent-for-sure'
+    // as this once used: /proc does not exist on macOS and IS procfs on Linux,
+    // so that was a test of the operating system rather than of this code. Its
+    // parent stays writable, so afterEach can still remove it.
+    const readOnly = path.join(tmp, 'read-only');
+    fs.mkdirSync(readOnly);
+    fs.chmodSync(readOnly, 0o500);
+    process.env.HOME = readOnly;
     expect(
       installCampusShims({ electronPath: '/bin/echo', cliSource: fakeBuild(), version: '1' }),
     ).toBeNull();
