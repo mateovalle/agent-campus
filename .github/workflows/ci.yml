@@ -41,7 +41,10 @@ jobs:
         run: npm test -- --no-file-parallelism --exclude '**/campusServer.test.ts' --exclude '**/campusSocket.integration.test.ts'
       - name: Test (campus socket, unit)
         timeout-minutes: 2
-        run: npm test -- campusServer.test
+        # TAP streams a line per test as it finishes, so if this still hangs
+        # the log names the test instead of the file. The default reporter
+        # prints nothing until a whole file completes.
+        run: npm test -- campusServer.test --reporter=tap-flat
       - name: Test (campus socket, integration)
         timeout-minutes: 2
         run: npm test -- campusSocket.integration
