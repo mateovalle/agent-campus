@@ -19,7 +19,7 @@
     "check-types:src": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "check-types:electron": "tsc --noEmit -p electron",
     "check-types:webview": "cd webview-ui && npx tsc -b",
-    "lint": "eslint src electron",
+    "lint": "eslint src electron --max-warnings=0",
     "lint:fix": "eslint src electron --fix",
     "lint:webview": "cd webview-ui && npm run lint",
     "format": "prettier --write \"src/**/*.ts\" \"electron/**/*.ts\" \"webview-ui/src/**/*.{ts,tsx,css}\" \"*.{js,mjs}\" \"webview-ui/*.{js,ts}\"",

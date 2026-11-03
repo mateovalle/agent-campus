@@ -90,6 +90,13 @@ export function ToolOverlay({
     return () => cancelAnimationFrame(rafId);
   }, [campus]);
 
+  /* eslint-disable react-hooks/refs -- This overlay positions itself ON TOP OF
+     the canvas, so it has to read committed layout (the container's measured
+     rect, the live pan offset the render loop mutates) and mirror the
+     renderer's own centring arithmetic. State would be a frame behind the
+     thing it is labelling, which on a panning campus is visible as the label
+     sliding away from its character. The same rAF tick that drives the canvas
+     re-renders this component, so the values are as fresh as the frame. */
   const el = containerRef.current;
   if (!el) return null;
   const rect = el.getBoundingClientRect();
@@ -111,6 +118,7 @@ export function ToolOverlay({
   }
   const deviceOffsetX = Math.floor((canvasW - mapW) / 2) + Math.round(panRef.current.x);
   const deviceOffsetY = Math.floor((canvasH - mapH) / 2) + Math.round(panRef.current.y);
+  /* eslint-enable react-hooks/refs */
 
   const selectedId = campus.getSelectedAgentId();
   const hoveredId = campus.getHoveredAgentId();

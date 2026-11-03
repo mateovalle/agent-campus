@@ -48,6 +48,10 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
 
+    // The state IS the transient: a badge that appears on a zoom change and
+    // fades on a timer, with the guard above firing it once per real change.
+    // There is no render-time derivation of "something happened a moment ago".
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowLevel(true);
     setFadeOut(false);
 

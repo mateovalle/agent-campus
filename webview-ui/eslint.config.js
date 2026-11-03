@@ -27,11 +27,31 @@ export default defineConfig([
     rules: {
       'simple-import-sort/imports': 'warn',
       'simple-import-sort/exports': 'warn',
-      // TODO: Fix these and restore to 'error' — imperative OfficeState/EditorState
-      // mutations, ref access during render, and setState-in-effect need refactoring
-      'react-hooks/refs': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/set-state-in-effect': 'warn',
+    },
+  },
+  {
+    /**
+     * THE IMPERATIVE BOUNDARY.
+     *
+     * The office is a canvas game loop — `OfficeState` and `editorState` are
+     * plain mutable objects that a requestAnimationFrame tick reads 60 times a
+     * second, and React only hosts them. `react-hooks/immutability` is right
+     * that these files mutate values React considers immutable, and it is
+     * describing the architecture rather than catching a slip: moving this
+     * state into React would mean re-rendering the tree per frame.
+     *
+     * Named here, in one place, instead of 21 scattered disables — and left as
+     * an error EVERYWHERE ELSE, which is the point. If a new file needs to be
+     * on this list, that is a design decision someone should have to make in a
+     * diff, not a warning nobody reads.
+     */
+    files: [
+      'src/App.tsx',
+      'src/hooks/useEditorActions.ts',
+      'src/office/components/OfficeCanvas.tsx',
+    ],
+    rules: {
+      'react-hooks/immutability': 'off',
     },
   },
   eslintConfigPrettier,

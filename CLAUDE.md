@@ -661,7 +661,17 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
 
 - `npm run dev` — Vite dev server + Electron (wait-on gated); `npm start` — build + run built app
 - `npm run build` — check (types+lint) → tsc electron → vite webview; `npm run package` — electron-builder (dmg/AppImage/nsis)
-- `npm run check-types` covers src/core/, electron/, webview-ui/; `npm run lint` covers src/ + electron/ (webview has its own flat config)
+- `npm run check-types` covers src/core/, electron/, webview-ui/; `npm run lint` covers src/ +
+  electron/ (webview has its own flat config). Both run with `--max-warnings=0`, so a warning
+  fails the build — it used to be that three `react-hooks` CORRECTNESS rules were downgraded to
+  `warn`, 30 of them were outstanding, and eslint still exited 0, which is not a gate.
+  `react-hooks/immutability` is `off` for exactly three files, declared in
+  `webview-ui/eslint.config.js` as THE IMPERATIVE BOUNDARY: the office is a canvas game loop whose
+  state a rAF tick mutates 60 times a second, and the rule is describing that architecture rather
+  than catching a slip. It is an error everywhere else, so adding a file to that list is a design
+  decision someone has to make in a diff. Every other exception is an inline
+  `eslint-disable-next-line` carrying its reason (measurement in a layout effect; an overlay that
+  must read committed layout to sit on top of the canvas)
 - `postinstall: electron-rebuild` rebuilds node-pty for Electron's ABI (`overrides.node-abi` pinned for new Electron majors)
 - `npm test` / `npm run test:watch` — vitest over `src/**` + `electron/**` (suites include
   transcriptParser, actionSuggestions, fileWatcher, roles, achievements, claudeAuth, schedules,
