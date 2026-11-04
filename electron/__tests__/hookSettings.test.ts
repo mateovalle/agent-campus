@@ -45,17 +45,23 @@ describe('writeAgentHookSettings', () => {
     const command = settings.hooks.Stop[0].hooks[0];
     expect(command.type).toBe('command');
     // Absolute, because a hook runs in a shell whose PATH we do not control.
-    expect(command.command).toContain('/opt/campus/bin/campus');
+    // Composed with path.join rather than spelled with slashes: the separator
+    // is the platform's, and asserting one is asserting the platform.
+    expect(command.command).toContain(path.join('/opt/campus/bin', 'campus'));
     expect(command.command).toContain('idle');
   });
 
   it('quotes the path, since an installed app lives under a space', () => {
     // "/Applications/Agent Campus.app/..." is the normal case on macOS.
-    const file = writeAgentHookSettings('session-2', '/Applications/Agent Campus/bin');
+    const bin = path.join('/Applications', 'Agent Campus', 'bin');
+    const file = writeAgentHookSettings('session-2', bin);
     const settings = read(file!) as unknown as {
       hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
     };
-    expect(settings.hooks.Stop[0].hooks[0].command).toContain('"/Applications/Agent Campus/bin');
+    // The whole path inside one pair of quotes, separator whatever it is here.
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe(
+      `${JSON.stringify(path.join(bin, 'campus'))} idle`,
+    );
   });
 
   it('writes nothing when there is no campus CLI to call', () => {
@@ -63,7 +69,11 @@ describe('writeAgentHookSettings', () => {
   });
 
   it('survives a home it cannot write to', () => {
-    setHome('/dev/null/nope');
+    // A directory under a FILE: mkdir refuses on every platform, where
+    // /dev/null/nope only refuses on POSIX and chmod only on non-Windows.
+    const blocker = path.join(tmp, 'a-file');
+    fs.writeFileSync(blocker, 'not a directory');
+    setHome(path.join(blocker, 'home'));
     expect(writeAgentHookSettings('session-4', '/opt/campus/bin')).toBeNull();
   });
 });
