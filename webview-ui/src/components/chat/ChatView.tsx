@@ -30,6 +30,8 @@ import {
   CHAT_TOOL_GROUP_MIN,
   CHAT_TURN_ANCHOR_ATTR,
   CHAT_TURN_JUMP_TOLERANCE_PX,
+  CONTEXT_GAUGE_URGENT_PCT,
+  CONTEXT_GAUGE_WARN_PCT,
 } from '../../constants.js';
 import { getElectronAPI, vscode } from '../../vscodeApi.js';
 import { PixelIcon } from '../PixelIcon.js';
@@ -478,6 +480,58 @@ const MODEL_DEFAULT_KEY = `${MODEL_HOVER_PREFIX}\u0000default`;
  * signal worth seeing at a glance: the permission mode's colour, so a session
  * running on Bypass still says so without spending any width on it.
  */
+/**
+ * How full the context window is, above the composer.
+ *
+ * A bar rather than a number alone: "68%" means nothing until you have seen
+ * it at 20%, while a bar that is visibly two-thirds full reads at a glance.
+ * It only appears once the CLI has answered — a gauge at 0% would be claiming
+ * to know something it does not — and it goes amber then red near the end,
+ * where the news is actionable: that is when to finish the thread or let it
+ * compact rather than starting something new.
+ */
+function ContextGauge({
+  usage,
+}: {
+  usage: { usedTokens: number; totalTokens: number; percentage: number };
+}) {
+  const color =
+    usage.percentage >= CONTEXT_GAUGE_URGENT_PCT
+      ? 'var(--pixel-chat-red)'
+      : usage.percentage >= CONTEXT_GAUGE_WARN_PCT
+        ? 'var(--pixel-chat-amber)'
+        : 'var(--pixel-chat-green)';
+  const thousands = (n: number) => `${Math.round(n / 1000)}k`;
+  return (
+    <div
+      title={`${usage.usedTokens.toLocaleString()} of ${usage.totalTokens.toLocaleString()} tokens in context`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '0 2px 4px',
+        fontSize: '11px',
+        color: 'var(--pixel-text-dim)',
+      }}
+    >
+      <span>context</span>
+      <div
+        style={{
+          flex: 1,
+          height: 4,
+          background: 'var(--pixel-btn-bg)',
+          border: '1px solid var(--pixel-border)',
+        }}
+      >
+        <div style={{ width: `${usage.percentage}%`, height: '100%', background: color }} />
+      </div>
+      <span style={{ color }}>
+        {usage.percentage}% · {thousands(usage.usedTokens)}/{thousands(usage.totalTokens)}
+      </span>
+    </div>
+  );
+}
+
 function SessionSettings({
   mode,
   onSelectMode,
@@ -835,6 +889,12 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [model, setModel] = useState<ChatModel>(emptyChatModel);
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([]);
+  /** How full the context window is; null until the CLI has said. */
+  const [context, setContext] = useState<{
+    usedTokens: number;
+    totalTokens: number;
+    percentage: number;
+  } | null>(null);
   /** The one prompt being rewound, if any — only ever one at a time. */
   const [rewind, setRewind] = useState<{
     messageId: string;
@@ -885,6 +945,13 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-busy') {
         if (msg.agentId !== agentId) return;
         setBusy(msg.busy);
+      } else if (msg.type === 'chat-context') {
+        if (msg.agentId !== agentId) return;
+        setContext({
+          usedTokens: msg.usedTokens,
+          totalTokens: msg.totalTokens,
+          percentage: msg.percentage,
+        });
       } else if (msg.type === 'agentRewindResult') {
         if (msg.agentId !== agentId) return;
         if (!msg.canRewind) {
@@ -1464,6 +1531,8 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             <span style={suggestionKeyStyle}>Tab</span>
           </div>
         )}
+
+        {context && <ContextGauge usage={context} />}
 
         <div style={composerRowStyle}>
           <SessionSettings
