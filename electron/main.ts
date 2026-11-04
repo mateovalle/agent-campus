@@ -77,6 +77,7 @@ import {
   fileDiff,
   pushBranch,
 } from './git.js';
+import { removeAgentHookSettings, writeAgentHookSettings } from './hookSettings.js';
 import {
   clearOfficeTemplate,
   officeTemplatePath,
@@ -633,6 +634,16 @@ function handleCampusCommand(cmd: CampusCommand): CampusResult {
     return { ok: true, info: { agent: agent.label, session: agent.sessionId, cwd: agent.cwd } };
   }
 
+  if (cmd.verb === 'idle') {
+    // The authoritative turn end for an agent that had only a guess. Cancel
+    // the guess too, or it fires again five seconds later and the office
+    // announces the same finish twice.
+    cancelWaitingTimer(ctx, agent.id);
+    agent.isWaiting = true;
+    ctx.send({ type: 'agentStatus', id: agent.id, status: 'waiting' });
+    return { ok: true };
+  }
+
   if (cmd.verb === 'notify') {
     const text = normalizeStatusText(cmd.text ?? '', CAMPUS_NOTICE_MAX_CHARS);
     if (!text) return { ok: false, error: 'nothing to say' };
@@ -1004,9 +1015,16 @@ function launchAgent(place: AgentPlacement, resumeSessionId?: string): void {
   // shell, and a user's profile that sets PATH wholesale would drop anything
   // we put in the environment before it ran.
   const campusPath = campusBin ? `export PATH=${JSON.stringify(campusBin)}:"$PATH"; ` : '';
+  // A Stop hook, so a PTY agent can say its turn ended instead of being
+  // guessed at. Written to a file rather than passed as inline JSON: this is
+  // a shell command string, and embedding quoted JSON in one is exactly where
+  // escaping bugs live — and a malformed --settings value is read as a PATH,
+  // so the failure would be silent and confusing.
+  const hookSettings = writeAgentHookSettings(sessionId, campusBin);
+  const settingsFlag = hookSettings ? ` --settings ${JSON.stringify(hookSettings)}` : '';
   const ptyId = spawnPty({
     cwd,
-    command: `${campusPath}claude ${sessionFlag}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
+    command: `${campusPath}claude ${sessionFlag}${settingsFlag}${loadSettings().bypassPermissions ? ` ${CLAUDE_BYPASS_FLAG}` : ''}`,
     sessionId,
     label: agent.label,
     env: campusEnvFor(agent),
@@ -1255,6 +1273,8 @@ function removeAgent(agentId: number): void {
   stopFileWatching(ctx, agentId, agent.jsonlFile);
   cancelWaitingTimer(ctx, agentId);
   cancelPermissionTimer(ctx, agentId);
+  // The hook file outlives nothing: its only reader was this session's CLI.
+  removeAgentHookSettings(agent.sessionId);
 
   const ptyId = agentToPty.get(agentId);
   if (ptyId) {

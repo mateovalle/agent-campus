@@ -29,7 +29,7 @@ import * as path from 'path';
 import type { AgentDecor } from '../shared/protocol.js';
 
 /** Verbs the CLI and the MCP tools share. */
-export const CAMPUS_VERBS = ['status', 'progress', 'notify', 'ping'] as const;
+export const CAMPUS_VERBS = ['status', 'progress', 'notify', 'ping', 'idle'] as const;
 export type CampusVerb = (typeof CAMPUS_VERBS)[number];
 
 /** Longest status line kept — it lands in a canvas label and an IPC message. */
@@ -170,6 +170,12 @@ export function parseCampusArgs(
   if (verb === 'notify') {
     if (!text.trim()) return { error: 'notify needs something to say' };
     return { cmd: { ...base, text } };
+  }
+  // `idle` says "my turn is over" and takes nothing. It exists for the Stop
+  // hook the app installs for terminal agents, but it is as scriptable as the
+  // rest: a long build can mark its agent done the moment it finishes.
+  if (verb === 'idle') {
+    return { cmd: base };
   }
   // `status` with no text is how you CLEAR it — an explicit, scriptable reset
   return { cmd: { ...base, text } };
