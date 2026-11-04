@@ -922,6 +922,12 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   matching only `*.test.ts`
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
+- **Release signing env**: `release.yml` EXPORTS the signing variables through `$GITHUB_ENV` and
+  never sets them in the Package step's `env:`. electron-builder reads them by PRESENCE, so
+  `CSC_LINK=''` is not "unsigned" — it is "the certificate is at the empty path", resolved against
+  the repo root, and the build dies with `⨯ <repo> not a file`. That failed the v0.4.0 macOS
+  build while Linux and Windows passed, and it cannot reproduce locally unless you deliberately
+  set the variable to empty (`CSC_LINK='' npx electron-builder --dir --mac` reproduces it exactly)
 - **Signing** (`build/entitlements.mac.plist`): the mac build runs under the HARDENED RUNTIME, and
   every entitlement in that file is load-bearing. The one that is easy to lose: the Agent SDK
   bundles `claude` as a Bun-compiled single-file executable that JITs at startup, and it is signed
