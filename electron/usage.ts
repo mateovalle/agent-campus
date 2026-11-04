@@ -25,6 +25,8 @@ import { DATA_DIR_NAME } from '../src/core/constants.js';
 
 const USAGE_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'usage.jsonl');
 const MAX_PROJECTS_IN_SUMMARY = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAYS_IN_SERIES = 14;
 
 export interface UsageEntry {
   /** Epoch ms of turn completion. */
@@ -37,7 +39,25 @@ export interface UsageEntry {
   p: string;
   /** Session that produced the turn. Absent on entries written before it was recorded. */
   s?: string;
+  /**
+   * Turns this row stands for. Absent means one — a carry row written by
+   * compaction stands for many, and turnCount would otherwise fall off a
+   * cliff the first time the ledger is folded up.
+   */
+  n?: number;
 }
+
+/**
+ * Entries older than this held SESSION RUNNING TOTALS rather than per-turn
+ * deltas (see the module header), so summing them inflates every figure they
+ * touch — a 20-turn session at $0.10 a turn reads as $21 instead of $2.
+ *
+ * They cannot be repaired: a running total can only be un-rolled per session,
+ * and these rows predate the session id too. Compaction drops them, which is
+ * why the summary reports the date its all-time figure actually starts from
+ * rather than quietly showing a smaller number than yesterday.
+ */
+export const USAGE_DELTA_EPOCH_MS = Date.UTC(2026, 8, 1);
 
 /**
  * The ledger, parsed once.
@@ -51,8 +71,40 @@ export interface UsageEntry {
 let entries: UsageEntry[] | null = null;
 
 function allEntries(): UsageEntry[] {
-  entries ??= readEntries();
+  if (entries === null) {
+    // Folded on load rather than past some size threshold. The file is
+    // append-only with one line per turn and nothing reads an entry older
+    // than the windows the summary reports, so a ledger that only shrinks
+    // when it has already grown too big is a ledger that grows too big.
+    const raw = readEntries();
+    const compacted = compactEntries(raw, new Date());
+    if (compacted.length !== raw.length) writeEntries(compacted);
+    entries = compacted;
+  }
   return entries;
+}
+
+/**
+ * Replaces the ledger with `list`, atomically.
+ *
+ * Temp file plus rename: this is the one moment the ledger is not
+ * append-only, and a crash halfway through a plain overwrite would leave a
+ * user with half their spending history and no way to tell.
+ */
+function writeEntries(list: readonly UsageEntry[]): void {
+  const tmp = `${USAGE_FILE}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
+    fs.writeFileSync(tmp, list.map((e) => JSON.stringify(e) + '\n').join(''), 'utf-8');
+    fs.renameSync(tmp, USAGE_FILE);
+  } catch (err) {
+    console.error('[Agent Campus] Failed to compact usage ledger:', err);
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing left to do about it */
+    }
+  }
 }
 
 export function recordTurnUsage(
@@ -102,6 +154,65 @@ function readEntries(): UsageEntry[] {
   return entries;
 }
 
+/**
+ * The oldest instant whose entries must survive verbatim.
+ *
+ * Everything the summary reports on a per-entry basis comes from one of two
+ * windows — the current month, and the trailing 14-day series — and which
+ * of them reaches further back depends on today's date: on the 2nd of the
+ * month the series does, on the 28th the month does. Taking the EARLIER of
+ * the two is what makes a fold safe on any day of any month.
+ */
+export function retentionStart(now: Date): number {
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const seriesStart = startOfDay - (DAYS_IN_SERIES - 1) * DAY_MS;
+  return Math.min(startOfMonth, seriesStart);
+}
+
+/**
+ * The ledger, folded up: recent entries untouched, everything older collapsed
+ * into one carry row per project.
+ *
+ * Pure, because the alternative to getting this exactly right is a user's
+ * all-time spend silently changing. The carry keeps the project's older
+ * total and turn count intact, and is stamped with the OLDEST instant it
+ * stands for: that is always before the retention boundary, so it can never
+ * drift into a month or a day series it does not belong to, and it is also
+ * the truth about how far back the all-time figure reaches. Stamping it at
+ * the boundary instead would be safe but would under-report the coverage —
+ * a ledger going back to September would start claiming October.
+ *
+ * Pre-delta entries are dropped rather than carried: carrying them would
+ * preserve a number that is wrong by roughly an order of magnitude forever.
+ */
+export function compactEntries(list: readonly UsageEntry[], now: Date): UsageEntry[] {
+  const cutoff = retentionStart(now);
+  const recent: UsageEntry[] = [];
+  const carry = new Map<string, UsageEntry>();
+
+  for (const e of list) {
+    if (e.t < USAGE_DELTA_EPOCH_MS) continue;
+    if (e.t >= cutoff) {
+      recent.push(e);
+      continue;
+    }
+    const existing = carry.get(e.p);
+    if (existing) {
+      existing.c += e.c;
+      existing.d += e.d;
+      existing.n = (existing.n ?? 1) + (e.n ?? 1);
+      existing.t = Math.min(existing.t, e.t);
+    } else {
+      carry.set(e.p, { t: e.t, c: e.c, d: e.d, p: e.p, n: e.n ?? 1 });
+    }
+  }
+
+  // Carries first, so the file stays in rough time order and a human reading
+  // it top to bottom sees the history before the detail.
+  return [...carry.values(), ...recent];
+}
+
 /** Summary of the ledger on disk. */
 export function summarizeUsage(now = new Date()): UsageSummary {
   return summarizeEntries(allEntries(), now);
@@ -117,15 +228,15 @@ export function summarizeEntries(list: readonly UsageEntry[], now = new Date()):
   let allTimeUsd = 0;
   let turnCount = 0;
   const byProject = new Map<string, { monthUsd: number; allTimeUsd: number }>();
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const DAYS_IN_SERIES = 14;
   const dayBuckets = new Array<number>(DAYS_IN_SERIES).fill(0);
   const seriesStart = startOfDay - (DAYS_IN_SERIES - 1) * DAY_MS;
   const todayByWorkspace: Record<string, number> = {};
 
+  let earliestMs: number | null = null;
   for (const e of list) {
-    turnCount++;
+    turnCount += e.n ?? 1;
     allTimeUsd += e.c;
+    if (earliestMs === null || e.t < earliestMs) earliestMs = e.t;
     if (e.t >= startOfMonth) monthUsd += e.c;
     if (e.t >= startOfDay) {
       todayUsd += e.c;
@@ -162,5 +273,14 @@ export function summarizeEntries(list: readonly UsageEntry[], now = new Date()):
     return { day: `${mm}-${dd}`, usd };
   });
 
-  return { todayUsd, monthUsd, allTimeUsd, perProject, turnCount, days, todayByWorkspace };
+  return {
+    todayUsd,
+    monthUsd,
+    allTimeUsd,
+    perProject,
+    turnCount,
+    days,
+    todayByWorkspace,
+    ...(earliestMs === null ? {} : { allTimeSince: earliestMs }),
+  };
 }

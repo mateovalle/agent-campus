@@ -52,6 +52,22 @@ const usageRowStyle: React.CSSProperties = {
   color: 'rgba(255, 255, 255, 0.7)',
 };
 
+/**
+ * 'Sep 2026' for a start date worth mentioning, or null.
+ *
+ * Null for anything inside the current month: a ledger that started this
+ * month has an all-time figure that means what it says, and "since November
+ * 2026" on the 4th of November is noise.
+ */
+function sinceLabel(sinceMs: number | undefined, now = new Date()): string | null {
+  if (sinceMs === undefined) return null;
+  const since = new Date(sinceMs);
+  if (since.getFullYear() === now.getFullYear() && since.getMonth() === now.getMonth()) {
+    return null;
+  }
+  return since.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
 /** Compact 14-day spend bar chart — pure divs, pixel aesthetic (sharp corners). */
 function DailyBarChart({ days }: { days: UsageSummary['days'] }) {
   const max = Math.max(0, ...days.map((d) => d.usd));
@@ -171,7 +187,21 @@ function UsageSection({ liveSummary }: { liveSummary: UsageSummary | null }) {
             <span>{formatUsd(summary.monthUsd)}</span>
           </div>
           <div style={usageRowStyle}>
-            <span>All time</span>
+            <span>
+              All time
+              {/*
+                Said out loud rather than implied: the ledger drops entries
+                that predate per-turn costs, so "all time" has a start date
+                and a figure that is smaller than it once was needs to
+                explain itself.
+              */}
+              {sinceLabel(summary.allTimeSince) && (
+                <span style={{ opacity: 0.45, fontSize: '15px' }}>
+                  {' '}
+                  since {sinceLabel(summary.allTimeSince)}
+                </span>
+              )}
+            </span>
             <span>{formatUsd(summary.allTimeUsd)}</span>
           </div>
           {summary.perProject.length > 0 && (

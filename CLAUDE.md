@@ -161,6 +161,21 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 task lists, per-turn cost ledger (per-turn DELTAS derived from the
                                 SDK's cumulative total_cost_usd — summing that field raw inflates
                                 spend quadratically; figures are API-list estimates, not plan spend).
+                                The ledger is FOLDED on every load, not past a size threshold:
+                                `compactEntries()` (pure, tested) keeps everything inside the two
+                                windows the summary reports — the current month and the 14-day
+                                series, whichever reaches further back on today's date — and
+                                collapses the rest into one carry row per project, carrying `n`
+                                (turns represented) so turnCount survives. A carry is stamped with
+                                the OLDEST instant it stands for: always before the boundary, so it
+                                can never drift into a window it does not belong to, and honest
+                                about coverage (stamping it at the boundary made a September ledger
+                                claim October). Entries predating Sep 2026 are DROPPED, not
+                                carried — they hold session running totals, cannot be un-rolled
+                                (they predate the session id too) and read ~10x high — which is why
+                                the summary reports `allTimeSince` and Settings says "All time
+                                since Sep 2026". The rewrite is the one moment the file is not
+                                append-only, so it is .tmp + rename.
                                 The ledger is parsed ONCE and kept in memory, with the aggregation
                                 split out as the pure `summarizeEntries(list, now)` (tested): it was
                                 re-reading and re-parsing the whole append-only file on every turn of
