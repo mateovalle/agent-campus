@@ -83,6 +83,19 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 Transport is HTTP/1.1 over a unix socket (named pipe on Windows),
                                 one request per connection — HTTP so node's parser owns framing and
                                 limits, and so `curl --unix-socket` stays a viable client. The
+                                `campus idle` says "my turn is over" and is what the app's own
+                                Stop HOOK calls for terminal agents (electron/hookSettings.ts):
+                                a PTY agent otherwise has no authoritative turn signal at all, only
+                                the five-second silence guess, and the campus socket otherwise had
+                                no adoption path there — nothing ever put it in front of a terminal
+                                agent. The settings go in a FILE passed as `--settings <path>`, not
+                                inline JSON: the PTY command is a shell string, and a malformed
+                                --settings value is read as a path, so the failure would be silent.
+                                Safe to install unasked because `--settings` is ADDITIVE and hook
+                                entries MERGE across settings levels — a user's own Stop hook keeps
+                                running. The guess STAYS for terminal agents (unlike chat agents,
+                                where it is removed): a hook can fail to reach us, so it is an
+                                accelerator, not a replacement.
                                 socket lives in os.tmpdir(), NOT ~/.pixel-agents: the path is capped
                                 at 104 bytes on macOS and a deep home blows it, failing mutely
                                 (the test harness's own HOME does). A home-path hash keeps dev,

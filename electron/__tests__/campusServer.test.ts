@@ -100,6 +100,17 @@ describe('parseCampusArgs', () => {
     });
   });
 
+  it('takes nothing for idle, and ignores anything passed anyway', () => {
+    // The Stop hook calls `campus idle` with no arguments; a script that
+    // adds some should not get a command carrying stray text.
+    expect(parseCampusArgs(['idle'], ENV)).toEqual({
+      cmd: { verb: 'idle', session: 's1', token: 't1' },
+    });
+    expect(parseCampusArgs(['idle', 'whatever'], ENV)).toEqual({
+      cmd: { verb: 'idle', session: 's1', token: 't1' },
+    });
+  });
+
   it('treats an empty status as the explicit clear', () => {
     const out = parseCampusArgs(['status'], ENV);
     expect((out as { cmd: { text: string } }).cmd.text).toBe('');
