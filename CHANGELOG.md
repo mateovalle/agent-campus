@@ -7,6 +7,12 @@ extension's `1.x`.
 
 ## Unreleased
 
+### Features
+
+- **Watch the campus from a phone** — an optional, read-only page on your local network listing
+  who needs you, longest wait first. Off by default, and nothing can be approved or changed from
+  it: approving a permission remotely needs an auth story the app does not have yet.
+
 ## v0.4.0 — 2026-11-04
 
 The release that closes the loop: agents now **work in their own checkout**, you can **see what
