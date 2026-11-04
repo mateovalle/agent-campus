@@ -47,6 +47,8 @@ interface BottomToolbarProps {
   notificationsEnabled: boolean;
   updateChecksEnabled: boolean;
   appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
+  phoneViewEnabled: boolean;
+  phoneView: Extract<HostToWebviewMessage, { type: 'phoneView' }> | null;
   bypassPermissions: boolean;
   defaultEffort: string | null;
   maxBudgetUsd: number;
@@ -161,6 +163,8 @@ export function BottomToolbar({
   notificationsEnabled,
   updateChecksEnabled,
   appUpdate,
+  phoneViewEnabled,
+  phoneView,
   bypassPermissions,
   defaultEffort,
   maxBudgetUsd,
@@ -239,6 +243,8 @@ export function BottomToolbar({
           notificationsEnabled={notificationsEnabled}
           updateChecksEnabled={updateChecksEnabled}
           appUpdate={appUpdate}
+          phoneViewEnabled={phoneViewEnabled}
+          phoneView={phoneView}
           onSetNotificationsEnabled={(enabled) =>
             vscode.postMessage({ type: 'setNotificationsEnabled', enabled })
           }

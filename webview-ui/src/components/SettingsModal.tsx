@@ -293,6 +293,10 @@ interface SettingsModalProps {
   updateChecksEnabled: boolean;
   /** The last answer it got, or null before the first check. */
   appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
+  /** Whether the read-only phone view serves on the LAN. */
+  phoneViewEnabled: boolean;
+  /** Its live state; `url` carries the token, so it is shown, never logged. */
+  phoneView: Extract<HostToWebviewMessage, { type: 'phoneView' }> | null;
   /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
   bypassPermissions: boolean;
   /** Effort new agents start with; null = whatever the CLI does by default. */
@@ -641,6 +645,35 @@ function ToggleRow({
 }
 
 /**
+ * Where to point a phone, once the view is on.
+ *
+ * The URL carries the token, so this is the ONE place it appears: it is not
+ * logged, not sent anywhere, and not in `settingsLoaded` — the host strips it
+ * before that message leaves. Shown in full rather than behind a "copy"
+ * button because the usual way to get it onto a phone is to read it off the
+ * screen and type it.
+ */
+function PhoneViewRow({
+  phoneView,
+}: {
+  phoneView: Extract<HostToWebviewMessage, { type: 'phoneView' }> | null;
+}) {
+  const text = phoneView?.url ?? phoneView?.message ?? 'Starting\u2026';
+  return (
+    <div style={{ ...usageNoteStyle, paddingTop: 0, wordBreak: 'break-all' }}>
+      {phoneView?.url ? (
+        <>
+          <span style={{ color: 'var(--pixel-accent)' }}>{text}</span>
+          <div style={{ marginTop: 2 }}>Read-only. Anyone on this network with the link.</div>
+        </>
+      ) : (
+        text
+      )}
+    </div>
+  );
+}
+
+/**
  * The version, and whether there is a newer one.
  *
  * A row rather than a banner or a bubble: an update is never urgent, and the
@@ -745,6 +778,8 @@ export function SettingsModal({
   onSetNotificationsEnabled,
   updateChecksEnabled,
   appUpdate,
+  phoneViewEnabled,
+  phoneView,
   bypassPermissions,
   defaultEffort,
   maxBudgetUsd,
@@ -944,6 +979,18 @@ export function SettingsModal({
           }
         />
         <UpdateRow appUpdate={appUpdate} hovered={hovered} setHovered={setHovered} />
+        <ToggleRow
+          id="phone"
+          label="Phone View (LAN)"
+          title="Serve a read-only 'who needs me' page to devices on this network. Nothing can be approved or changed from it."
+          checked={phoneViewEnabled}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() =>
+            vscode.postMessage({ type: 'setPhoneViewEnabled', enabled: !phoneViewEnabled })
+          }
+        />
+        {phoneViewEnabled && <PhoneViewRow phoneView={phoneView} />}
         <ToggleRow
           id="bypass"
           label="Bypass Permissions"

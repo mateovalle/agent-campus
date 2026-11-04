@@ -150,6 +150,27 @@ export class AttentionTracker {
     return a !== undefined && a.blockedSince !== null;
   }
 
+  /**
+   * Per-agent attention state, for a reader that needs more than a count.
+   *
+   * The Dock badge only ever needed a number; the phone view has to say WHICH
+   * agents and HOW LONG, and `blockedForMs` is only derivable in here —
+   * `blockedSince` is private and resets on every settle.
+   */
+  snapshot(now: number): Array<{
+    agentId: number;
+    blocked: boolean;
+    blockedForMs: number;
+    unread: boolean;
+  }> {
+    return [...this.agents].map(([agentId, a]) => ({
+      agentId,
+      blocked: a.blockedSince !== null,
+      blockedForMs: a.blockedSince === null ? 0 : now - a.blockedSince,
+      unread: a.unread,
+    }));
+  }
+
   /** Agents that need you: blocked, or finished and unread. Drives the Dock badge. */
   needsYouCount(): number {
     let n = 0;

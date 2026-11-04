@@ -444,6 +444,20 @@ export type HostToWebviewMessage =
       maxBudgetUsd?: number;
       /** Whether the app asks GitHub about newer releases. */
       updateChecksEnabled?: boolean;
+      /** Whether the read-only phone view is serving on the LAN. */
+      phoneViewEnabled?: boolean;
+    }
+  /**
+   * State of the read-only phone view. `url` carries the token, so it is
+   * shown rather than logged, and only while the view is actually on.
+   */
+  | {
+      type: 'phoneView';
+      enabled: boolean;
+      /** http://<lan-ip>:<port>/?t=<token>, absent when there is no LAN. */
+      url?: string;
+      /** Why it is not serving, when the user asked for it and it could not. */
+      message?: string;
     }
   /**
    * Whether a newer release exists. Settings-only by design: an update is
@@ -754,6 +768,7 @@ export type WebviewToHostMessage =
   | { type: 'setSoundEnabled'; enabled: boolean }
   | { type: 'setNotificationsEnabled'; enabled: boolean }
   | { type: 'setUpdateChecksEnabled'; enabled: boolean }
+  | { type: 'setPhoneViewEnabled'; enabled: boolean }
   /** Check now, from the Settings button — the periodic one is silent. */
   | { type: 'checkForUpdate' }
   | { type: 'setLaunchAtLogin'; enabled: boolean }

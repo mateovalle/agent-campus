@@ -191,6 +191,8 @@ function App() {
     notificationsEnabled,
     updateChecksEnabled,
     appUpdate,
+    phoneViewEnabled,
+    phoneView,
     bypassPermissions,
     defaultEffort,
     maxBudgetUsd,
@@ -533,6 +535,8 @@ function App() {
           notificationsEnabled={notificationsEnabled}
           updateChecksEnabled={updateChecksEnabled}
           appUpdate={appUpdate}
+          phoneViewEnabled={phoneViewEnabled}
+          phoneView={phoneView}
           bypassPermissions={bypassPermissions}
           defaultEffort={defaultEffort}
           maxBudgetUsd={maxBudgetUsd}

@@ -468,7 +468,9 @@ webview-ui/src/               — React + TypeScript (Vite)
     MissedRunsModal.tsx        — Pick-and-run list of schedule runs missed while the app was closed
     ZoomControls.tsx           — +/- zoom (top-right)
     SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug
-                                 toggle, and the version row (`UpdateRow`, fed by `appUpdate`).
+                                 toggle, the phone-view toggle (whose row is the ONE place the
+                                 token appears — the host strips it out of `settingsLoaded`), and
+                                 the version row (`UpdateRow`, fed by `appUpdate`).
                                  Toggle rows are one `ToggleRow` — there were four identical copies.
                                  `menuItemBase` must keep `boxSizing: 'border-box'`: a <button> is
                                  border-box by the UA stylesheet and a <div> is NOT, so the rows

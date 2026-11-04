@@ -168,3 +168,18 @@ export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * app does and should not compete with any of it.
  */
 export const UPDATE_CHECK_START_DELAY_MS = 20_000;
+
+// ── Phone view ──────────────────────────────────────────────
+/**
+ * Port the read-only phone view listens on when it is switched on.
+ *
+ * Fixed rather than ephemeral: the whole point is a URL you can bookmark on
+ * a phone, and one that moves every launch is not one.
+ */
+export const PHONE_VIEW_PORT = 4517;
+/**
+ * How often the page re-asks. Five seconds is well under the two minutes a
+ * block waits before it is worth a notification, and the payload is three
+ * short lists.
+ */
+export const PHONE_VIEW_POLL_MS = 5_000;

@@ -109,6 +109,9 @@ export interface ExtensionMessageState {
   /** Whether the app is registered to open at OS login (Electron only). */
   notificationsEnabled: boolean;
   updateChecksEnabled: boolean;
+  phoneViewEnabled: boolean;
+  /** Live state of the read-only phone view (url carries its token). */
+  phoneView: Extract<HostToWebviewMessage, { type: 'phoneView' }> | null;
   /** Whether a newer release exists; Settings-only, never a bubble. */
   appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
   launchAtLogin: boolean;
@@ -191,6 +194,11 @@ export function useExtensionMessages(
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [updateChecksEnabled, setUpdateChecksEnabled] = useState(true);
+  const [phoneViewEnabled, setPhoneViewEnabled] = useState(false);
+  const [phoneView, setPhoneView] = useState<Extract<
+    HostToWebviewMessage,
+    { type: 'phoneView' }
+  > | null>(null);
   const [appUpdate, setAppUpdate] = useState<Extract<
     HostToWebviewMessage,
     { type: 'appUpdate' }
@@ -780,9 +788,12 @@ export function useExtensionMessages(
         setLaunchAtLogin(msg.launchAtLogin ?? false);
         setNotificationsEnabled(msg.notificationsEnabled ?? true);
         setUpdateChecksEnabled(msg.updateChecksEnabled ?? true);
+        setPhoneViewEnabled(msg.phoneViewEnabled ?? false);
         setBypassPermissions(msg.bypassPermissions ?? false);
         setDefaultEffort(msg.defaultEffort ?? null);
         setMaxBudgetUsd(msg.maxBudgetUsd ?? 0);
+      } else if (msg.type === 'phoneView') {
+        setPhoneView(msg);
       } else if (msg.type === 'appUpdate') {
         setAppUpdate(msg);
       } else if (msg.type === 'schedulesLoaded') {
@@ -892,6 +903,8 @@ export function useExtensionMessages(
     notificationsEnabled,
     updateChecksEnabled,
     appUpdate,
+    phoneViewEnabled,
+    phoneView,
     launchAtLogin,
     bypassPermissions,
     defaultEffort,
