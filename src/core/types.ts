@@ -41,6 +41,19 @@ export interface CoreAgentState {
   isWaiting: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
+  /**
+   * Whether something AUTHORITATIVE reports this agent's turn boundaries.
+   *
+   * A chat agent's SDK session emits `session_state_changed`, so the office
+   * learns a turn ended from the CLI itself. Everything in this file is
+   * otherwise deducing that from a transcript, and the deduction for a
+   * text-only turn is a guess: `turn_duration` is never emitted for one, so
+   * the fallback is "no bytes arrived for five seconds". That is wrong
+   * whenever the model simply pauses mid-answer, and it is the kind of wrong
+   * that shows as an agent reporting itself finished while it is still
+   * typing. When this is set, the guess is skipped.
+   */
+  hasSessionState?: boolean;
   /** Reset on every new user prompt and after each turn_duration. */
   turnStats: TurnStats;
   /** Workspace folder name (only set for multi-root workspaces) */

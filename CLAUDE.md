@@ -154,6 +154,16 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 every agent, synchronously, on the process that owns every PTY — so
                                 finishing a turn cost the user's entire history. Appends still go
                                 straight to disk; this module is the only writer
+  (session index)             — The resume picker reads the CLI's OWN index via `listSessions`,
+                                not a readdir of the project-hash directory plus a hand-rolled
+                                parse of each transcript's first user message. Its `summary` is
+                                the custom title, else the generated one, else the first prompt —
+                                strictly more than we could read — and it knows about git
+                                worktrees, which the hash-directory walk did not. `applyAgentName`
+                                calls `renameSession` so a rename reaches that index too; without
+                                it the picker would keep offering a renamed session under its
+                                first prompt. Both are module-level SDK functions, so they need no
+                                live query.
   openAgents.ts               — Which agents were open, so a restart can offer them back
                                 (~/.pixel-agents/open-agents.json). Written on every open and close,
                                 not at quit, so a crash can't lose the list and every platform behaves
@@ -748,6 +758,13 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 - `fs.watch` unreliable on Windows — always pair with polling backup
 - Partial line buffering essential for append-only file reads (carry unterminated lines)
 - Delay `agentToolDone` 300ms to prevent React batching from hiding brief active states
+- **Idle detection is only needed where nothing else reports.** A chat agent's SDK session emits
+  `session_state_changed` — the CLI's own turn-over signal — so `CoreAgentState.hasSessionState`
+  turns OFF both guesses for it: the text-idle timer and the permission timer. Those are not
+  fallbacks for such an agent, they are second, worse answers racing an authoritative one (five
+  seconds of silence is indistinguishable from a model thinking; a slow tool is indistinguishable
+  from one awaiting approval, which the canUseTool bridge already reports exactly). Terminal agents
+  have neither signal and keep both. The two signals below therefore describe TERMINAL agents:
 - **Idle detection** has two signals: (1) `system` + `subtype: "turn_duration"` — reliable for tool-using turns (~98%), emitted once per completed turn, handler clears all tool state as safety measure. (2) Text-idle timer (`TEXT_IDLE_DELAY_MS = 5s`) — for text-only turns where `turn_duration` is never emitted. Only starts when `hadToolsInTurn` is false (no tools used yet in this turn); if any tool_use arrives, `hadToolsInTurn` becomes true and the timer is suppressed for the rest of the turn. Reset on new user prompt or `turn_duration`. Cancelled by ANY new JSONL data arriving in `readNewLines`. Only fires after 5s of complete file silence
 - User prompt `content` can be string (text) or array (tool_results) — handle both
 - `/clear` creates NEW JSONL file (old file just stops)

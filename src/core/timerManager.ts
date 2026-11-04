@@ -53,6 +53,12 @@ export function startPermissionTimer(
   agentId: number,
   permissionExemptTools: Set<string>,
 ): void {
+  // Nothing to infer where the host is TOLD. A chat agent's permission
+  // requests come through the SDK's canUseTool bridge, so "a non-exempt tool
+  // has been quiet for a while" is not a fallback for it — it is a second,
+  // worse answer to a question already answered, and a slow tool would raise
+  // a bubble claiming an approval is needed when none is.
+  if (ctx.agents.get(agentId)?.hasSessionState) return;
   cancelPermissionTimer(ctx, agentId);
   const timer = setTimeout(() => {
     ctx.permissionTimers.delete(agentId);
