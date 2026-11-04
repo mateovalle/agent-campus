@@ -15,6 +15,7 @@ import type {
   WorktreeSummary,
 } from '../../../shared/protocol.js';
 import type { HostNotice } from '../components/NoticeToast.js';
+import type { RateLimitInfo } from '../components/rateLimit.js';
 import { isDemoAgent } from '../demo/demoAgents.js';
 import { playDoneSound, setSoundEnabled } from '../notificationSound.js';
 import type { CampusState } from '../office/engine/campusState.js';
@@ -110,6 +111,8 @@ export interface ExtensionMessageState {
   launchAtLogin: boolean;
   /** New agents start with permissions bypassed (Settings toggle). */
   bypassPermissions: boolean;
+  /** The account's usage window; null until some session reports one. */
+  rateLimit: RateLimitInfo | null;
   /** Effort new agents start with; null = the CLI's own default. */
   defaultEffort: string | null;
   /** Dollars one agent may spend before stopping itself; 0 = no cap. */
@@ -185,6 +188,8 @@ export function useExtensionMessages(
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [bypassPermissions, setBypassPermissions] = useState(false);
+  /** The account's usage window; null until some session reports one. */
+  const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [defaultEffort, setDefaultEffort] = useState<string | null>(null);
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(0);
   const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
@@ -755,6 +760,13 @@ export function useExtensionMessages(
         setAgentTodos((prev) => ({ ...prev, [agentId]: todos }));
       } else if (msg.type === 'roomTemplatesLoaded') {
         setRoomTemplates(msg.templates);
+      } else if (msg.type === 'rateLimit') {
+        setRateLimit({
+          status: msg.status,
+          ...(msg.utilization !== undefined ? { utilization: msg.utilization } : {}),
+          ...(msg.resetsAt !== undefined ? { resetsAt: msg.resetsAt } : {}),
+          ...(msg.window ? { window: msg.window } : {}),
+        });
       } else if (msg.type === 'settingsLoaded') {
         setSoundEnabled(msg.soundEnabled);
         setLaunchAtLogin(msg.launchAtLogin ?? false);
@@ -871,6 +883,7 @@ export function useExtensionMessages(
     bypassPermissions,
     defaultEffort,
     maxBudgetUsd,
+    rateLimit,
     missedRuns,
     clearMissedRuns,
     restorableAgents: restorable,
