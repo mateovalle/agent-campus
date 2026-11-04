@@ -626,6 +626,16 @@ it re-sends the permission mode. Cleared the moment a prompt is sent. Esc inside
 means: interrupt the running turn → else drop the suggestion → else stay out of the way; it is
 bound to the subtree rather than the window because background tabs stay mounted.
 
+**Dispatch dials (effort, budget)**: `Options.effort` and `Options.maxBudgetUsd` are SESSION
+options with no live setter — unlike the model, which has `setModel` — so they are decided where an
+agent is SENT OUT, not while it runs: Settings holds "Effort" and "Budget / agent" for every new
+agent, and a scheduled run inherits them without the scheduler knowing they exist, which is where
+an unattended bill actually comes from. The ⚙ popover shows the effort the session SETTLED on
+(from `system init`, after env overrides, org caps and model-support downgrades) as read-only
+text, because a picker there would be lying about when it takes hold. Hitting the cap is not a
+failure of the task — the SDK answers `error_max_budget_usd`, and the chat says so with the
+number rather than "error".
+
 **Chat permission modes**: `default | acceptEdits | plan | bypassPermissions` per session
 (`chatSetPermissionMode` → `chat-mode` echo), separate from the global "new agents start with
 permissions bypassed" setting in Settings.

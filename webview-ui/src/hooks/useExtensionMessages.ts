@@ -108,6 +108,10 @@ export interface ExtensionMessageState {
   launchAtLogin: boolean;
   /** New agents start with permissions bypassed (Settings toggle). */
   bypassPermissions: boolean;
+  /** Effort new agents start with; null = the CLI's own default. */
+  defaultEffort: string | null;
+  /** Dollars one agent may spend before stopping itself; 0 = no cap. */
+  maxBudgetUsd: number;
   /** Daily/weekly runs missed while the app was closed (pick-and-run prompt). */
   missedRuns: MissedScheduleRun[];
   restorableAgents: RestorableAgent[];
@@ -179,6 +183,8 @@ export function useExtensionMessages(
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [bypassPermissions, setBypassPermissions] = useState(false);
+  const [defaultEffort, setDefaultEffort] = useState<string | null>(null);
+  const [maxBudgetUsd, setMaxBudgetUsd] = useState(0);
   const [missedRuns, setMissedRuns] = useState<MissedScheduleRun[]>([]);
   const clearMissedRuns = useCallback(() => setMissedRuns([]), []);
   const [restorable, setRestorable] = useState<RestorableAgent[]>([]);
@@ -702,6 +708,8 @@ export function useExtensionMessages(
         setLaunchAtLogin(msg.launchAtLogin ?? false);
         setNotificationsEnabled(msg.notificationsEnabled ?? true);
         setBypassPermissions(msg.bypassPermissions ?? false);
+        setDefaultEffort(msg.defaultEffort ?? null);
+        setMaxBudgetUsd(msg.maxBudgetUsd ?? 0);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
       } else if (msg.type === 'restorableAgents') {
@@ -809,6 +817,8 @@ export function useExtensionMessages(
     notificationsEnabled,
     launchAtLogin,
     bypassPermissions,
+    defaultEffort,
+    maxBudgetUsd,
     missedRuns,
     clearMissedRuns,
     restorableAgents: restorable,

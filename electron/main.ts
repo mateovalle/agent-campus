@@ -30,8 +30,10 @@ import {
   sendRoleSprites,
   sendWallTiles,
 } from '../src/core/assetLoader.js';
+import type { EffortLevel } from '../src/core/constants.js';
 import {
   DATA_DIR_NAME,
+  EFFORT_LEVELS,
   JSONL_POLL_INTERVAL_MS,
   JSONL_POLL_TIMEOUT_MS,
   LOGIN_SHELL_TIMEOUT_MS,
@@ -284,17 +286,43 @@ function loadSettings(): {
   soundEnabled: boolean;
   bypassPermissions: boolean;
   notificationsEnabled: boolean;
+  /** Effort new agents start with; null leaves the CLI's own default. */
+  defaultEffort: EffortLevel | null;
+  /** Dollars one agent may spend before stopping itself; 0 = no cap. */
+  maxBudgetUsd: number;
 } {
+  const stored = loadJsonFile<{
+    soundEnabled?: boolean;
+    bypassPermissions?: boolean;
+    notificationsEnabled?: boolean;
+    defaultEffort?: string | null;
+    maxBudgetUsd?: number;
+  }>(SETTINGS_FILE);
+  // Validated rather than trusted: both are passed to the SDK, and a typo in
+  // a hand-edited settings file should fall back, not fail a launch.
+  const effort = EFFORT_LEVELS.find((level) => level === stored?.defaultEffort) ?? null;
+  const budget =
+    typeof stored?.maxBudgetUsd === 'number' && stored.maxBudgetUsd > 0 ? stored.maxBudgetUsd : 0;
   return {
     soundEnabled: true,
     bypassPermissions: false,
     notificationsEnabled: true,
-    ...loadJsonFile<{
-      soundEnabled?: boolean;
-      bypassPermissions?: boolean;
-      notificationsEnabled?: boolean;
-    }>(SETTINGS_FILE),
+    ...stored,
+    defaultEffort: effort,
+    maxBudgetUsd: budget,
   };
+}
+
+/** Pushes the persisted settings (plus the OS-owned login item) to the UI. */
+function sendSettings(): void {
+  const settings = loadSettings();
+  ctx.send({
+    type: 'settingsLoaded',
+    ...settings,
+    // null is this host's "no preference"; the protocol says absent.
+    defaultEffort: settings.defaultEffort ?? undefined,
+    launchAtLogin: app.getLoginItemSettings().openAtLogin,
+  });
 }
 
 function saveSettings(patch: Partial<ReturnType<typeof loadSettings>>): void {
@@ -1039,6 +1067,7 @@ function launchChatAgent(
   const resumedHistory = resumeSessionId ? loadTranscriptHistory(agent.jsonlFile) : [];
   const persistedModel = loadSeatMetaBySession()[sessionId]?.model ?? null;
 
+  const dispatchDefaults = loadSettings();
   const session = startChatSession({
     agentId: agent.id,
     sessionId,
@@ -1050,6 +1079,11 @@ function launchChatAgent(
       : {}),
     send: ctx.send,
     bypassPermissions: loadSettings().bypassPermissions,
+    // Both are session options with no live setter, so they are decided HERE,
+    // where an agent is sent out — which also means a scheduled run inherits
+    // them without the scheduler knowing they exist.
+    ...(dispatchDefaults.defaultEffort ? { effort: dispatchDefaults.defaultEffort } : {}),
+    ...(dispatchDefaults.maxBudgetUsd > 0 ? { maxBudgetUsd: dispatchDefaults.maxBudgetUsd } : {}),
     // Credentials for the campus CLI, plus its directory on PATH so the
     // agent's own Bash tool and anything it spawns can reach it.
     env: {
@@ -2060,27 +2094,22 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     saveSettings({ soundEnabled: !!msg.enabled });
   } else if (msg.type === 'setNotificationsEnabled') {
     saveSettings({ notificationsEnabled: !!msg.enabled });
-    ctx.send({
-      type: 'settingsLoaded',
-      ...loadSettings(),
-      launchAtLogin: app.getLoginItemSettings().openAtLogin,
-    });
+    sendSettings();
+  } else if (msg.type === 'setDefaultEffort') {
+    const effort = EFFORT_LEVELS.find((level) => level === msg.effort) ?? null;
+    saveSettings({ defaultEffort: effort });
+    sendSettings();
+  } else if (msg.type === 'setMaxBudgetUsd') {
+    saveSettings({ maxBudgetUsd: msg.usd > 0 ? msg.usd : 0 });
+    sendSettings();
   } else if (msg.type === 'setBypassPermissions') {
     saveSettings({ bypassPermissions: !!msg.enabled });
     // Echo back so the Settings checkbox reflects the persisted value
-    ctx.send({
-      type: 'settingsLoaded',
-      ...loadSettings(),
-      launchAtLogin: app.getLoginItemSettings().openAtLogin,
-    });
+    sendSettings();
   } else if (msg.type === 'setLaunchAtLogin') {
     app.setLoginItemSettings({ openAtLogin: !!msg.enabled });
     // Echo back so the checkbox reflects what the OS actually accepted
-    ctx.send({
-      type: 'settingsLoaded',
-      ...loadSettings(),
-      launchAtLogin: app.getLoginItemSettings().openAtLogin,
-    });
+    sendSettings();
   } else if (msg.type === 'deleteSchedule') {
     removeSchedule(msg.id);
     scheduleLastAgent.delete(msg.id);
@@ -2293,11 +2322,7 @@ function onWebviewReady(): void {
   })();
 
   // Send settings
-  ctx.send({
-    type: 'settingsLoaded',
-    ...loadSettings(),
-    launchAtLogin: app.getLoginItemSettings().openAtLogin,
-  });
+  sendSettings();
   sendSchedules();
   // Offer daily/weekly occurrences missed while the app was closed. Computed
   // per webview ready (not once per launch): once resolved they're stamped

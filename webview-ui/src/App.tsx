@@ -189,6 +189,8 @@ function App() {
     launchAtLogin,
     notificationsEnabled,
     bypassPermissions,
+    defaultEffort,
+    maxBudgetUsd,
     missedRuns,
     clearMissedRuns,
     restorableAgents,
@@ -526,6 +528,8 @@ function App() {
           launchAtLogin={launchAtLogin}
           notificationsEnabled={notificationsEnabled}
           bypassPermissions={bypassPermissions}
+          defaultEffort={defaultEffort}
+          maxBudgetUsd={maxBudgetUsd}
           onSetOfficeTemplate={() =>
             vscode.postMessage({
               type: 'setOfficeTemplate',

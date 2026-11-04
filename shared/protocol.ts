@@ -432,7 +432,13 @@ export type HostToWebviewMessage =
       bypassPermissions?: boolean;
       /** Desktop notifications for blocked agents and background turn ends. */
       notificationsEnabled?: boolean;
+      /** Effort new agents start with; absent leaves the CLI's own default. */
+      defaultEffort?: string;
+      /** Dollars a single agent may spend before stopping itself; 0 = no cap. */
+      maxBudgetUsd?: number;
     }
+  /** The effort the running session actually settled on, per its init. */
+  | { type: 'chat-effort'; agentId: number; effort: string | null }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
   // Sent on webview ready when daily/weekly occurrences were missed while the
   // app was closed; the user picks which to run via resolveMissedSchedules.
@@ -701,6 +707,8 @@ export type WebviewToHostMessage =
   /** Preview (dryRun) or perform a rewind of the files to a past prompt. */
   | { type: 'rewindAgentFiles'; agentId: number; userMessageId: string; dryRun: boolean }
   | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
+  | { type: 'setDefaultEffort'; effort: string | null }
+  | { type: 'setMaxBudgetUsd'; usd: number }
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
   | { type: 'deleteTodo'; path: string; id: string }

@@ -50,6 +50,16 @@ export const GIT_WRITE_TIMEOUT_MS = 120_000;
 export const SUGGESTION_ERROR_THRESHOLD = 3;
 export const MAX_ACTION_SUGGESTIONS = 3;
 
+// ── Dispatch dials ──────────────────────────────────────────
+/**
+ * Effort levels the CLI accepts, in order. Chosen when an agent is SENT OUT,
+ * not while it runs: the SDK takes `effort` as a session option and offers no
+ * live setter the way it does for the model, so a picker in a running
+ * session's settings would be lying about when it takes hold.
+ */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 // ── Layout validation ───────────────────────────────────────
 /**
  * The largest grid a layout may claim, matching the editor's own MAX_COLS /
