@@ -108,6 +108,9 @@ export interface ExtensionMessageState {
   schedules: ScheduleEntry[];
   /** Whether the app is registered to open at OS login (Electron only). */
   notificationsEnabled: boolean;
+  updateChecksEnabled: boolean;
+  /** Whether a newer release exists; Settings-only, never a bubble. */
+  appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
   launchAtLogin: boolean;
   /** New agents start with permissions bypassed (Settings toggle). */
   bypassPermissions: boolean;
@@ -187,6 +190,11 @@ export function useExtensionMessages(
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [updateChecksEnabled, setUpdateChecksEnabled] = useState(true);
+  const [appUpdate, setAppUpdate] = useState<Extract<
+    HostToWebviewMessage,
+    { type: 'appUpdate' }
+  > | null>(null);
   const [bypassPermissions, setBypassPermissions] = useState(false);
   /** The account's usage window; null until some session reports one. */
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
@@ -771,9 +779,12 @@ export function useExtensionMessages(
         setSoundEnabled(msg.soundEnabled);
         setLaunchAtLogin(msg.launchAtLogin ?? false);
         setNotificationsEnabled(msg.notificationsEnabled ?? true);
+        setUpdateChecksEnabled(msg.updateChecksEnabled ?? true);
         setBypassPermissions(msg.bypassPermissions ?? false);
         setDefaultEffort(msg.defaultEffort ?? null);
         setMaxBudgetUsd(msg.maxBudgetUsd ?? 0);
+      } else if (msg.type === 'appUpdate') {
+        setAppUpdate(msg);
       } else if (msg.type === 'schedulesLoaded') {
         setSchedules(msg.schedules);
       } else if (msg.type === 'restorableAgents') {
@@ -879,6 +890,8 @@ export function useExtensionMessages(
     roles,
     schedules,
     notificationsEnabled,
+    updateChecksEnabled,
+    appUpdate,
     launchAtLogin,
     bypassPermissions,
     defaultEffort,

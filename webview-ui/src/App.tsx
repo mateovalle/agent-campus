@@ -189,6 +189,8 @@ function App() {
     schedules,
     launchAtLogin,
     notificationsEnabled,
+    updateChecksEnabled,
+    appUpdate,
     bypassPermissions,
     defaultEffort,
     maxBudgetUsd,
@@ -529,6 +531,8 @@ function App() {
           roles={roles}
           launchAtLogin={launchAtLogin}
           notificationsEnabled={notificationsEnabled}
+          updateChecksEnabled={updateChecksEnabled}
+          appUpdate={appUpdate}
           bypassPermissions={bypassPermissions}
           defaultEffort={defaultEffort}
           maxBudgetUsd={maxBudgetUsd}

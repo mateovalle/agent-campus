@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type {
   AchievementInfo,
+  HostToWebviewMessage,
   ScheduleEntry,
   UsageSummary,
   WorkspaceInfo,
@@ -44,6 +45,8 @@ interface BottomToolbarProps {
   roles: Array<{ id: string; name: string }>;
   launchAtLogin: boolean;
   notificationsEnabled: boolean;
+  updateChecksEnabled: boolean;
+  appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
   bypassPermissions: boolean;
   defaultEffort: string | null;
   maxBudgetUsd: number;
@@ -156,6 +159,8 @@ export function BottomToolbar({
   roles,
   launchAtLogin,
   notificationsEnabled,
+  updateChecksEnabled,
+  appUpdate,
   bypassPermissions,
   defaultEffort,
   maxBudgetUsd,
@@ -232,6 +237,8 @@ export function BottomToolbar({
             vscode.postMessage({ type: 'setLaunchAtLogin', enabled })
           }
           notificationsEnabled={notificationsEnabled}
+          updateChecksEnabled={updateChecksEnabled}
+          appUpdate={appUpdate}
           onSetNotificationsEnabled={(enabled) =>
             vscode.postMessage({ type: 'setNotificationsEnabled', enabled })
           }
