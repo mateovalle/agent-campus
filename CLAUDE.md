@@ -176,6 +176,12 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 the summary reports `allTimeSince` and Settings says "All time
                                 since Sep 2026". The rewrite is the one moment the file is not
                                 append-only, so it is .tmp + rename.
+                                The series is fourteen CALENDAR days, keyed by local date, never
+                                `- n * 86_400_000`: a local day is 23 or 25 hours long twice a
+                                year, and the arithmetic version shifted every bucket by an hour
+                                across a transition and dropped a date from the axis outright.
+                                The suite is timezone-agnostic and is run under several (the old
+                                one went red for any European contributor).
                                 The ledger is parsed ONCE and kept in memory, with the aggregation
                                 split out as the pure `summarizeEntries(list, now)` (tested): it was
                                 re-reading and re-parsing the whole append-only file on every turn of
