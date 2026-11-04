@@ -7,36 +7,97 @@ extension's `1.x`.
 
 ## Unreleased
 
-### Features
+## v0.4.0 — 2026-11-04
+
+The release that closes the loop: agents now **work in their own checkout**, you can **see what
+they changed and ship it without leaving the app**, and the office stops guessing where Claude
+Code already answers.
+
+### See it and ship it
 
 - **Per-agent git worktrees** — an opt-in private checkout per agent, so two agents in one repo
-  stop overwriting each other, with a manager that shows what a delete would cost (uncommitted
-  work, unmerged commits, agents working there) and refuses to remove a checkout someone is in.
-  An agent now carries two paths: where its session runs, and the office it belongs to.
+  stop overwriting each other, with a manager showing what a delete would cost (uncommitted work,
+  unmerged commits, agents working there) and refusing to remove a checkout someone is in. An
+  agent now carries two paths: where its session runs, and the office it belongs to.
+- **A Changes panel** — every file an agent touched, with diffs, openable while it is still
+  working ("what has it changed so far" is a fair question mid-turn).
+- **Commit, push and open a PR** from that panel, with the message pre-filled from the agent's
+  name.
+- **Undo a prompt** — rewind the files a turn changed, with a preview that says exactly what will
+  move ("3 files, +40 −12") before the button that writes to disk.
+- **"Always allow"** on a permission card, labelled with how far the rule actually reaches — a
+  session rule and a shared-settings rule are different promises.
+
+### The office stops guessing
+
+- **Real sub-agents**, from the SDK's own task stream rather than inferred from a tool call: each
+  one says what it is working on and can be stopped on its own.
+- **Turn ends are reported, not deduced** for chat agents, and terminal agents get a turn-end hook
+  — the five-second-silence guess was indistinguishable from a model thinking.
+- **Sub-agents were invisible.** Back-facing chairs sorted in front of whoever sat in them, and
+  sub-agents (born at a seat, never walking anywhere) never escaped it.
+- **Resumed conversations** are rebuilt through the SDK instead of our own read of the transcript,
+  which had already drifted once when the CLI changed where it writes.
+
+### Know what it costs, before it costs it
+
+- **A context gauge** above the composer, and a **spending cap and effort level** for new agents —
+  set where an agent is *sent out*, since an unattended scheduled run is where a runaway bill
+  actually comes from.
+- **Rate-limit awareness** — the app says when the account is running out of usage, and the
+  scheduler holds work back instead of burning the window on unattended runs.
+- **The usage ledger is folded** rather than growing forever, keeping every figure exact. Entries
+  that predated per-turn costs are dropped (they read about ten times high), so "All time" now
+  says what date it starts from.
+
+### Composer
+
+- **Slash commands** and **@-file mentions**, both in a popup that only opens where it cannot eat
+  your Enter key.
+- **Clickable file paths** — the paths an agent writes become links that open in your editor, at
+  the line it named.
+- **Turn navigation and tab rename** — jump between turns with ▲▼ or Alt+↑/↓; double-click a tab's
+  label to rename an agent.
+
+### It stays running, and it tells you about updates
+
+- **Closing the window no longer kills your agents on Windows and Linux.** It used to quit the
+  app outright — every session disposed mid-turn — which also made the scheduler and "Launch at
+  Login" macOS-only in practice. The window now closes into a tray icon.
+- **Update checks** — the app says when a newer release exists, in Settings and nowhere else.
+- **Signing and notarization are configured** behind repository secrets, so the build is ready the
+  day the certificates are.
+
+### The Assistant
+
+- **It can reach a running agent** — message it, interrupt it, or close a task off the Board,
+  instead of spending a fresh session on every correction.
 - **The campus socket** — a running session, or any script it spawns, can decorate its own
   character: `campus status "…"`, `campus progress 60%`, `campus notify "…"`. Chat agents get the
   same thing as `me` MCP tools.
-- **Clickable file paths in chat** — the paths an agent writes become links that open in your
-  editor, at the line it named.
-- **Turn navigation and tab rename** — jump between turns with the ▲▼ arrows or Alt+↑/↓, anchored
-  on your own messages; double-click a tab's label to rename an agent.
 
 ### Bug Fixes
 
-- **Sub-agents were invisible.** Two causes, one symptom: back-facing chairs sorted in front of
-  whoever sat in them, and sub-agents (born at a seat, never walking anywhere) never escaped it —
-  plus CLI 2.1.x stopped forwarding sub-agent activity into the parent transcript, so they waited
-  forever for a signal that no longer comes.
 - **Unreachable achievements.** The "campus" milestone could never unlock: its event was handled
   and never fired. Terminal agents counted toward nothing at all.
-- **Layout import failed in silence** and replaced your starter office without asking. Layout
-  validation now rejects with a reason — it used to accept any file with a version field and an
-  array.
-- **Two lifecycle failures that looked like success**: an agent whose transcript never appeared sat
-  at its desk forever, and a chat message the app couldn't parse left a busy character emitting
-  nothing.
+- **Layout import failed in silence** and replaced your starter office without asking. Validation
+  now rejects with a reason — it used to accept any file with a version field and an array.
+- **Two lifecycle failures that looked like success**: an agent whose transcript never appeared
+  sat at its desk forever, and a chat message the app couldn't parse left a busy character
+  emitting nothing.
+- **A dialog opened from a character sat *behind* that character's label** — every modal
+  hardcoded its own stacking order.
+- **Settings rows built as divs were clipped by the modal border**, 20px wider than the panel.
 - **Performance**: the wall cache missed on every frame with more than one office on screen, and
   the usage ledger was re-read and re-parsed from disk on every single turn.
+- **A worktree could be offered for removal, with force, while an agent worked in it** on Windows
+  — short paths, junctions and letter case cannot be reconciled by path comparison alone.
+
+### Under the hood
+
+- CI runs on **macOS and Windows** as well as Linux, **packages on every PR**, and the lint gate
+  can actually fail (three correctness rules had been downgraded to warnings).
+- Tests: 231 → 427.
 
 ## v0.3.0 — 2026-10-01
 
