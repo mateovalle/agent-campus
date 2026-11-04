@@ -86,6 +86,7 @@ import {
   startChatSession,
 } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
+import { interruptResultText, resolveAgentTarget } from './coordination.js';
 import { forgetWorkspaceFiles, listWorkspaceFiles, rankFileMatches } from './fileIndex.js';
 import type { GitWriteResult } from './git.js';
 import {
@@ -127,6 +128,7 @@ import {
   getAllTodoPaths,
   getTodos,
   moveTodo,
+  setTodoStatus,
   toggleTodo,
 } from './todos.js';
 import { loadTranscriptHistory } from './transcriptHistory.js';
@@ -1527,6 +1529,31 @@ const ASSISTANT_PLANNING_PROCEDURE =
   "task's tag (review/qa→qa, security→security, docs→writer, release→release) so the " +
   'agent gets the right charter and tool policy.';
 
+/**
+ * Marks a prompt as coming from the assistant rather than the human.
+ *
+ * Without it the message lands in the agent's chat as an ordinary user turn,
+ * indistinguishable from something the person at the keyboard typed — which
+ * is both misleading to read back and wrong for the model, since how much
+ * authority to give an instruction depends on who gave it.
+ */
+const ASSISTANT_MESSAGE_PREFIX = '[Campus Assistant] ';
+
+/**
+ * Closes a task and tells everyone who is showing it.
+ *
+ * Shared with the toggleTodo handler so a task finished by the assistant
+ * counts for the same achievement and reaches the Board the same way as one
+ * ticked by hand.
+ */
+function completeWorkspaceTask(workspacePath: string, taskId: string): boolean {
+  const wasOpen = getTodos(workspacePath).find((t) => t.id === taskId)?.status === 'open';
+  if (!setTodoStatus(workspacePath, taskId, 'done')) return false;
+  ctx.send({ type: 'workspaceTodos', path: workspacePath, todos: getTodos(workspacePath) });
+  if (wasOpen) trackAchievement('taskCompleted');
+  return true;
+}
+
 function openAssistant(): void {
   // Tab-only by design: the assistant has no office or character on the
   // campus (user preference) — she exists purely as her chat session.
@@ -1634,6 +1661,75 @@ function openAssistant(): void {
                 );
                 return {
                   content: [{ type: 'text', text: `Agent dispatched to ${args.workspacePath}.` }],
+                };
+              },
+            ),
+            sdk.tool(
+              'send_message_to_agent',
+              'Send a message to a RUNNING agent, the way a prompt typed into its chat ' +
+                'would arrive \u2014 to redirect it, add context, or answer a question it ' +
+                'raised, without spending a whole new session on it. If the agent is ' +
+                'mid-turn the message is queued and read at the end of it. Chat agents ' +
+                'only (agentId from agents_status). The message is prefixed so the agent ' +
+                'knows it came from you and not from the human.',
+              { agentId: z.number(), message: z.string() },
+              async (args) => {
+                const found = resolveAgentTarget(
+                  args.agentId,
+                  assistantAgentId,
+                  chatSessions.values(),
+                );
+                if (!found.ok) {
+                  return { content: [{ type: 'text', text: found.text }], isError: true };
+                }
+                found.target.send(`${ASSISTANT_MESSAGE_PREFIX}${args.message}`);
+                return {
+                  content: [{ type: 'text', text: `Sent to agent ${args.agentId}.` }],
+                };
+              },
+            ),
+            sdk.tool(
+              'interrupt_agent',
+              'Stop an agent mid-turn, as pressing Esc in its chat would. The session ' +
+                'stays alive and keeps its history, so follow it with ' +
+                'send_message_to_agent to redirect it. Use it when an agent is heading ' +
+                'the wrong way \u2014 it is not a way to shut one down.',
+              { agentId: z.number() },
+              async (args) => {
+                const found = resolveAgentTarget(
+                  args.agentId,
+                  assistantAgentId,
+                  chatSessions.values(),
+                );
+                if (!found.ok) {
+                  return { content: [{ type: 'text', text: found.text }], isError: true };
+                }
+                const wasBusy = found.target.busy;
+                found.target.interrupt();
+                return {
+                  content: [{ type: 'text', text: interruptResultText(args.agentId, wasBusy) }],
+                };
+              },
+            ),
+            sdk.tool(
+              'complete_task',
+              'Mark a workspace task done (taskId from list_tasks). Idempotent \u2014 a task ' +
+                'that is already done stays done. Closing the card is the last step of ' +
+                'the work, so do it once the agent has actually finished, not when it ' +
+                'has been dispatched.',
+              { workspacePath: z.string(), taskId: z.string() },
+              async (args) => {
+                const done = completeWorkspaceTask(args.workspacePath, args.taskId);
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: done
+                        ? `Task ${args.taskId} marked done.`
+                        : `No task ${args.taskId} in ${args.workspacePath}.`,
+                    },
+                  ],
+                  ...(done ? {} : { isError: true }),
                 };
               },
             ),
