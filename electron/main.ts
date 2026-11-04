@@ -1122,12 +1122,12 @@ function launchAgent(place: AgentPlacement, resumeSessionId?: string): void {
   ensureProjectScan(agent.projectDir);
 }
 
-function launchChatAgent(
+async function launchChatAgent(
   place: AgentPlacement,
   resumeSessionId?: string,
   initialPrompt?: string,
   roleId?: string,
-): number {
+): Promise<number> {
   // `cwd` is where the session runs; `workspacePath` is the office it belongs
   // to — the two differ for a worktree agent, so never substitute one for the
   // other: tasks and spend are the OFFICE's, the files are the checkout's.
@@ -1144,7 +1144,7 @@ function launchChatAgent(
 
   // The chat equivalent of terminal scrollback replay: rebuild the previous
   // conversation from the transcript so a resumed tab doesn't start blank.
-  const resumedHistory = resumeSessionId ? loadTranscriptHistory(agent.jsonlFile) : [];
+  const resumedHistory = resumeSessionId ? await loadTranscriptHistory(resumeSessionId, cwd) : [];
   const persistedModel = loadSeatMetaBySession()[sessionId]?.model ?? null;
 
   const dispatchDefaults = loadSettings();
@@ -1613,7 +1613,7 @@ function openAssistant(): void {
                 role: z.enum(DISPATCH_ROLE_IDS as [string, ...string[]]).optional(),
               },
               async (args) => {
-                launchChatAgent(
+                await launchChatAgent(
                   inWorkspace(args.workspacePath),
                   undefined,
                   args.task,
@@ -1724,9 +1724,9 @@ function sendSchedules(): void {
   ctx.send({ type: 'schedulesLoaded', schedules: loadSchedules() });
 }
 
-function dispatchSchedule(s: ScheduleEntry): void {
+async function dispatchSchedule(s: ScheduleEntry): Promise<void> {
   console.log(`[Agent Campus] Schedule ${s.id}: dispatching to ${s.workspacePath}`);
-  const agentId = launchChatAgent(
+  const agentId = await launchChatAgent(
     inWorkspace(s.workspacePath),
     undefined,
     `Scheduled run. ${s.prompt}\n\nThis run is unattended: work autonomously, and if you ` +
@@ -1758,8 +1758,9 @@ function schedulerTick(): void {
       console.log(`[Agent Campus] Schedule ${s.id}: previous agent still busy — skipping run`);
       continue;
     }
-    dispatchSchedule(s);
-    sendSchedules();
+    // Fire and forget: a slow start must not hold up the other due
+    // schedules, and the stamp that stops it firing twice is already set.
+    void dispatchSchedule(s).then(sendSchedules);
   }
 }
 
@@ -1887,7 +1888,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     void resolveAgentCwd(msg.folderPath).then(async (cwd) => {
       if (!cwd) return;
       const place = await placeForRequest(cwd, msg.worktree);
-      if (place) launchChatAgent(place);
+      if (place) void launchChatAgent(place);
     });
   } else if (msg.type === 'chatSend') {
     chatSessions.get(msg.id)?.send(msg.text, msg.images);
@@ -2070,7 +2071,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     const todo = getTodos(msg.path).find((t) => t.id === msg.id);
     if (todo) {
       trackAchievement('taskAssigned');
-      launchChatAgent(
+      void launchChatAgent(
         inWorkspace(msg.path),
         undefined,
         `You are assigned this task (task id: ${todo.id}):\n\n${todo.text}\n\n` +
@@ -2130,7 +2131,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
   } else if (msg.type === 'removeWorkspace') {
     ctx.send({ type: 'workspacesLoaded', workspaces: removeWorkspaceEntry(msg.path) });
   } else if (msg.type === 'resumeChatAgent') {
-    launchChatAgent(inWorkspace(msg.folderPath), msg.sessionId);
+    void launchChatAgent(inWorkspace(msg.folderPath), msg.sessionId);
   } else if (msg.type === 'saveLayout') {
     if (isValidLayout(msg.layout)) {
       if (msg.workspacePath) {
@@ -2223,7 +2224,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       if (record.kind === 'terminal') {
         launchAgent(place, sessionId);
       } else {
-        launchChatAgent(place, sessionId, undefined, record.role);
+        void launchChatAgent(place, sessionId, undefined, record.role);
       }
     }
   } else if (msg.type === 'closeAgent') {

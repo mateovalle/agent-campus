@@ -168,7 +168,8 @@ type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk', {
   with: { 'resolution-mode': 'import' },
 });
 let sdkPromise: Promise<SdkModule> | null = null;
-function loadSdk(): Promise<SdkModule> {
+/** Exported so transcriptHistory can reach the SDK through the one loader. */
+export function loadSdk(): Promise<SdkModule> {
   sdkPromise ??= import('@anthropic-ai/claude-agent-sdk');
   return sdkPromise;
 }

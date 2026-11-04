@@ -1,21 +1,24 @@
 /**
- * Rebuilds ChatEvent history from a session's JSONL transcript, so a resumed
- * chat tab shows the previous conversation — the chat equivalent of the PTY
- * scrollback replay terminals get.
+ * Rebuilds ChatEvent history for a resumed chat tab, so it shows the previous
+ * conversation — the chat equivalent of the PTY scrollback replay.
  *
- * Mirrors the live SDK-message reduction in chatAgent.ts: user prompts,
- * assistant text/thinking, tool calls and their results. Sidechain
- * (sub-agent) traffic, meta records, and synthetic user records (command
- * wrappers, system reminders, caveats) are skipped, matching live behavior.
+ * The messages come from the SDK's `getSessionMessages`, not from reading the
+ * JSONL ourselves. What that removes is the half most likely to rot: a byte
+ * -counted tail read that could cut a conversation mid-line, a per-line
+ * JSON.parse with its own corrupt-line handling, and a dependence on the
+ * on-disk record shape — which has already changed under us once this year,
+ * when CLI 2.1.x moved sub-agent traffic into its own files.
+ *
+ * What stays is the mapping, because `SessionMessage.message` is `unknown`:
+ * the content blocks still have to be walked into the same ChatEvents the
+ * live reduction in chatAgent.ts produces.
  */
 
-import * as fs from 'fs';
-
 import type { ChatEvent } from '../shared/protocol.js';
-import { CHAT_HISTORY_MAX_EVENTS, summarizeToolValue } from './chatAgent.js';
+import { CHAT_HISTORY_MAX_EVENTS, loadSdk, summarizeToolValue } from './chatAgent.js';
 
-/** Only the tail of large transcripts is replayed — older turns fall off. */
-const HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
+/** Most messages fetched for a replay — older turns fall off the top. */
+const HISTORY_MAX_MESSAGES = 600;
 
 /**
  * True for synthetic user records Claude Code writes into transcripts:
@@ -29,13 +32,6 @@ export function isSyntheticUserText(text: string): boolean {
   );
 }
 
-interface TranscriptRecord {
-  type?: string;
-  isMeta?: boolean;
-  isSidechain?: boolean;
-  message?: { content?: unknown };
-}
-
 interface ContentBlock {
   type?: string;
   text?: string;
@@ -46,24 +42,6 @@ interface ContentBlock {
   tool_use_id?: string;
   is_error?: boolean;
   content?: unknown;
-}
-
-/** Reads the transcript tail, dropping a leading partial line if truncated. */
-function readTranscriptTail(jsonlFile: string): string | null {
-  try {
-    const stat = fs.statSync(jsonlFile);
-    if (stat.size <= HISTORY_TAIL_BYTES) {
-      return fs.readFileSync(jsonlFile, 'utf-8');
-    }
-    const fd = fs.openSync(jsonlFile, 'r');
-    const buf = Buffer.alloc(HISTORY_TAIL_BYTES);
-    const bytesRead = fs.readSync(fd, buf, 0, buf.length, stat.size - HISTORY_TAIL_BYTES);
-    fs.closeSync(fd);
-    const text = buf.toString('utf-8', 0, bytesRead);
-    return text.slice(text.indexOf('\n') + 1);
-  } catch {
-    return null;
-  }
 }
 
 function pushUserEvents(events: ChatEvent[], content: unknown): void {
@@ -121,31 +99,53 @@ function pushAssistantEvents(events: ChatEvent[], content: unknown): void {
   }
 }
 
-/**
- * Parses a session transcript into the ChatEvent list a live session would
- * have produced. Returns [] when the file is missing or unreadable. A
- * tool-result whose tool-start fell outside the tail window is harmless —
- * the renderer's reducer drops orphan results.
- */
-export function loadTranscriptHistory(jsonlFile: string): ChatEvent[] {
-  const text = readTranscriptTail(jsonlFile);
-  if (text === null) return [];
+/** The shape of a stored message this module reads — the SDK types it `unknown`. */
+interface StoredMessage {
+  type: 'user' | 'assistant' | 'system';
+  message: unknown;
+  parent_tool_use_id: string | null;
+}
 
+/**
+ * Stored messages → the ChatEvent list a live session would have produced.
+ *
+ * Pure, and the half worth testing. Sub-agent traffic is dropped on
+ * `parent_tool_use_id`, which is the SAME rule the live reduction uses —
+ * where this module previously used the transcript's own `isSidechain` flag
+ * and could therefore disagree with it.
+ *
+ * A tool-result whose tool-start fell off the top is harmless: the renderer's
+ * reducer drops orphan results.
+ */
+export function eventsFromSessionMessages(messages: readonly StoredMessage[]): ChatEvent[] {
   const events: ChatEvent[] = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let record: TranscriptRecord;
-    try {
-      record = JSON.parse(line) as TranscriptRecord;
-    } catch {
-      continue; // partial/corrupt line
-    }
-    if (record.isSidechain || record.isMeta) continue;
+  for (const record of messages) {
+    if (record.parent_tool_use_id !== null) continue;
+    const content = (record.message as { content?: unknown } | undefined)?.content;
     if (record.type === 'user') {
-      pushUserEvents(events, record.message?.content);
+      pushUserEvents(events, content);
     } else if (record.type === 'assistant') {
-      pushAssistantEvents(events, record.message?.content);
+      pushAssistantEvents(events, content);
     }
   }
   return events.slice(-CHAT_HISTORY_MAX_EVENTS);
+}
+
+/**
+ * The previous conversation of a session, or [] if it cannot be read.
+ *
+ * `dir` narrows the search to the agent's own project; without it the SDK
+ * scans every project directory for the id.
+ */
+export async function loadTranscriptHistory(sessionId: string, dir: string): Promise<ChatEvent[]> {
+  try {
+    const sdk = await loadSdk();
+    const messages = await sdk.getSessionMessages(sessionId, { dir, limit: HISTORY_MAX_MESSAGES });
+    return eventsFromSessionMessages(messages as unknown as StoredMessage[]);
+  } catch (err) {
+    // A session the CLI cannot find, or an older CLI: the tab opens empty,
+    // which is what it did before any of this existed.
+    console.error('[Agent Campus] Could not load the session transcript:', err);
+    return [];
+  }
 }
