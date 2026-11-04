@@ -245,6 +245,24 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 otherwise read the moment as "idle app" and raise a tray on the way
                                 out. Reopening restores every tab through the normal onWebviewReady
                                 rebuild
+  coordination.ts             — Who the ASSISTANT may talk to. Its three coordination tools
+                                (send_message_to_agent / interrupt_agent / complete_task) take an
+                                agent id from a model, so the id can be anything: guessed, finished,
+                                or its own — and the assistant IS in the session map, so without a
+                                check it would message itself and answer forever. Pure and tested,
+                                refusal TEXT included: that text is all the model gets back, and
+                                "Live chat agents: 3, 5" ends the guessing where "no such agent"
+                                invites another round; a FINISHED agent is named as finished, since
+                                "read its work" and "look at agents_status again" are different
+                                next moves. interruptResultText exists because interrupting an idle
+                                session resolves quietly — claiming an interruption that never
+                                happened would send the assistant away satisfied. Messages carry
+                                ASSISTANT_MESSAGE_PREFIX: they land in the agent's chat as ordinary
+                                user turns, and one that reads as the human's is both misleading to
+                                scroll back through and wrong for the model, which should weigh an
+                                instruction by who gave it. Chat agents only — a terminal agent's
+                                only input channel is its PTY, and writing to that mid-turn
+                                scrambles whatever is on screen
   attention.ts                — Which agents need you: a pure tracker fed by EVERY host→webview message
                                 (main.ts taps ctx.send) — blocked = agentToolPermission until
                                 Clear/ToolStart/status, or open chat-permission-request ids; unread =

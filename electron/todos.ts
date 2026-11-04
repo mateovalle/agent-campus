@@ -57,10 +57,30 @@ export function toggleTodo(workspacePath: string, id: string): TodoItem[] {
   const list = getTodos(workspacePath);
   const item = list.find((t) => t.id === id);
   if (item) {
-    item.status = item.status === 'open' ? 'done' : 'open';
-    save();
+    setTodoStatus(workspacePath, id, item.status === 'open' ? 'done' : 'open');
   }
   return list;
+}
+
+/**
+ * Sets a task's status outright, and says whether it found one.
+ *
+ * Separate from toggleTodo because a caller that is not a checkbox wants
+ * IDEMPOTENCE: an assistant told twice to finish a task would otherwise
+ * re-open it the second time. The boolean matters for the same reason — an
+ * id that does not exist has to be reportable, not silently a no-op.
+ */
+export function setTodoStatus(
+  workspacePath: string,
+  id: string,
+  status: TodoItem['status'],
+): boolean {
+  const item = getTodos(workspacePath).find((t) => t.id === id);
+  if (!item) return false;
+  const changed = item.status !== status;
+  item.status = status;
+  if (changed) save();
+  return true;
 }
 
 export function editTodo(workspacePath: string, id: string, text: string): TodoItem[] {
