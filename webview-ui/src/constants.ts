@@ -164,6 +164,8 @@ export const CHAT_SETTINGS_ICON_SCALE = 2;
  * Below it the strip stays away: something on screen has to mean something.
  */
 export const RATE_LIMIT_WARN_PCT = 80;
+/** The slash-command palette scrolls past this height (about six rows). */
+export const COMMAND_PALETTE_MAX_HEIGHT_PX = 150;
 /** The context gauge turns amber, then red, as the window fills. */
 export const CONTEXT_GAUGE_WARN_PCT = 70;
 export const CONTEXT_GAUGE_URGENT_PCT = 90;

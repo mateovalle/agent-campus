@@ -1909,6 +1909,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
         agentId: msg.id,
         suggestion: session.latestSuggestion,
       });
+      // Same one-shot problem as the mode and the models: the command list
+      // arrives at SDK init, and skills can change it mid-session.
+      ctx.send({ type: 'chat-commands', agentId: msg.id, commands: session.commands });
       // Same reason again: the gauge is session state, not transcript, so a
       // reloaded webview has no idea how full the window is until we ask.
       session.refreshContextUsage();
