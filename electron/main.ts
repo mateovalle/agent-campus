@@ -48,6 +48,7 @@ import {
   JSONL_POLL_INTERVAL_MS,
   JSONL_POLL_TIMEOUT_MS,
   LOGIN_SHELL_TIMEOUT_MS,
+  PHONE_VIEW_PORT,
   PROJECT_SCAN_INTERVAL_MS,
   UPDATE_CHECK_INTERVAL_MS,
   UPDATE_CHECK_REPO,
@@ -114,6 +115,8 @@ import {
   saveOpenAgents,
 } from './openAgents.js';
 import { type LineEditor, openFileRef } from './openInEditor.js';
+import { type PhoneServerHandle, startPhoneServer } from './phoneServer.js';
+import { buildPhoneStatus, newPhoneToken, type PhoneAgentInput, phoneUrl } from './phoneView.js';
 import {
   addSchedule,
   collectDueSchedules,
@@ -366,6 +369,13 @@ function loadSettings(): {
   maxBudgetUsd: number;
   /** Whether the app asks GitHub about newer releases. */
   updateChecksEnabled: boolean;
+  /** Whether the read-only phone view serves on the LAN. */
+  phoneViewEnabled: boolean;
+  /**
+   * Secret in the phone view's URL. Persisted so a bookmarked link keeps
+   * working across restarts; minted on first use.
+   */
+  phoneViewToken: string;
 } {
   const stored = loadJsonFile<{
     soundEnabled?: boolean;
@@ -374,6 +384,8 @@ function loadSettings(): {
     defaultEffort?: string | null;
     maxBudgetUsd?: number;
     updateChecksEnabled?: boolean;
+    phoneViewEnabled?: boolean;
+    phoneViewToken?: string;
   }>(SETTINGS_FILE);
   // Validated rather than trusted: both are passed to the SDK, and a typo in
   // a hand-edited settings file should fall back, not fail a launch.
@@ -385,6 +397,8 @@ function loadSettings(): {
     bypassPermissions: false,
     notificationsEnabled: true,
     updateChecksEnabled: true,
+    phoneViewEnabled: false,
+    phoneViewToken: '',
     ...stored,
     defaultEffort: effort,
     maxBudgetUsd: budget,
@@ -393,7 +407,7 @@ function loadSettings(): {
 
 /** Pushes the persisted settings (plus the OS-owned login item) to the UI. */
 function sendSettings(): void {
-  const settings = loadSettings();
+  const { phoneViewToken: _token, ...settings } = loadSettings();
   ctx.send({
     type: 'settingsLoaded',
     ...settings,
@@ -491,6 +505,96 @@ function stopUpdateChecks(): void {
     clearInterval(updateTimer);
     updateTimer = null;
   }
+}
+
+// ── Phone view ──────────────────────────────────
+// Read-only, off by default, token-gated. See phoneView.ts.
+
+let phoneServer: PhoneServerHandle | null = null;
+
+/** Live agents in the shape the phone payload is built from. */
+function phoneAgentInputs(nowMs: number): PhoneAgentInput[] {
+  const seen = new Map(attention.snapshot(nowMs).map((a) => [a.agentId, a]));
+  return [...ctx.agents.values()].map((agent) => {
+    const att = seen.get(agent.id);
+    const session = chatSessions.get(agent.id);
+    // A terminal agent has no busy flag, so an active tool is the only
+    // evidence it is working — the same evidence the office animates on.
+    const busy = session ? session.busy : agent.activeToolIds.size > 0;
+    const activity = agent.decor?.status ?? [...agent.activeToolStatuses.values()][0];
+    const requestTitle = lastRequestTitle.get(agent.id);
+    return {
+      id: agent.id,
+      name: agent.label,
+      workspacePath: agent.workspacePath,
+      ...(agent.branch ? { branch: agent.branch } : {}),
+      blocked: att?.blocked ?? false,
+      blockedForMs: att?.blockedForMs ?? 0,
+      unread: att?.unread ?? false,
+      busy,
+      ...(activity ? { activity } : {}),
+      ...(requestTitle ? { requestTitle } : {}),
+    };
+  });
+}
+
+/** The URL to show, with its token, or null when there is no LAN address. */
+function phoneViewUrl(): string | null {
+  if (!phoneServer) return null;
+  // The server's own port, not the constant: they agree today, and a URL
+  // built from an assumption rather than from what was bound is the kind of
+  // thing that is only wrong once.
+  return phoneUrl(os.networkInterfaces(), phoneServer.port, loadSettings().phoneViewToken);
+}
+
+function sendPhoneView(message?: string): void {
+  const enabled = phoneServer !== null;
+  const url = enabled ? phoneViewUrl() : null;
+  ctx.send({
+    type: 'phoneView',
+    enabled,
+    ...(url ? { url } : {}),
+    ...(message ? { message } : {}),
+  });
+}
+
+async function startPhoneView(): Promise<void> {
+  if (phoneServer) return;
+  // Minted on first use rather than at install: a secret that exists only
+  // because a feature was switched on is one fewer thing sitting in a
+  // settings file for a feature nobody turned on.
+  let token = loadSettings().phoneViewToken;
+  if (!token) {
+    token = newPhoneToken();
+    saveSettings({ phoneViewToken: token });
+  }
+  phoneServer = await startPhoneServer({
+    port: PHONE_VIEW_PORT,
+    token,
+    status: () => {
+      const now = Date.now();
+      return buildPhoneStatus(phoneAgentInputs(now), now);
+    },
+    onError: (text) => notify('error', text),
+  });
+  if (!phoneServer) {
+    // It did not start, so the setting is a lie — put it back.
+    saveSettings({ phoneViewEnabled: false });
+    sendSettings();
+    sendPhoneView();
+    return;
+  }
+  sendPhoneView(
+    phoneViewUrl()
+      ? undefined
+      : 'Serving, but this machine has no network address a phone could reach.',
+  );
+}
+
+function stopPhoneView(): void {
+  phoneServer?.close();
+  phoneServer = null;
+  sendPhoneView();
 }
 
 /** Per-workspace office layout file (~/.pixel-agents/layouts/<sanitized>.json). */
@@ -2359,6 +2463,10 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     if (msg.enabled) startUpdateChecks();
   } else if (msg.type === 'checkForUpdate') {
     void runUpdateCheck(true);
+  } else if (msg.type === 'setPhoneViewEnabled') {
+    saveSettings({ phoneViewEnabled: !!msg.enabled });
+    if (msg.enabled) void startPhoneView();
+    else stopPhoneView();
     sendSettings();
   } else if (msg.type === 'setDefaultEffort') {
     const effort = EFFORT_LEVELS.find((level) => level === msg.effort) ?? null;
@@ -2501,6 +2609,7 @@ function onWebviewReady(): void {
   // Anything the host wanted to say while there was no renderer to say it to.
   for (const notice of pendingNotices.splice(0)) ctx.send({ type: 'hostNotice', ...notice });
   sendUpdateState();
+  sendPhoneView();
 
   // Session state, like chat-mode and the context gauge: a reloaded webview
   // has no idea the account is near its limit until some session says so
@@ -3028,6 +3137,7 @@ function cleanupAndQuit(): void {
   shuttingDown = true;
   destroyTray();
   stopUpdateChecks();
+  stopPhoneView();
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
@@ -3064,6 +3174,7 @@ app.whenReady().then(() => {
   createWindow();
 
   startUpdateChecks();
+  if (loadSettings().phoneViewEnabled) void startPhoneView();
 
   schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
   attentionTimer = setInterval(attentionTick, ATTENTION_TICK_MS);
