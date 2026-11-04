@@ -1948,6 +1948,8 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     msg.type === 'createAgentPr'
   ) {
     void runAgentGitWrite(msg);
+  } else if (msg.type === 'stopSubagentTask') {
+    chatSessions.get(msg.agentId)?.stopTask(msg.taskId);
   } else if (msg.type === 'rewindAgentFiles') {
     void (async () => {
       const session = chatSessions.get(msg.agentId);

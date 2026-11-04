@@ -638,6 +638,11 @@ export class OfficeState {
   }
 
   /** Remove a specific sub-agent character and free its seat */
+  /** The character for a sub-agent, if one was ever created for that call. */
+  subagentIdFor(parentAgentId: number, parentToolId: string): number | null {
+    return this.subagentIdMap.get(`${parentAgentId}:${parentToolId}`) ?? null;
+  }
+
   removeSubagent(parentAgentId: number, parentToolId: string): void {
     const key = `${parentAgentId}:${parentToolId}`;
     const id = this.subagentIdMap.get(key);

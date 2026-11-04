@@ -42,6 +42,8 @@ export interface SubagentCharacter {
   parentAgentId: number;
   parentToolId: string;
   label: string;
+  /** The CLI's task id — present only for chat agents, and what stops it. */
+  taskId?: string;
 }
 
 export interface FurnitureAsset {
@@ -445,6 +447,56 @@ export function useExtensionMessages(
             });
           }
         }
+      } else if (msg.type === 'subagentStarted') {
+        // Keyed by tool_use_id, which is the SAME id the transcript's Task
+        // call carries — so this lands on the character already spawned
+        // there rather than drawing a second one beside it. addSubagent is
+        // idempotent on that key, which is what makes the join work whichever
+        // of the two arrives first.
+        const parentId = msg.agentId;
+        const office = campus.getOfficeForAgent(parentId);
+        if (!office) return;
+        const subId = office.addSubagent(parentId, msg.toolUseId, msg.subagentType);
+        office.setAgentActive(subId, true);
+        // The description is what the parent ASKED for, which beats the tool
+        // name every time: "audit the auth middleware", not "Task".
+        office.setAgentName(subId, msg.description);
+        setSubagentCharacters((prev) => {
+          const existing = prev.find((sub) => sub.id === subId);
+          if (existing) {
+            return prev.map((sub) =>
+              sub.id === subId ? { ...sub, label: msg.description, taskId: msg.taskId } : sub,
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: subId,
+              parentAgentId: parentId,
+              parentToolId: msg.toolUseId,
+              label: msg.description,
+              taskId: msg.taskId,
+            },
+          ];
+        });
+      } else if (msg.type === 'subagentProgress') {
+        const office = campus.getOfficeForAgent(msg.agentId);
+        const subId = office?.subagentIdFor(msg.agentId, msg.toolUseId) ?? null;
+        if (office && subId !== null) {
+          if (msg.lastToolName) office.setAgentTool(subId, msg.lastToolName);
+          // The model's own line about what it is up to goes where an agent's
+          // self-reported status goes, so it reads the same as `campus status`.
+          if (msg.summary) office.setAgentDecor(subId, { status: msg.summary });
+        }
+      } else if (msg.type === 'subagentFinished') {
+        // Its parent's Task tool_result would retire it too, but not always
+        // and not promptly — a stopped or failed task never produces one.
+        campus.getOfficeForAgent(msg.agentId)?.removeSubagent(msg.agentId, msg.toolUseId);
+        setSubagentCharacters((prev) =>
+          prev.filter(
+            (sub) => !(sub.parentAgentId === msg.agentId && sub.parentToolId === msg.toolUseId),
+          ),
+        );
       } else if (msg.type === 'agentToolDone') {
         const id = msg.id;
         const toolId = msg.toolId;

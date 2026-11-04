@@ -64,6 +64,12 @@ coordinates by the DPR printed at launch (2 on Retina). The window is
 
 ## Gotchas
 
+- `eval` joins its arguments with single spaces, so the script becomes ONE
+  line: a `//` comment silently swallows everything after it (the error reads
+  `SyntaxError: Unexpected end of input`). Use no comments, or `/* */`. A CSS
+  selector containing a space truncates at the space for the same reason —
+  use `eval` with `querySelectorAll` for those.
+
 - Rebuild before launching — it runs `dist/`, not source.
 - A stale `<out>/home/.pixel-agents/layout.json` from a previous launch
   overrides the bundled default; `reset` wipes it.

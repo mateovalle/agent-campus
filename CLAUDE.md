@@ -553,7 +553,20 @@ the answer to something clicked inside one.
 
 **Floating toolbar**: `BottomToolbar.tsx` renders right-edge vertical icon bubbles (order = usage frequency: Assistant, Board, + Workspace, Layout, Settings). Icons are 12×12 pixel grids in `toolbarIcons.ts` ('X' fg / 'A' accent), drawn by `PixelIcon.tsx` to a pixelated canvas. Hover shows a custom pixel tooltip (label + description) to the left. Settings still mounts the centered `SettingsModal`.
 
-**Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix,
+**Sub-agents**: For a CHAT agent they come from the SDK's own task stream — `system/task_started`,
+`task_progress`, `task_notification` → `subagentStarted/Progress/Finished`, with
+`agentProgressSummaries: true` so the model writes the one-line summary that makes a character say
+what it is busy WITH rather than just that it is busy. Keyed by `tool_use_id`, which is the SAME id
+the transcript's Task call carries, so the SDK path ENRICHES the character the transcript already
+spawned instead of drawing a second one beside it (`addSubagent` is idempotent on
+`parent:toolId`, which is what lets either arrive first). The overlay then reads like a named
+agent: the task it was given on top, its own progress summary underneath, and a Stop button —
+`Query.stopTask(taskId)`, which needs the TASK id, so only chat agents can offer it and a terminal
+agent's sub-agents show no button rather than an inert one. Tasks with no `tool_use_id`, or marked
+`ambient`/`skip_transcript`, are housekeeping the SDK asks hosts to keep out of activity
+indicators, and are skipped.
+
+Negative IDs (from -1 down). Also created on `agentToolStart` with "Subtask:" prefix,
 and set ACTIVE on the spot (no `currentTool` — we don't know what they're doing, and the Task glyph
 would claim they had delegated work of their own): a sub-agent exists only while it works, and it
 cannot wait for `subagentToolStart` to look alive — CLI 2.1.x stopped writing sub-agent activity
