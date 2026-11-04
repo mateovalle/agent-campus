@@ -356,6 +356,20 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 and an open palette would eat their Enter. ↑↓ move, Enter/Tab
                                 accept, Esc closes — and the palette claims those keys BEFORE the
                                 composer's own Enter-sends and Tab-accepts-suggestion +
+                                and @-FILE MENTIONS in the same popup (`requestFileMentions` →
+                                `fileMentions`). The CLI's own fuzzy matcher is unreachable —
+                                `file_suggestions` is a control-request type that is NOT on the
+                                `Query` interface — so electron/fileIndex.ts keeps its own listing:
+                                `git ls-files --cached --others --exclude-standard` (tracked plus
+                                untracked-not-ignored, which is exactly "files a person would
+                                mention", including the one the agent made a minute ago), a bounded
+                                walk outside a repo, cached per directory for FILE_INDEX_TTL_MS.
+                                `rankFileMatches` is tiered rather than filtered — base name
+                                starts-with, then base name contains, then anywhere in the path,
+                                shortest first — because a substring match over a repo buries the
+                                file someone means. `matchFileMention` only opens at the END of the
+                                draft and only after whitespace, so `user@example.com` is not a
+                                file +
                                 SessionSettings ⚙ popover (permission mode + model) +
                                 prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);
