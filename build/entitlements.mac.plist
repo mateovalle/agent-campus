@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened runtime entitlements. Required for notarization, and every entry
+  here is required by something this app actually does — a shorter list is a
+  notarized build that launches and then cannot work.
+
+  allow-jit / allow-unsigned-executable-memory
+    V8, and also the `claude` executable the Agent SDK bundles: it is a
+    Bun-compiled single-file binary that unpacks and JITs at startup. It is
+    signed as a nested binary with these same entitlements (see
+    entitlementsInherit), so leaving them out breaks the CLI rather than the
+    app, which is the harder failure to diagnose.
+
+  disable-library-validation
+    The SDK is asarUnpack'd and dynamically imported, node-pty is a native
+    module, and the campus shim re-executes this app's own Electron binary
+    with ELECTRON_RUN_AS_NODE=1. Library validation would refuse loads whose
+    signing identity does not match the main executable's.
+
+  allow-dyld-environment-variables
+    Electron's own helper processes and the ELECTRON_RUN_AS_NODE path depend
+    on environment the hardened runtime otherwise strips.
+
+  Deliberately NOT here: the app sandbox. Agents run arbitrary commands in
+  the user's own directories — that is the product — so a sandbox entitlement
+  would either be a lie or a broken app.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+  </dict>
+</plist>

@@ -883,6 +883,13 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   matching only `*.test.ts`
 - Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
   release: .github/workflows/release.yml
+- **Signing** (`build/entitlements.mac.plist`): the mac build runs under the HARDENED RUNTIME, and
+  every entitlement in that file is load-bearing. The one that is easy to lose: the Agent SDK
+  bundles `claude` as a Bun-compiled single-file executable that JITs at startup, and it is signed
+  as a NESTED binary — so `entitlementsInherit` must point at the same file or the app notarizes
+  fine and its CLI dies. `release.yml` gates all of it on the secrets existing (`CSC_LINK`,
+  `APPLE_ID`…), so an unsigned release still builds; notarization needs BOTH a cert and notary
+  credentials, since asking with one missing fails the build
 - Tests live in `__tests__/` (every one of them — the electron-builder `files` list excludes
   those directories and `.map` files, so a stray test beside its module would otherwise ship
   inside the asar importing vitest, a devDependency)

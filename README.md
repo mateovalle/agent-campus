@@ -47,7 +47,27 @@ Grab the installer for your platform from [Releases](../../releases/latest).
 
 **Windows:** SmartScreen may show "Windows protected your PC" — click **More info → Run anyway**.
 
-You can always audit the code and build from source instead (below); signing/notarization is on the roadmap ([issues](../../issues)).
+You can always audit the code and build from source instead (below).
+
+<details>
+<summary>Maintainers: turning signing on</summary>
+
+The build is already configured for it — hardened runtime, entitlements
+(`build/entitlements.mac.plist`) and a Gatekeeper check in `release.yml`. All
+of it is gated on repository secrets being present, so a release still builds
+(unsigned) without them. Adding the secrets is the whole switch:
+
+| secret | what it enables |
+| --- | --- |
+| `CSC_LINK`, `CSC_KEY_PASSWORD` | macOS signing (base64 Developer ID `.p12`) |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | macOS notarization |
+| `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | Windows signing |
+
+Notarization turns on only when a certificate *and* notary credentials are both
+present, because asking for it with one of them missing fails the build rather
+than falling back.
+
+</details>
 
 ## Architecture (short version)
 

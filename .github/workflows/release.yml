@@ -41,8 +41,57 @@ jobs:
         run: node -e "const v=require('./package.json').version, t=process.env.GITHUB_REF_NAME.replace(/^v/,''); if(v!==t){console.error('package.json '+v+' != tag '+t); process.exit(1)}"
       - name: Build app
         run: npm run build:electron && npm run build:webview
+      # Signing is opt-in on the presence of the secrets, so a fork — and this
+      # repo until the maintainer enrols in the Apple Developer Program — still
+      # produces a release. The cost of being wrong here is a release that
+      # fails to build rather than one that merely warns on first run.
+      - name: Decide signing arguments
+        id: signing
+        shell: bash
+        env:
+          HAS_APPLE_CERT: ${{ secrets.CSC_LINK != '' }}
+          HAS_APPLE_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          # Notarization is a separate credential from the certificate, and
+          # asking for it without one fails the build. Only turn it on when
+          # BOTH are present, and only on macOS.
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$HAS_APPLE_CERT" = "true" ] && [ "$HAS_APPLE_NOTARY" = "true" ]; then
+            echo "extra=--config.mac.notarize=true" >> "$GITHUB_OUTPUT"
+            echo "notarized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "signed=$HAS_APPLE_CERT" >> "$GITHUB_OUTPUT"
       - name: Package
-        run: npx electron-builder ${{ matrix.args }} --publish never
+        run: npx electron-builder ${{ matrix.args }} --publish never ${{ steps.signing.outputs.extra }}
+        env:
+          # Scoped per platform on purpose: CSC_LINK is the generic name and
+          # electron-builder would hand a macOS .p12 to signtool on Windows.
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # A signed build that Gatekeeper still rejects is the failure worth
+      # catching here: it looks identical to an unsigned one once a user has
+      # downloaded it. The two checks are separate because signing and
+      # notarizing are separate credentials — a signed, un-notarized build is
+      # a legitimate state that spctl correctly refuses.
+      - name: Verify the macOS build is signed
+        if: runner.os == 'macOS' && steps.signing.outputs.signed == 'true'
+        run: |
+          APP="release/mac-arm64/Agent Campus.app"
+          [ -d "$APP" ] || APP="release/mac/Agent Campus.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+      - name: Verify Gatekeeper accepts it
+        if: runner.os == 'macOS' && steps.signing.outputs.notarized == 'true'
+        run: |
+          APP="release/mac-arm64/Agent Campus.app"
+          [ -d "$APP" ] || APP="release/mac/Agent Campus.app"
+          spctl --assess --type execute --verbose=4 "$APP"
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
