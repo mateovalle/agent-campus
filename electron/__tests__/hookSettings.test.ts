@@ -49,6 +49,10 @@ describe('writeAgentHookSettings', () => {
     // is the platform's, and asserting one is asserting the platform.
     expect(command.command).toContain(path.join('/opt/campus/bin', 'campus'));
     expect(command.command).toContain('idle');
+    // Quoted for the SHELL, not JSON-escaped: JSON.stringify doubles every
+    // backslash, which on Windows hands the shell a path that is not the one
+    // we meant.
+    expect(command.command).not.toContain('\\\\');
   });
 
   it('quotes the path, since an installed app lives under a space', () => {
@@ -58,10 +62,12 @@ describe('writeAgentHookSettings', () => {
     const settings = read(file!) as unknown as {
       hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
     };
-    // The whole path inside one pair of quotes, separator whatever it is here.
-    expect(settings.hooks.Stop[0].hooks[0].command).toBe(
-      `${JSON.stringify(path.join(bin, 'campus'))} idle`,
-    );
+    // The whole path inside one pair of quotes, separator whatever it is
+    // here, and no doubled backslashes.
+    const quoted = settings.hooks.Stop[0].hooks[0].command;
+    expect(quoted).toContain(path.join(bin, 'campus'));
+    expect(quoted.startsWith('"') || quoted.startsWith("'")).toBe(true);
+    expect(quoted.endsWith(' idle')).toBe(true);
   });
 
   it('writes nothing when there is no campus CLI to call', () => {
