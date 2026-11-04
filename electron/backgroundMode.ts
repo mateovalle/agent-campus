@@ -18,6 +18,31 @@
  * leaves a process nobody can see or stop.
  */
 
+/**
+ * How much live work a quit would destroy.
+ *
+ * NOT `ctx.agents.size`, which is what this used to be and is a trap: two
+ * kinds of running work are deliberately absent from that map, while
+ * `cleanupAndQuit` tears down both.
+ *
+ *   - The ASSISTANT. It takes an id and starts a chat session without ever
+ *     calling registerAgent, because it has no office and no character on
+ *     the campus. Closing the last window with only the Assistant mid-turn
+ *     therefore read as "idle app" and quit, disposing it.
+ *   - PTYs with no agent yet: a worktree's setup command (`npm ci`, which
+ *     the agent waiting on it has not been registered behind), and the
+ *     `claude auth login` terminal.
+ *
+ * Counting sessions and PTYs rather than agents also counts each unit of
+ * work exactly once — a chat agent is a session, a terminal agent is a PTY,
+ * and neither is both.
+ */
+export function liveWorkCount(sessions: Iterable<{ ended: boolean }>, ptyCount: number): number {
+  let live = 0;
+  for (const session of sessions) if (!session.ended) live++;
+  return live + ptyCount;
+}
+
 export type WindowCloseAction =
   /** Tear down and exit, as before — nothing is being preserved. */
   | 'quit'

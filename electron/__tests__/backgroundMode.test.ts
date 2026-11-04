@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  liveWorkCount,
   quitItemLabel,
   trayTooltip,
   windowCloseAction,
@@ -14,6 +15,34 @@ const inputs = (over: Partial<WindowCloseInputs> = {}): WindowCloseInputs => ({
   trayAvailable: true,
   quitting: false,
   ...over,
+});
+
+describe('liveWorkCount', () => {
+  const session = (ended = false) => ({ ended });
+
+  it('counts a chat session and a PTY once each', () => {
+    expect(liveWorkCount([session(), session()], 3)).toBe(5);
+  });
+
+  it('counts the Assistant, which is not a registered agent', () => {
+    // It takes an id and starts a session without registerAgent, so
+    // ctx.agents.size is 0 while it is mid-turn — which read as "idle app"
+    // and quit, disposing it.
+    expect(liveWorkCount([session()], 0)).toBe(1);
+  });
+
+  it('counts a PTY with no agent behind it yet', () => {
+    // A worktree's `npm ci` setup, or a `claude auth login` terminal.
+    expect(liveWorkCount([], 1)).toBe(1);
+  });
+
+  it('ignores sessions that have already ended', () => {
+    expect(liveWorkCount([session(true), session(true)], 0)).toBe(0);
+  });
+
+  it('is zero for a genuinely idle app', () => {
+    expect(liveWorkCount([], 0)).toBe(0);
+  });
 });
 
 describe('windowCloseAction', () => {
