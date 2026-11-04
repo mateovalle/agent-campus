@@ -23,6 +23,21 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { DATA_DIR_NAME } from '../src/core/constants.js';
+import { shSingleQuote } from './campusShim.js';
+
+/**
+ * Quote a path for the shell the hook will run in.
+ *
+ * NOT JSON.stringify, which was the first thing tried and is wrong on
+ * Windows: it escapes backslashes, so `C:\\Program Files\\…` reaches the
+ * shell with every separator doubled. cmd.exe treats a backslash as an
+ * ordinary character and double quotes as the grouping, so the path goes in
+ * verbatim; a POSIX shell wants single quotes, which campusShim already
+ * implements for exactly this reason.
+ */
+function quoteForShell(value: string): string {
+  return process.platform === 'win32' ? `"${value}"` : shSingleQuote(value);
+}
 
 /** Where a session's generated settings live, one file per session. */
 function hookSettingsPath(sessionId: string): string {
@@ -47,7 +62,7 @@ export function writeAgentHookSettings(sessionId: string, campusBin: string | nu
     hooks: {
       Stop: [
         {
-          hooks: [{ type: 'command', command: `${JSON.stringify(campus)} idle` }],
+          hooks: [{ type: 'command', command: `${quoteForShell(campus)} idle` }],
         },
       ],
     },
