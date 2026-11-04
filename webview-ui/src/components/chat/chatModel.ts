@@ -10,7 +10,14 @@ export type ToolCallStatus = 'running' | 'done' | 'error';
  * same event list, used as the React key.
  */
 export type ChatItem =
-  | { kind: 'user'; key: number; text: string; imageCount?: number }
+  | {
+      kind: 'user';
+      key: number;
+      text: string;
+      imageCount?: number;
+      /** The CLI's id for this prompt — what a rewind rewinds to. */
+      messageId?: string;
+    }
   | { kind: 'assistant'; key: number; text: string; streaming: boolean }
   | { kind: 'thinking'; key: number; text: string }
   | {
@@ -72,6 +79,26 @@ export function applyChatEvent(model: ChatModel, event: ChatEvent): ChatModel {
         text: event.text,
         imageCount: event.imageCount,
       }));
+
+    case 'user-id': {
+      // Attaches to the LAST user item, which is the prompt the CLI just
+      // acknowledged: our own echo of it went out first, optimistically, and
+      // nothing else can have been appended in between.
+      // Walked by hand: the webview targets ES2022, where findLastIndex is
+      // not in the lib yet.
+      let idx = -1;
+      for (let i = model.items.length - 1; i >= 0; i--) {
+        if (model.items[i].kind === 'user') {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) return model;
+      const items = model.items.slice();
+      const it = items[idx];
+      if (it.kind === 'user') items[idx] = { ...it, messageId: event.messageId };
+      return { ...model, items };
+    }
 
     case 'text-delta': {
       const idx = findStreamingIndex(model.items);

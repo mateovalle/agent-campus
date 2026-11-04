@@ -140,6 +140,12 @@ export interface RoomTemplate {
 export type ChatEvent =
   /** Echo of a prompt the user sent (also used for replay after reload). */
   | { kind: 'user-text'; text: string; imageCount?: number }
+  /**
+   * The CLI's id for the prompt that just went out, which arrives only once
+   * the SDK echoes it back — after our own optimistic 'user-text'. It is what
+   * a rewind rewinds TO, so the UI attaches it to the latest user message.
+   */
+  | { kind: 'user-id'; messageId: string }
   /** Streaming assistant text (append to the in-progress text block). */
   | { kind: 'text-delta'; text: string }
   /** A completed content block — replaces accumulated deltas for 'text'. */
@@ -453,6 +459,20 @@ export type HostToWebviewMessage =
       error?: string;
     }
   | { type: 'agentFileDiff'; agentId: number; file: string; patch: string }
+  /** What a rewind would do (dryRun) or did. */
+  | {
+      type: 'agentRewindResult';
+      agentId: number;
+      userMessageId: string;
+      dryRun: boolean;
+      canRewind: boolean;
+      error?: string;
+      fileCount?: number;
+      insertions?: number;
+      deletions?: number;
+      /** Files left alone because restoring them was not safe (symlinks). */
+      skippedLinks?: number;
+    }
   /** How a commit / push / PR attempt went, in words the panel shows as-is. */
   | {
       type: 'agentGitResult';
@@ -670,6 +690,8 @@ export type WebviewToHostMessage =
   | { type: 'commitAgentWork'; agentId: number; message: string }
   | { type: 'pushAgentWork'; agentId: number }
   | { type: 'createAgentPr'; agentId: number }
+  /** Preview (dryRun) or perform a rewind of the files to a past prompt. */
+  | { type: 'rewindAgentFiles'; agentId: number; userMessageId: string; dryRun: boolean }
   | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
   | { type: 'addTodo'; path: string; text: string }
   | { type: 'toggleTodo'; path: string; id: string }
