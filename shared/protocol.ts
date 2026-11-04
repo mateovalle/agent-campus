@@ -458,6 +458,14 @@ export type HostToWebviewMessage =
       /** Set when the directory could not be read as a repo at all. */
       error?: string;
     }
+  /** How full the session's context window is; absent until it is known. */
+  | {
+      type: 'chat-context';
+      agentId: number;
+      usedTokens: number;
+      totalTokens: number;
+      percentage: number;
+    }
   | { type: 'agentFileDiff'; agentId: number; file: string; patch: string }
   /** What a rewind would do (dryRun) or did. */
   | {

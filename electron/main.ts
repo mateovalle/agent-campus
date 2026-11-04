@@ -1852,6 +1852,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
         agentId: msg.id,
         suggestion: session.latestSuggestion,
       });
+      // Same reason again: the gauge is session state, not transcript, so a
+      // reloaded webview has no idea how full the window is until we ask.
+      session.refreshContextUsage();
       // A question/permission may still be parked from before the reload
       session.replayPendingPermissions();
     }

@@ -213,6 +213,14 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 that finishes in the background. Click → window up + agentSelected
                                 (webview selects, follows, acknowledges) + tab focus. "Desktop
                                 Notifications" toggle in Settings (settings.json notificationsEnabled)
+  contextUsage.ts             — How full a context window is, derived. `getContextUsage` answers
+                                with CATEGORIES, not a percentage, and the `kind` is the whole
+                                trick: 'used' occupies the window, 'free' is what is left,
+                                'buffer' is the compaction reserve (spoken for, so not free) and
+                                'deferred' rows are tool schemas held OUT of the window — counting
+                                those would inflate both halves of the fraction. Pure and tested;
+                                answers null when there is no window yet, because a gauge at 0%
+                                claims to know something it does not
   chatAgent.ts                — Agent SDK chat sessions: query() with a streaming input queue (dynamic
                                 ESM import from CJS), reduces SDKMessage stream → ChatEvent protocol
                                 (a message shape it cannot handle is logged, reported ONCE as a
@@ -310,6 +318,12 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 composing one from the tool name would grant something broader than
                                 what the user was shown.
                                 ChatView (message list + composer + image attachments +
+                                a CONTEXT GAUGE above the composer (`chat-context`, asked after
+                                every turn with `detail: 'summary'` — 'full' re-counts each
+                                category through the token-count API, a round trip per category
+                                for a number shown as a percentage; amber at
+                                CONTEXT_GAUGE_WARN_PCT, red at URGENT, and re-asked on chatReady
+                                since it is session state, not transcript) +
                                 SessionSettings ⚙ popover (permission mode + model) +
                                 prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);

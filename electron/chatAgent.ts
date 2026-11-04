@@ -32,6 +32,7 @@ import type {
 import type { TodoItem } from '../shared/protocol.js';
 import { COMMAND_LOOKUP_TIMEOUT_MS } from '../src/core/constants.js';
 import type { Send } from '../src/core/types.js';
+import { summarizeContextUsage } from './contextUsage.js';
 
 /** Host-side handlers backing the per-workspace `tasks` MCP tools. */
 export interface TaskToolHandlers {
@@ -250,6 +251,8 @@ export interface ChatSession {
     deletions?: number;
     skippedLinks?: number;
   }>;
+  /** Ask the CLI how full the context window is and push the answer. */
+  refreshContextUsage(): void;
   respondPermission(
     requestId: string,
     allow: boolean,
@@ -435,6 +438,11 @@ export function startChatSession(opts: {
       }
     },
 
+    /** Re-reads the context window (used on chatReady, so a reload sees it). */
+    refreshContextUsage(): void {
+      void reportContextUsage();
+    },
+
     respondPermission(
       requestId: string,
       allow: boolean,
@@ -509,6 +517,26 @@ export function startChatSession(opts: {
     if (session.latestSuggestion === suggestion) return;
     session.latestSuggestion = suggestion;
     send({ type: 'chat-suggestion', agentId, suggestion });
+  }
+
+  /**
+   * Ask the CLI how full the window is, and push it if it answers.
+   *
+   * `detail: 'summary'` deliberately: 'full' re-counts every category through
+   * the token-count API, which is a network round trip per category for a
+   * number this only shows as a percentage.
+   */
+  async function reportContextUsage(): Promise<void> {
+    if (!query || disposed) return;
+    try {
+      const usage = await query.getContextUsage({ detail: 'summary' });
+      const summary = summarizeContextUsage(usage.categories);
+      if (!summary || disposed) return;
+      send({ type: 'chat-context', agentId, ...summary });
+    } catch {
+      // A CLI too old to answer leaves the gauge absent, which is the honest
+      // state — better than a 0% that claims to know.
+    }
   }
 
   function sendModels(): void {
@@ -589,6 +617,7 @@ export function startChatSession(opts: {
       }
     } else if (msg.type === 'result') {
       setBusy(false);
+      void reportContextUsage();
       // total_cost_usd is the session running total, not this turn's cost
       const runningTotalUsd = msg.total_cost_usd ?? 0;
       const costUsd = turnCostFromRunningTotal(runningTotalUsd, sessionCostUsd);

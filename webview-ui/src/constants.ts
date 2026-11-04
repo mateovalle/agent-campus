@@ -159,6 +159,9 @@ export const CHAT_SETTINGS_MENU_MIN_WIDTH_PX = 240;
 export const CHAT_SETTINGS_MENU_MAX_HEIGHT_PX = 360;
 /** Device px per icon pixel for the composer's gear (12×12 grid → 24px). */
 export const CHAT_SETTINGS_ICON_SCALE = 2;
+/** The context gauge turns amber, then red, as the window fills. */
+export const CONTEXT_GAUGE_WARN_PCT = 70;
+export const CONTEXT_GAUGE_URGENT_PCT = 90;
 export const CHAT_RESUME_MODAL_WIDTH_PX = 380;
 export const CHAT_RESUME_LIST_MAX_HEIGHT_PX = 360;
 export const CHAT_RESUME_PREVIEW_MAX_LINES = 2;
