@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { UsageEntry } from '../usage.js';
-import { summarizeEntries } from '../usage.js';
+import {
+  compactEntries,
+  retentionStart,
+  summarizeEntries,
+  USAGE_DELTA_EPOCH_MS,
+} from '../usage.js';
 
 /** Mid-month, mid-day, so day and month boundaries are both well away. */
 const NOW = new Date(2026, 10, 15, 14, 30);
@@ -97,5 +102,110 @@ describe('summarizeEntries', () => {
     const copy = structuredClone(list);
     summarizeEntries(list, NOW);
     expect(list).toEqual(copy);
+  });
+});
+
+describe('retentionStart', () => {
+  it('takes the month boundary when it reaches further back', () => {
+    // Late in the month, the month start is older than a 14-day series.
+    expect(retentionStart(new Date(2026, 10, 28, 9, 0))).toBe(new Date(2026, 10, 1).getTime());
+  });
+
+  it('takes the series boundary when THAT reaches further back', () => {
+    // On the 2nd, the series reaches into last month and the month start
+    // would throw away days the chart still has to draw.
+    expect(retentionStart(new Date(2026, 10, 2, 9, 0))).toBe(new Date(2026, 9, 20).getTime());
+  });
+});
+
+describe('compactEntries', () => {
+  it('leaves a ledger inside the window completely alone', () => {
+    const list = [at(daysAgo(0)), at(daysAgo(3)), at(daysAgo(10))];
+    expect(compactEntries(list, NOW)).toEqual(list);
+  });
+
+  it('collapses older entries into one carry row per project', () => {
+    const old1 = at(daysAgo(40), { c: 2, d: 100, p: '/repo/one' });
+    const old2 = at(daysAgo(50), { c: 3, d: 200, p: '/repo/one' });
+    const other = at(daysAgo(60), { c: 5, d: 300, p: '/repo/two' });
+    const recent = at(daysAgo(1), { c: 7 });
+
+    const out = compactEntries([old1, old2, other, recent], NOW);
+
+    expect(out).toHaveLength(3);
+    expect(out.filter((e) => e.p === '/repo/one' && e.n === 2)).toEqual([
+      // Stamped with the OLDEST turn it stands for, not with the boundary:
+      // that is what keeps allTimeSince honest about the coverage.
+      { t: old2.t, c: 5, d: 300, p: '/repo/one', n: 2 },
+    ]);
+    expect(out.at(-1)).toEqual(recent);
+  });
+
+  it('keeps every total the summary reports exactly', () => {
+    // The whole point: a user's all-time figure must not move because the
+    // file was folded up behind their back.
+    const list = [
+      at(daysAgo(0), { c: 1 }),
+      at(daysAgo(5), { c: 2 }),
+      at(daysAgo(20), { c: 4, p: '/repo/two' }),
+      at(daysAgo(40), { c: 8 }),
+      at(daysAgo(60), { c: 16, p: '/repo/two' }),
+    ];
+    const before = summarizeEntries(list, NOW);
+    const after = summarizeEntries(compactEntries(list, NOW), NOW);
+
+    expect(after.allTimeUsd).toBe(before.allTimeUsd);
+    expect(after.monthUsd).toBe(before.monthUsd);
+    expect(after.todayUsd).toBe(before.todayUsd);
+    expect(after.turnCount).toBe(before.turnCount);
+    expect(after.days).toEqual(before.days);
+    expect(after.perProject).toEqual(before.perProject);
+  });
+
+  it('is idempotent, since it runs on every load', () => {
+    const list = [at(daysAgo(0)), at(daysAgo(40)), at(daysAgo(70), { p: '/repo/two' })];
+    const once = compactEntries(list, NOW);
+    expect(compactEntries(once, NOW)).toEqual(once);
+  });
+
+  it('never leaves a carry row inside a window it does not belong to', () => {
+    const out = compactEntries([at(daysAgo(40), { c: 9 })], NOW);
+    const carry = out[0];
+    expect(carry.t).toBeLessThan(retentionStart(NOW));
+    expect(carry.t).toBe(daysAgo(40).getTime());
+    const s = summarizeEntries(out, NOW);
+    expect(s.monthUsd).toBe(0);
+    expect(s.todayUsd).toBe(0);
+    expect(s.days.every((d) => d.usd === 0)).toBe(true);
+    expect(s.allTimeUsd).toBe(9);
+  });
+
+  it('drops the pre-delta entries instead of carrying them', () => {
+    // They hold session RUNNING TOTALS, so carrying them would preserve a
+    // figure inflated by roughly an order of magnitude forever.
+    const legacy = { t: USAGE_DELTA_EPOCH_MS - 1, c: 21, d: 10, p: '/repo/one' };
+    const out = compactEntries([legacy, at(daysAgo(1), { c: 2 })], NOW);
+    expect(out).toHaveLength(1);
+    expect(summarizeEntries(out, NOW).allTimeUsd).toBe(2);
+  });
+});
+
+describe('allTimeSince', () => {
+  it('still reaches back past a fold', () => {
+    // The bug this guards: a carry stamped at the retention boundary makes a
+    // ledger that goes back to September start claiming October.
+    const oldest = daysAgo(60);
+    const folded = compactEntries([at(oldest), at(daysAgo(50)), at(daysAgo(1))], NOW);
+    expect(summarizeEntries(folded, NOW).allTimeSince).toBe(oldest.getTime());
+  });
+
+  it('reports the oldest turn the figure actually covers', () => {
+    const oldest = daysAgo(30);
+    const s = summarizeEntries([at(oldest), at(daysAgo(1))], NOW);
+    expect(s.allTimeSince).toBe(oldest.getTime());
+  });
+
+  it('is absent for an empty ledger', () => {
+    expect(summarizeEntries([], NOW).allTimeSince).toBeUndefined();
   });
 });

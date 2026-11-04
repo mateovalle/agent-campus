@@ -362,6 +362,12 @@ export interface UsageSummary {
   days: Array<{ day: string; usd: number }>;
   /** Today's spend per workspace path (for office label plates). */
   todayByWorkspace: Record<string, number>;
+  /**
+   * Epoch ms of the oldest turn the all-time figure includes. Absent for an
+   * empty ledger. "All time" is only true back to here: compaction drops
+   * entries that predate per-turn costs, so the UI says since when.
+   */
+  allTimeSince?: number;
 }
 
 // ── Host → Webview ───────────────────────────────────────────
