@@ -288,7 +288,19 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 carries the agent id paths resolve against — a separate module from
                                 FileRefText.tsx because a file exporting both a component and a
                                 context breaks fast refresh. chatModel.ts is the pure
-                                ChatEvent[] → ChatItem[] reducer (stable monotonic React keys);
+                                ChatEvent[] → ChatItem[] reducer (stable monotonic React keys,
+                                plus `user-id`, which attaches the CLI's id to the LAST user item:
+                                our echo of a prompt is emitted optimistically on send, so its id
+                                only exists once the SDK echoes it back).
+                                REWIND (`Options.enableFileCheckpointing` + `Query.rewindFiles`):
+                                "↶ Undo to here" on any of your own prompts, offered only while the
+                                session is IDLE (rewinding files under a running turn would pull
+                                the ground from under the edit it is making) and only on a prompt
+                                the CLI acknowledged with an id. A dryRun ALWAYS runs first — the
+                                preview is the only honest way to put "3 files, +40 −12" on the
+                                button that writes to disk, rather than asking the user to trust
+                                the word "rewind". Checkpointing records from the START of a
+                                session, so a resumed one answers canRewind:false and says so;
                                 PermissionCard's "Always" button, which appears ONLY when the CLI
                                 offered rules (`canUseTool`'s `suggestions`) and is labelled with
                                 how far they reach — `describePermissionScope` reads the

@@ -654,10 +654,91 @@ function TurnSeparator({ costUsd, durationMs }: { costUsd: number; durationMs: n
   );
 }
 
+/**
+ * Undoing a prompt: what the user is offered on one of their own messages.
+ *
+ * Three states, because the middle one is the whole point. `idle` offers it,
+ * `preview` reports exactly what a rewind WOULD touch, and only then is there
+ * a button that writes to disk. A single "Rewind" button would be asking the
+ * user to trust the word.
+ */
+export interface RewindControl {
+  state: 'idle' | 'asking' | 'preview' | 'working' | 'done';
+  /** Filled once the dry run has answered. */
+  preview?: { fileCount: number; insertions: number; deletions: number };
+  /** Why it cannot be done, or how it went. */
+  note?: string;
+  onPreview: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const rewindBtnStyle: React.CSSProperties = {
+  fontFamily: 'inherit',
+  fontSize: '11px',
+  lineHeight: 1,
+  padding: '2px 6px',
+  borderRadius: 0,
+  border: '2px solid var(--pixel-border)',
+  background: 'var(--pixel-bg)',
+  color: 'var(--pixel-text)',
+  cursor: 'pointer',
+};
+
+function RewindRow({ control }: { control: RewindControl }) {
+  const { state, preview, note } = control;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginTop: 6,
+        fontSize: '11px',
+        color: 'var(--pixel-text-dim)',
+      }}
+    >
+      {state === 'idle' && (
+        <button
+          style={rewindBtnStyle}
+          title="Put the files back as they were before this prompt"
+          onClick={control.onPreview}
+        >
+          ↶ Undo to here
+        </button>
+      )}
+      {state === 'asking' && <span>Checking what that would change…</span>}
+      {state === 'working' && <span>Restoring…</span>}
+      {state === 'preview' && preview && (
+        <>
+          <span>
+            Restore {preview.fileCount} {preview.fileCount === 1 ? 'file' : 'files'}
+            {preview.insertions + preview.deletions > 0 &&
+              ` (+${preview.insertions} −${preview.deletions})`}
+            ?
+          </span>
+          <button
+            style={{ ...rewindBtnStyle, borderColor: 'var(--pixel-danger-bg)' }}
+            onClick={control.onConfirm}
+          >
+            Rewind
+          </button>
+          <button style={rewindBtnStyle} onClick={control.onCancel}>
+            Cancel
+          </button>
+        </>
+      )}
+      {note && <span style={{ color: 'var(--pixel-chat-amber)' }}>{note}</span>}
+    </div>
+  );
+}
+
 function ChatItemView({
   item,
   askRequest,
   onPermissionRespond,
+  rewind,
 }: {
   item: ChatItem;
   /** Pending AskUserQuestion permission matching this tool item, if any. */
@@ -669,6 +750,8 @@ function ChatItemView({
     updatedInput?: Record<string, unknown>,
     alwaysAllow?: boolean,
   ) => void;
+  /** Rewind affordance for a user message, absent when it cannot be undone. */
+  rewind?: RewindControl;
 }) {
   switch (item.kind) {
     case 'user': {
@@ -681,6 +764,7 @@ function ChatItemView({
             </div>
           )}
           {item.text}
+          {rewind && <RewindRow control={rewind} />}
         </div>
       );
     }
@@ -751,6 +835,13 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [model, setModel] = useState<ChatModel>(emptyChatModel);
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([]);
+  /** The one prompt being rewound, if any — only ever one at a time. */
+  const [rewind, setRewind] = useState<{
+    messageId: string;
+    state: RewindControl['state'];
+    preview?: RewindControl['preview'];
+    note?: string;
+  } | null>(null);
   const [hasNew, setHasNew] = useState(false);
   const [draft, setDraft] = useState('');
   // Host is the source of truth ('chat-mode'); updated optimistically on click
@@ -794,6 +885,36 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-busy') {
         if (msg.agentId !== agentId) return;
         setBusy(msg.busy);
+      } else if (msg.type === 'agentRewindResult') {
+        if (msg.agentId !== agentId) return;
+        if (!msg.canRewind) {
+          setRewind({
+            messageId: msg.userMessageId,
+            state: 'done',
+            // The common one: checkpointing only records from the start of a
+            // session, so a resumed conversation has nothing behind it.
+            note: msg.error ?? 'There is nothing recorded to go back to.',
+          });
+        } else if (msg.dryRun) {
+          setRewind({
+            messageId: msg.userMessageId,
+            state: 'preview',
+            preview: {
+              fileCount: msg.fileCount ?? 0,
+              insertions: msg.insertions ?? 0,
+              deletions: msg.deletions ?? 0,
+            },
+          });
+        } else {
+          setRewind({
+            messageId: msg.userMessageId,
+            state: 'done',
+            note:
+              msg.skippedLinks && msg.skippedLinks > 0
+                ? `Files restored. ${msg.skippedLinks} left alone: restoring them was not safe.`
+                : 'Files restored.',
+          });
+        }
       } else if (msg.type === 'chat-permission-request') {
         if (msg.agentId !== agentId) return;
         const request: PermissionRequestInfo = {
@@ -1076,6 +1197,35 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
     [agentId],
   );
 
+  const askRewind = useCallback(
+    (userMessageId: string, dryRun: boolean) => {
+      setRewind({ messageId: userMessageId, state: dryRun ? 'asking' : 'working' });
+      vscode.postMessage({ type: 'rewindAgentFiles', agentId, userMessageId, dryRun });
+    },
+    [agentId],
+  );
+
+  /**
+   * The rewind affordance for one message, or nothing.
+   *
+   * Offered only on a prompt the CLI acknowledged (no id, no checkpoint), and
+   * only while the session is idle: rewinding files under a running turn would
+   * pull the ground out from under the edit it is in the middle of making.
+   */
+  const rewindControlFor = (item: ChatItem): RewindControl | undefined => {
+    if (item.kind !== 'user' || !item.messageId || busy) return undefined;
+    const id = item.messageId;
+    const active = rewind?.messageId === id ? rewind : null;
+    return {
+      state: active?.state ?? 'idle',
+      preview: active?.preview,
+      note: active?.note,
+      onPreview: () => askRewind(id, true),
+      onConfirm: () => askRewind(id, false),
+      onCancel: () => setRewind(null),
+    };
+  };
+
   const handlePermissionResponse = useCallback(
     (
       requestId: string,
@@ -1206,6 +1356,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
                       node.item.kind === 'tool' ? askByToolId.get(node.item.toolId) : undefined
                     }
                     onPermissionRespond={handlePermissionResponse}
+                    rewind={rewindControlFor(node.item)}
                   />
                 </div>
               ),

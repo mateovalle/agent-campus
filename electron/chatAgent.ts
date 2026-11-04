@@ -238,6 +238,18 @@ export interface ChatSession {
   setMode(mode: ChatPermissionMode): void;
   /** Switch the model for subsequent turns; null restores the CLI default. */
   setModel(model: string | null): void;
+  /** Preview (dryRun) or perform a rewind of tracked files to a past prompt. */
+  rewindFiles(
+    userMessageId: string,
+    dryRun: boolean,
+  ): Promise<{
+    canRewind: boolean;
+    error?: string;
+    filesChanged?: string[];
+    insertions?: number;
+    deletions?: number;
+    skippedLinks?: number;
+  }>;
   respondPermission(
     requestId: string,
     allow: boolean,
@@ -407,6 +419,22 @@ export function startChatSession(opts: {
       })();
     },
 
+    /**
+     * Rewind the files this session touched back to a past prompt.
+     *
+     * `dryRun` first, always, from the UI: the real call WRITES TO DISK, and
+     * the preview is the only honest way to put "3 files, +40 −12" on a
+     * confirmation instead of asking the user to trust the word "rewind".
+     */
+    async rewindFiles(userMessageId: string, dryRun: boolean) {
+      if (!query) return { canRewind: false, error: 'This session is not running.' };
+      try {
+        return await query.rewindFiles(userMessageId, { dryRun });
+      } catch (err) {
+        return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+
     respondPermission(
       requestId: string,
       allow: boolean,
@@ -543,6 +571,10 @@ export function startChatSession(opts: {
       }
     } else if (msg.type === 'user') {
       if (msg.parent_tool_use_id !== null) return;
+      // The CLI's id for this prompt, which is what a rewind rewinds TO. It
+      // exists only now: our own 'user-text' was emitted optimistically when
+      // the user pressed send, before the SDK had seen it at all.
+      if (msg.uuid) emit({ kind: 'user-id', messageId: msg.uuid });
       const content = msg.message.content;
       if (!Array.isArray(content)) return;
       for (const block of content) {
@@ -605,6 +637,10 @@ export function startChatSession(opts: {
     // accepted; without the setting, sessions START in 'default'.
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    // Snapshots every file the session touches, so a prompt can be undone.
+    // Only meaningful from the START of a session: a resumed one has no
+    // checkpoints behind it, and rewindFiles says so rather than guessing.
+    enableFileCheckpointing: true,
     // Predicted next prompt after each turn, offered in the composer the way
     // the CLI offers it. The CLI's own opt-outs still win (the
     // CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION env var, promptSuggestionEnabled

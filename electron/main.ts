@@ -1911,6 +1911,36 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     msg.type === 'createAgentPr'
   ) {
     void runAgentGitWrite(msg);
+  } else if (msg.type === 'rewindAgentFiles') {
+    void (async () => {
+      const session = chatSessions.get(msg.agentId);
+      const result = session
+        ? await session.rewindFiles(msg.userMessageId, msg.dryRun)
+        : { canRewind: false, error: 'That agent is gone, so there is nothing to rewind.' };
+      ctx.send({
+        type: 'agentRewindResult',
+        agentId: msg.agentId,
+        userMessageId: msg.userMessageId,
+        dryRun: msg.dryRun,
+        canRewind: result.canRewind,
+        ...(result.error ? { error: result.error } : {}),
+        ...(result.filesChanged ? { fileCount: result.filesChanged.length } : {}),
+        ...(result.insertions !== undefined ? { insertions: result.insertions } : {}),
+        ...(result.deletions !== undefined ? { deletions: result.deletions } : {}),
+        ...(result.skippedLinks ? { skippedLinks: result.skippedLinks } : {}),
+      });
+      // The office's view of the work just changed on disk.
+      const agent = ctx.agents.get(msg.agentId);
+      if (!msg.dryRun && result.canRewind && agent) {
+        ctx.send({
+          type: 'agentChanges',
+          agentId: msg.agentId,
+          cwd: agent.cwd,
+          ...(currentBranch(agent.cwd) ? { branch: currentBranch(agent.cwd) as string } : {}),
+          files: changedFiles(agent.cwd),
+        });
+      }
+    })();
   } else if (msg.type === 'requestAgentFileDiff') {
     const agent = ctx.agents.get(msg.agentId);
     // Same as above: an unanswered request reads as a diff that never loads.
