@@ -7,6 +7,7 @@ import type {
   UsageSummary,
   WorkspaceInfo,
 } from '../../../shared/protocol.js';
+import { EFFORT_LEVELS } from '../../../src/core/constants.js';
 import {
   ACHIEVEMENT_LIST_MAX_HEIGHT_PX,
   ACHIEVEMENT_LOCKED_DESCRIPTION,
@@ -24,6 +25,16 @@ import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { formatUsd } from '../office/toolUtils.js';
 import { DAY_ABBREV, describeCadence, workspaceBasename } from '../scheduleUtils.js';
 import { vscode } from '../vscodeApi.js';
+
+const selectStyle: React.CSSProperties = {
+  fontFamily: 'inherit',
+  fontSize: '16px',
+  padding: '1px 4px',
+  borderRadius: 0,
+  border: '2px solid var(--pixel-border)',
+  background: 'var(--pixel-bg)',
+  color: 'var(--pixel-text)',
+};
 
 const usageNoteStyle: React.CSSProperties = {
   padding: '0 10px 3px',
@@ -250,6 +261,10 @@ interface SettingsModalProps {
   onSetNotificationsEnabled: (enabled: boolean) => void;
   /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
   bypassPermissions: boolean;
+  /** Effort new agents start with; null = whatever the CLI does by default. */
+  defaultEffort: string | null;
+  /** Dollars one agent may spend before stopping itself; 0 = no cap. */
+  maxBudgetUsd: number;
   onSetBypassPermissions: (enabled: boolean) => void;
   /** Store the office currently on screen as the starter for new workspaces. */
   onSetOfficeTemplate: () => void;
@@ -565,6 +580,8 @@ export function SettingsModal({
   notificationsEnabled,
   onSetNotificationsEnabled,
   bypassPermissions,
+  defaultEffort,
+  maxBudgetUsd,
   onSetBypassPermissions,
 }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null);
@@ -842,6 +859,45 @@ export function SettingsModal({
             {bypassPermissions ? 'X' : ''}
           </span>
         </button>
+        {/*
+          Both are session options the SDK has no live setter for, so they are
+          what a NEW agent starts with — including one a schedule sends out
+          unattended, which is where a runaway bill actually comes from.
+        */}
+        <div style={{ ...menuItemBase, cursor: 'default', gap: 8 }}>
+          <span title="Thinking effort each new agent starts with">Effort</span>
+          <select
+            value={defaultEffort ?? ''}
+            onChange={(e) =>
+              vscode.postMessage({ type: 'setDefaultEffort', effort: e.target.value || null })
+            }
+            style={selectStyle}
+          >
+            <option value="">CLI default</option>
+            {EFFORT_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ ...menuItemBase, cursor: 'default', gap: 8 }}>
+          <span title="An agent stops itself at this much spend. 0 = no cap.">Budget / agent</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ opacity: 0.6 }}>$</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={maxBudgetUsd || ''}
+              placeholder="none"
+              onChange={(e) =>
+                vscode.postMessage({ type: 'setMaxBudgetUsd', usd: Number(e.target.value) || 0 })
+              }
+              style={{ ...selectStyle, width: 70 }}
+            />
+          </span>
+        </div>
         <button
           onClick={onToggleDebugMode}
           onMouseEnter={() => setHovered('debug')}

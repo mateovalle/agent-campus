@@ -30,6 +30,7 @@ import type {
   HostToWebviewMessage,
 } from '../shared/protocol.js';
 import type { TodoItem } from '../shared/protocol.js';
+import type { EffortLevel } from '../src/core/constants.js';
 import { COMMAND_LOOKUP_TIMEOUT_MS } from '../src/core/constants.js';
 import type { Send } from '../src/core/types.js';
 import { summarizeContextUsage } from './contextUsage.js';
@@ -311,6 +312,10 @@ export function startChatSession(opts: {
   disallowedTools?: readonly string[];
   /** Start the session in bypassPermissions mode (Settings toggle). */
   bypassPermissions?: boolean;
+  /** Effort for this session; the SDK has no live setter, so it is fixed here. */
+  effort?: EffortLevel;
+  /** Dollars this session may spend before stopping itself. */
+  maxBudgetUsd?: number;
   /** Model to start on (persisted per session); omitted/null = the CLI default. */
   model?: string | null;
   /** Called once per completed turn with THIS turn's cost (not the running total). */
@@ -623,6 +628,15 @@ export function startChatSession(opts: {
       const costUsd = turnCostFromRunningTotal(runningTotalUsd, sessionCostUsd);
       sessionCostUsd = runningTotalUsd;
       const durationMs = msg.duration_ms ?? 0;
+      if (msg.subtype === 'error_max_budget_usd') {
+        // Not a failure of the task: the agent did what it was told and hit
+        // the ceiling the user set. Saying "error" without the number would
+        // send them looking for a bug.
+        emit({
+          kind: 'error',
+          message: `Stopped at the $${(opts.maxBudgetUsd ?? 0).toFixed(2)} budget for this agent. Raise it in Settings to continue.`,
+        });
+      }
       opts.onTurnComplete?.(costUsd, durationMs, sessionId);
       emit({
         kind: 'turn-complete',
@@ -643,6 +657,9 @@ export function startChatSession(opts: {
       // whatever we asked for (an alias, or nothing at all)
       session.model = msg.model ?? session.model;
       sendModels();
+      // What the CLI SETTLED on, after env overrides, org caps and
+      // model-support downgrades — not what we asked for.
+      send({ type: 'chat-effort', agentId, effort: msg.effort ?? null });
       void loadModels();
     }
   }
@@ -666,6 +683,8 @@ export function startChatSession(opts: {
     // accepted; without the setting, sessions START in 'default'.
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    ...(opts.effort ? { effort: opts.effort } : {}),
+    ...(opts.maxBudgetUsd && opts.maxBudgetUsd > 0 ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
     // Snapshots every file the session touches, so a prompt can be undone.
     // Only meaningful from the START of a session: a resumed one has no
     // checkpoints behind it, and rewindFiles says so rather than guessing.

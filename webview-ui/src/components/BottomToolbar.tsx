@@ -45,6 +45,8 @@ interface BottomToolbarProps {
   launchAtLogin: boolean;
   notificationsEnabled: boolean;
   bypassPermissions: boolean;
+  defaultEffort: string | null;
+  maxBudgetUsd: number;
   /** Store the office on screen as the starter for new workspaces. */
   onSetOfficeTemplate: () => void;
   /** Go back to the office layout the app ships with. */
@@ -155,6 +157,8 @@ export function BottomToolbar({
   launchAtLogin,
   notificationsEnabled,
   bypassPermissions,
+  defaultEffort,
+  maxBudgetUsd,
   onSetOfficeTemplate,
   onResetOfficeTemplate,
 }: BottomToolbarProps) {
@@ -232,6 +236,8 @@ export function BottomToolbar({
             vscode.postMessage({ type: 'setNotificationsEnabled', enabled })
           }
           bypassPermissions={bypassPermissions}
+          defaultEffort={defaultEffort}
+          maxBudgetUsd={maxBudgetUsd}
           onSetBypassPermissions={(enabled) =>
             vscode.postMessage({ type: 'setBypassPermissions', enabled })
           }

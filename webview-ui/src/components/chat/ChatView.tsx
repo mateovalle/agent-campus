@@ -538,12 +538,15 @@ function SessionSettings({
   models,
   activeModel,
   onSelectModel,
+  effort,
 }: {
   mode: ChatPermissionMode;
   onSelectMode: (mode: ChatPermissionMode) => void;
   models: ChatModelOption[];
   activeModel: string | null;
   onSelectModel: (model: string | null) => void;
+  /** What this session settled on; null when the CLI sends no effort at all. */
+  effort: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -618,6 +621,24 @@ function SessionSettings({
               </button>
             );
           })}
+
+          {/*
+            Read-only, and that is the honest shape: `effort` is a session
+            option with no live setter, so this reports what the session
+            settled on (after env overrides, org caps and model downgrades)
+            and points at where the choice is actually made.
+          */}
+          {effort && (
+            <>
+              <div style={settingsSectionDividedStyle}>EFFORT</div>
+              <div
+                style={{ ...modeMenuItemStyle, cursor: 'default', color: 'var(--pixel-text-dim)' }}
+                title="Fixed when this agent started. Settings changes it for new agents."
+              >
+                {effort} · set at launch
+              </div>
+            </>
+          )}
 
           {/* A CLI too old to report any model leaves this section out entirely */}
           {models.length > 0 && (
@@ -889,6 +910,8 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [model, setModel] = useState<ChatModel>(emptyChatModel);
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([]);
+  /** What the session settled on for effort; null when it sends none. */
+  const [effort, setEffort] = useState<string | null>(null);
   /** How full the context window is; null until the CLI has said. */
   const [context, setContext] = useState<{
     usedTokens: number;
@@ -945,6 +968,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-busy') {
         if (msg.agentId !== agentId) return;
         setBusy(msg.busy);
+      } else if (msg.type === 'chat-effort') {
+        if (msg.agentId !== agentId) return;
+        setEffort(msg.effort);
       } else if (msg.type === 'chat-context') {
         if (msg.agentId !== agentId) return;
         setContext({
@@ -1541,6 +1567,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             models={modelOptions}
             activeModel={activeModel}
             onSelectModel={handleModelSelect}
+            effort={effort}
           />
           <textarea
             ref={textareaRef}
