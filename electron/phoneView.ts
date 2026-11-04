@@ -106,13 +106,23 @@ export function buildPhoneStatus(agents: readonly PhoneAgentInput[], nowMs: numb
 /**
  * Constant-time token comparison.
  *
- * `===` on a secret leaks its prefix through timing. The length check first
- * is not a leak worth worrying about (the length is fixed and public) but
- * timingSafeEqual THROWS on a length mismatch, so it has to come first.
+ * `===` on a secret leaks its prefix through timing. timingSafeEqual THROWS
+ * on a length mismatch, so the lengths are checked first — and they are
+ * checked in BYTES, on the buffers themselves.
+ *
+ * That distinction is the whole bug this function once had: `String.length`
+ * counts UTF-16 code units, so `'a'.repeat(31) + '\u00e9'` is 32 characters
+ * and 33 bytes. It sailed past a character-length guard, reached
+ * timingSafeEqual, and threw — inside an HTTP request listener, which is to
+ * say it killed the process that owns every PTY and every SDK session. One
+ * unauthenticated GET from anywhere on the network, `?t=aaa…%FF`.
  */
 export function tokenMatches(provided: string | null | undefined, expected: string): boolean {
-  if (!provided || !expected || provided.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  if (!provided || !expected) return false;
+  const given = Buffer.from(provided, 'utf8');
+  const want = Buffer.from(expected, 'utf8');
+  if (given.length !== want.length) return false;
+  return crypto.timingSafeEqual(given, want);
 }
 
 /** A token with enough entropy that guessing is not a strategy. */
@@ -129,16 +139,22 @@ export type NetworkInterfaces = Record<
 /**
  * The address a phone on the same network can actually reach.
  *
- * Not 127.0.0.1, which is what the server binds alongside and is useless on
- * another device, and not an IPv6 link-local address, which needs a scope id
- * no QR code can carry. Answers null rather than guessing when there is no
- * ordinary LAN address — a URL that cannot work is worse than saying so.
+ * Not 127.0.0.1, which the server binds alongside and which is useless on
+ * another device; not an IPv6 link-local address, which needs a scope id no
+ * URL can carry; and not 169.254.0.0/16, which is what an interface gets
+ * when DHCP FAILED (macOS calls it a self-assigned IP). That last one is the
+ * easy one to miss: it is IPv4 and not `internal`, so it passes the obvious
+ * test, and it produces a link that looks perfectly ordinary and reaches
+ * nothing. Answers null rather than guessing — a URL that cannot work is
+ * worse than saying there isn't one.
  */
 export function lanAddress(interfaces: NetworkInterfaces): string | null {
   for (const entries of Object.values(interfaces)) {
     for (const entry of entries ?? []) {
       const isV4 = entry.family === 'IPv4' || entry.family === 4;
-      if (isV4 && !entry.internal && entry.address) return entry.address;
+      if (isV4 && !entry.internal && entry.address && !entry.address.startsWith('169.254.')) {
+        return entry.address;
+      }
     }
   }
   return null;

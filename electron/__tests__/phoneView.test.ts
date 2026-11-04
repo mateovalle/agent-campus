@@ -114,6 +114,29 @@ describe('tokenMatches', () => {
     expect(tokenMatches('short', 'abc123')).toBe(false);
   });
 
+  it('measures length in BYTES, not characters', () => {
+    // The bug this guards was remotely fatal: String.length counts UTF-16
+    // code units, so these are all 32 "characters" against a 32-character
+    // token and all reached timingSafeEqual, which threw inside an HTTP
+    // request listener and killed the process that owns every agent.
+    const expected = 'a'.repeat(32);
+    for (const sneaky of [
+      'a'.repeat(31) + '\u00e9', // 2 bytes
+      'a'.repeat(31) + '\u20ac', // 3 bytes
+      'a'.repeat(30) + '\u{1F4A9}', // 4 bytes, 2 code units
+    ]) {
+      expect(sneaky.length).toBe(32);
+      expect(Buffer.byteLength(sneaky)).toBeGreaterThan(32);
+      expect(() => tokenMatches(sneaky, expected)).not.toThrow();
+      expect(tokenMatches(sneaky, expected)).toBe(false);
+    }
+  });
+
+  it('still accepts a correct multi-byte token', () => {
+    // The fix must not become "reject anything non-ASCII".
+    expect(tokenMatches('caf\u00e9', 'caf\u00e9')).toBe(true);
+  });
+
   it('refuses a missing token, and refuses everything when none is set', () => {
     expect(tokenMatches(null, 'abc123')).toBe(false);
     expect(tokenMatches(undefined, 'abc123')).toBe(false);
@@ -149,6 +172,23 @@ describe('lanAddress', () => {
     expect(lanAddress({ en0: [{ address: '10.0.0.5', family: 4, internal: false }] })).toBe(
       '10.0.0.5',
     );
+  });
+
+  it('skips a self-assigned 169.254 address', () => {
+    // What an interface gets when DHCP FAILED. It is IPv4 and not internal,
+    // so it passes the obvious test and yields an ordinary-looking URL that
+    // reaches nothing.
+    expect(
+      lanAddress({
+        en0: [{ address: '169.254.12.9', family: 'IPv4', internal: false }],
+      }),
+    ).toBeNull();
+    expect(
+      lanAddress({
+        en0: [{ address: '169.254.12.9', family: 'IPv4', internal: false }],
+        en1: [{ address: '192.168.0.7', family: 'IPv4', internal: false }],
+      }),
+    ).toBe('192.168.0.7');
   });
 
   it('answers null rather than offering a loopback a phone cannot reach', () => {

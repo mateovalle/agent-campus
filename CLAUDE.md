@@ -260,6 +260,36 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 otherwise read the moment as "idle app" and raise a tray on the way
                                 out. Reopening restores every tab through the normal onWebviewReady
                                 rebuild
+  phoneView.ts / phoneServer.ts
+                              — "Who needs me", readable from a PHONE on the same network. The
+                                campus premise is that nobody watches agents work, which is
+                                exactly why the person is not at the machine when one gets stuck.
+                                READ-ONLY by design: approving a permission remotely means
+                                exposing the permission bridge, and that needs an auth story this
+                                does not have (the campus socket's token is an accident-preventer,
+                                not a security boundary). Off by default, bound to the LAN, token
+                                checked BEFORE the route so an unauthenticated caller cannot even
+                                learn which paths exist.
+                                `tokenMatches` compares BYTE lengths, never `String.length`:
+                                UTF-16 code units are not bytes, so a 32-character/33-byte token
+                                slipped past a character guard into timingSafeEqual, which threw
+                                inside the request listener and killed the process that owns every
+                                agent — one unauthenticated `?t=aaa…%FF` from anywhere on the
+                                network. The whole handler is wrapped too, so the NEXT such bug
+                                costs a 500 rather than everyone's work; `status()` reads live
+                                agent state and is the likeliest place for it. `close()` drops
+                                in-flight connections (off has to mean off), start/stop are
+                                serialized on a promise (binding is async, so a toggle landing
+                                inside the await otherwise orphans a bound server), and
+                                `lanAddress` rejects 169.254/16 — a DHCP failure is IPv4 and not
+                                internal, so it passes the obvious test and yields an
+                                ordinary-looking URL that reaches nothing.
+                                `buildPhoneStatus` is pure and tested, ordered longest-wait-first
+                                (the office's own rule for which bubble catches your eye: on a
+                                phone the top row is the only one reliably read). The page is
+                                inline HTML with no build step and escapes everything it renders —
+                                agent names come from model-generated prompts. The handle reports
+                                the port actually BOUND, not the one requested
   coordination.ts             — Who the ASSISTANT may talk to. Its three coordination tools
                                 (send_message_to_agent / interrupt_agent / complete_task) take an
                                 agent id from a model, so the id can be anything: guessed, finished,
