@@ -30,6 +30,8 @@ interface ToolOverlayProps {
   onSetRole: (id: number, role: string | null) => void;
   /** Open the Changes panel for an agent (absent for workspaces without git). */
   onShowChanges: (id: number) => void;
+  /** Stop one running sub-agent task. */
+  onStopSubagent: (parentAgentId: number, taskId: string) => void;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -71,7 +73,10 @@ export function ToolOverlay({
   roles,
   onSetRole,
   onShowChanges,
+  onStopSubagent,
 }: ToolOverlayProps) {
+  /** The task behind a sub-agent character, when the SDK gave us one. */
+  const subagentTaskId = (id: number) => subagentCharacters.find((sub) => sub.id === id)?.taskId;
   const [, setTick] = useState(0);
   /** Agent id whose role dropdown is open, or null. */
   const [rolePickerFor, setRolePickerFor] = useState<number | null>(null);
@@ -169,15 +174,21 @@ export function ToolOverlay({
         }
 
         // Named agents lead with the name and demote the activity to the
-        // subtitle; unnamed ones keep the old activity-first layout.
-        const displayName = isSub ? undefined : ch.name;
+        // subtitle; unnamed ones keep the old activity-first layout. A
+        // sub-agent's "name" is the task it was given, so it takes the same
+        // shape: the ask on top, what it is doing right now underneath.
+        const displayName = isSub ? activityText : ch.name;
         const primaryText = displayName ?? ch.status ?? activityText;
         // What the agent SAID about itself beats what we inferred from its
-        // tools: "migrating the schema" is worth more than "Editing".
-        const spoken = isSub ? undefined : ch.status;
+        // tools: "migrating the schema" is worth more than "Editing". For a
+        // sub-agent that line is the model's own progress summary, which only
+        // exists now that the SDK's task stream reports one.
+        const spoken = ch.status;
         const secondaryText =
           [
-            displayName ? (spoken ?? activityText) : null,
+            // A sub-agent whose summary has not arrived yet has nothing to
+            // say below its task, and repeating the task there reads as a bug.
+            displayName ? (spoken ?? (isSub ? null : activityText)) : null,
             ch.folderName,
             // Says WHERE the work lands: same office, different checkout
             ch.branch ? `⎇ ${ch.branch}` : null,
@@ -318,6 +329,40 @@ export function ToolOverlay({
                 </button>
               )}
             </div>
+            {/*
+              Stopping one sub-agent, which only the SDK's task stream makes
+              possible: the id belongs to the task, not to the character, and
+              a terminal agent's sub-agents have no task id at all — so the
+              button is absent there rather than present and inert.
+            */}
+            {isSelected && isSub && subagentTaskId(id) && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const taskId = subagentTaskId(id);
+                    const parent = subagentCharacters.find((sub) => sub.id === id);
+                    if (taskId && parent) onStopSubagent(parent.parentAgentId, taskId);
+                  }}
+                  title="Stop this sub-agent; its parent carries on"
+                  style={{
+                    background: 'var(--pixel-bg)',
+                    border: '2px solid var(--pixel-border)',
+                    borderRadius: 0,
+                    boxShadow: 'var(--pixel-shadow)',
+                    color: 'var(--vscode-foreground)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '18px',
+                    lineHeight: 1,
+                    padding: '4px 8px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Stop
+                </button>
+              </div>
+            )}
             {isSelected && !isSub && roles.length > 0 && (
               <div style={{ position: 'relative', marginTop: 4 }}>
                 <button

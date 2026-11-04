@@ -637,6 +637,9 @@ function App() {
           roles={roles}
           onSetRole={handleSetRole}
           onShowChanges={setChangesAgentId}
+          onStopSubagent={(parentAgentId, taskId) =>
+            vscode.postMessage({ type: 'stopSubagentTask', agentId: parentAgentId, taskId })
+          }
         />
 
         {officePopup && !editor.isEditMode && (

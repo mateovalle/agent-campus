@@ -252,6 +252,8 @@ export interface ChatSession {
     deletions?: number;
     skippedLinks?: number;
   }>;
+  /** Stop one running sub-agent task. */
+  stopTask(taskId: string): void;
   /** Ask the CLI how full the context window is and push the answer. */
   refreshContextUsage(): void;
   respondPermission(
@@ -441,6 +443,13 @@ export function startChatSession(opts: {
       } catch (err) {
         return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
       }
+    },
+
+    /** Stop one running sub-agent task; it answers with a task_notification. */
+    stopTask(taskId: string): void {
+      void query?.stopTask(taskId).catch((err: unknown) => {
+        console.error(`[Agent Campus] Chat ${agentId}: stopTask failed`, err);
+      });
     },
 
     /** Re-reads the context window (used on chatReady, so a reload sees it). */
@@ -648,6 +657,42 @@ export function startChatSession(opts: {
       // Arrives AFTER the turn's result message (hence the loop that keeps
       // iterating past it), at most once per turn.
       setSuggestion(msg.suggestion);
+    } else if (msg.type === 'system' && msg.subtype === 'task_started') {
+      // Only real sub-agents, and only the ones worth drawing. A task with no
+      // tool_use_id cannot be joined to the character the transcript already
+      // spawned, and ambient/skip_transcript tasks are housekeeping the SDK
+      // explicitly asks hosts to keep out of activity indicators.
+      if (msg.tool_use_id && !msg.ambient && !msg.skip_transcript) {
+        send({
+          type: 'subagentStarted',
+          agentId,
+          taskId: msg.task_id,
+          toolUseId: msg.tool_use_id,
+          description: msg.description,
+          ...(msg.subagent_type ? { subagentType: msg.subagent_type } : {}),
+        });
+      }
+    } else if (msg.type === 'system' && msg.subtype === 'task_progress') {
+      if (msg.tool_use_id) {
+        send({
+          type: 'subagentProgress',
+          agentId,
+          taskId: msg.task_id,
+          toolUseId: msg.tool_use_id,
+          ...(msg.last_tool_name ? { lastToolName: msg.last_tool_name } : {}),
+          ...(msg.summary ? { summary: msg.summary } : {}),
+        });
+      }
+    } else if (msg.type === 'system' && msg.subtype === 'task_notification') {
+      if (msg.tool_use_id) {
+        send({
+          type: 'subagentFinished',
+          agentId,
+          taskId: msg.task_id,
+          toolUseId: msg.tool_use_id,
+          status: msg.status,
+        });
+      }
     } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
       emit({ kind: 'status', text: 'Context compacted' });
     } else if (msg.type === 'system' && msg.subtype === 'init') {
@@ -683,6 +728,10 @@ export function startChatSession(opts: {
     // accepted; without the setting, sessions START in 'default'.
     allowDangerouslySkipPermissions: true,
     includePartialMessages: true,
+    // The model writes a one-line summary of what each sub-agent is doing,
+    // which is the difference between a character that is "busy" and one that
+    // says what it is busy WITH.
+    agentProgressSummaries: true,
     ...(opts.effort ? { effort: opts.effort } : {}),
     ...(opts.maxBudgetUsd && opts.maxBudgetUsd > 0 ? { maxBudgetUsd: opts.maxBudgetUsd } : {}),
     // Snapshots every file the session touches, so a prompt can be undone.

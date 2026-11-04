@@ -437,6 +437,37 @@ export type HostToWebviewMessage =
       /** Dollars a single agent may spend before stopping itself; 0 = no cap. */
       maxBudgetUsd?: number;
     }
+  /**
+   * A real sub-agent, from the SDK's own task stream rather than inferred
+   * from a Task tool_use. Keyed by `toolUseId` so it lands on the SAME
+   * character the transcript already spawned, and carries `taskId` because
+   * that is what stopping one needs.
+   */
+  | {
+      type: 'subagentStarted';
+      agentId: number;
+      taskId: string;
+      toolUseId: string;
+      description: string;
+      subagentType?: string;
+    }
+  | {
+      type: 'subagentProgress';
+      agentId: number;
+      taskId: string;
+      toolUseId: string;
+      /** What it is doing right now. */
+      lastToolName?: string;
+      /** The model's own one-line summary of its progress. */
+      summary?: string;
+    }
+  | {
+      type: 'subagentFinished';
+      agentId: number;
+      taskId: string;
+      toolUseId: string;
+      status: 'completed' | 'failed' | 'stopped';
+    }
   /** The effort the running session actually settled on, per its init. */
   | { type: 'chat-effort'; agentId: number; effort: string | null }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
@@ -707,6 +738,7 @@ export type WebviewToHostMessage =
   /** Preview (dryRun) or perform a rewind of the files to a past prompt. */
   | { type: 'rewindAgentFiles'; agentId: number; userMessageId: string; dryRun: boolean }
   | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
+  | { type: 'stopSubagentTask'; agentId: number; taskId: string }
   | { type: 'setDefaultEffort'; effort: string | null }
   | { type: 'setMaxBudgetUsd'; usd: number }
   | { type: 'addTodo'; path: string; text: string }
