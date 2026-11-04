@@ -16,6 +16,7 @@ import { DemoBanner } from './components/DemoBanner.js';
 import { MissedRunsModal } from './components/MissedRunsModal.js';
 import { NoticeToast } from './components/NoticeToast.js';
 import { OfficePopup } from './components/OfficePopup.js';
+import { RateLimitBanner } from './components/RateLimitBanner.js';
 import { RestoreAgentsModal } from './components/RestoreAgentsModal.js';
 import type { AgentTaskGroup } from './components/TasksDrawer.js';
 import { TasksDrawer } from './components/TasksDrawer.js';
@@ -191,6 +192,7 @@ function App() {
     bypassPermissions,
     defaultEffort,
     maxBudgetUsd,
+    rateLimit,
     missedRuns,
     clearMissedRuns,
     restorableAgents,
@@ -621,6 +623,8 @@ function App() {
               />
             );
           })()}
+
+        {rateLimit && !editor.isEditMode && <RateLimitBanner info={rateLimit} />}
 
         <ToolOverlay
           campus={campus}

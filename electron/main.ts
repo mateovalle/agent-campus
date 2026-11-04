@@ -260,6 +260,52 @@ let assistantAgentId: number | null = null;
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 const scheduleLastAgent = new Map<string, number>(); // scheduleId → last dispatched agentId
 
+/**
+ * The account's rate-limit window, as last reported by any session.
+ *
+ * Account-wide, not per agent: every session hears the same thing, so the
+ * newest answer wins and one copy is kept. Null until some session says.
+ */
+let latestRateLimit: {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  utilization?: number;
+  resetsAt?: number;
+  window?: string;
+} | null = null;
+/** Whether the user has already been told schedules are waiting on the window. */
+let rateLimitDeferralAnnounced = false;
+
+function recordRateLimit(info: {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  utilization?: number;
+  resetsAt?: number;
+  rateLimitType?: string;
+}): void {
+  latestRateLimit = {
+    status: info.status,
+    ...(info.utilization !== undefined ? { utilization: info.utilization } : {}),
+    ...(info.resetsAt !== undefined ? { resetsAt: info.resetsAt } : {}),
+    ...(info.rateLimitType ? { window: info.rateLimitType } : {}),
+  };
+  if (info.status !== 'rejected') rateLimitDeferralAnnounced = false;
+  ctx.send({ type: 'rateLimit', ...latestRateLimit });
+}
+
+/**
+ * Whether the account is currently refused, so nothing unattended should be
+ * sent out.
+ *
+ * A rejection that has outlived its own `resetsAt` is stale — the window
+ * rolled over and no session has had reason to say so. Treating it as live
+ * would strand every schedule until the user happened to run an agent by
+ * hand.
+ */
+function rateLimitBlocksDispatch(nowMs = Date.now()): boolean {
+  if (latestRateLimit?.status !== 'rejected') return false;
+  const resetsAtMs = latestRateLimit.resetsAt ? latestRateLimit.resetsAt * 1000 : null;
+  return resetsAtMs === null || resetsAtMs > nowMs;
+}
+
 // ── Small JSON persistence helpers ───────────────────────────
 function loadJsonFile<T>(file: string): T | null {
   try {
@@ -1174,6 +1220,7 @@ function launchChatAgent(
         return true;
       },
     },
+    onRateLimit: recordRateLimit,
     onTurnComplete: (costUsd, durationMs, turnSessionId) => {
       recordTurnUsage(workspacePath, costUsd, durationMs, turnSessionId);
       ctx.send({ type: 'usageSummary', summary: summarizeUsage() });
@@ -1648,6 +1695,7 @@ function openAssistant(): void {
         'mcp__campus__remove_schedule',
       ],
     }),
+    onRateLimit: recordRateLimit,
     onTurnComplete: (costUsd, durationMs, turnSessionId) => {
       recordTurnUsage(os.homedir(), costUsd, durationMs, turnSessionId);
     },
@@ -1683,6 +1731,16 @@ function dispatchSchedule(s: ScheduleEntry): void {
 }
 
 function schedulerTick(): void {
+  // Checked BEFORE collecting, because collecting stamps lastRunAtMs: a run
+  // skipped after that point is a run lost, while one never collected stays
+  // due and fires on the tick after the window frees.
+  if (rateLimitBlocksDispatch()) {
+    if (!rateLimitDeferralAnnounced) {
+      rateLimitDeferralAnnounced = true;
+      notify('info', 'Scheduled runs are waiting: this account is out of usage for now.');
+    }
+    return;
+  }
   for (const s of collectDueSchedules()) {
     // Skip if this schedule's previous agent is still working — the next
     // tick after it frees up will fire (lastRunAtMs was already stamped,
@@ -2209,6 +2267,11 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
 
 function onWebviewReady(): void {
   const assetsRoot = getAssetsRoot();
+
+  // Session state, like chat-mode and the context gauge: a reloaded webview
+  // has no idea the account is near its limit until some session says so
+  // again, which may be hours.
+  if (latestRateLimit) ctx.send({ type: 'rateLimit', ...latestRateLimit });
 
   // Rebuild terminal tabs for PTYs that survived a renderer reload; each
   // tab's TerminalInstance requests a scrollback replay via 'pty-ready'.

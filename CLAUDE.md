@@ -672,6 +672,18 @@ text, because a picker there would be lying about when it takes hold. Hitting th
 failure of the task — the SDK answers `error_max_budget_usd`, and the chat says so with the
 number rather than "error".
 
+**Rate limits**: the account's window, not an agent's — every session reports the same one, so the
+host keeps the newest answer (`recordRateLimit`) and re-sends it on `webviewReady` like the other
+session state. `RateLimitBanner` follows the bubble rule: a healthy account shows NOTHING, and the
+strip appears only when the CLI warns, when utilization crosses `RATE_LIMIT_WARN_PCT`, or when
+requests are refused. The judgement lives in the pure, tested `rateLimitText` — including that
+`resetsAt` has no documented unit (under ~1e12 is seconds; guessing wrong by 1000 puts the reset
+in 1970) and that a reset already in the past is omitted rather than promised. The SCHEDULER
+defers while refused, checked BEFORE `collectDueSchedules()` because that stamps `lastRunAtMs`: a
+run skipped after that point is lost, while one never collected stays due and fires on the tick
+after the window frees. A `rejected` that outlived its own `resetsAt` is treated as stale, or
+every schedule would stay stranded until the user ran an agent by hand.
+
 **Chat permission modes**: `default | acceptEdits | plan | bypassPermissions` per session
 (`chatSetPermissionMode` → `chat-mode` echo), separate from the global "new agents start with
 permissions bypassed" setting in Settings.

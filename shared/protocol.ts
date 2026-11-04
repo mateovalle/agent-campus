@@ -468,6 +468,21 @@ export type HostToWebviewMessage =
       toolUseId: string;
       status: 'completed' | 'failed' | 'stopped';
     }
+  /**
+   * The account's rate-limit window, which belongs to the ACCOUNT and not to
+   * the agent that happened to hear about it. Absent until a session reports
+   * one; `null` utilization means the CLI said nothing useful.
+   */
+  | {
+      type: 'rateLimit';
+      status: 'allowed' | 'allowed_warning' | 'rejected';
+      /** 0..1 of the window consumed, when the CLI reports it. */
+      utilization?: number;
+      /** Epoch seconds when the window resets. */
+      resetsAt?: number;
+      /** Which window: five_hour, seven_day, … */
+      window?: string;
+    }
   /** The effort the running session actually settled on, per its init. */
   | { type: 'chat-effort'; agentId: number; effort: string | null }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }

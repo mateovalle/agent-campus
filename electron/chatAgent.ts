@@ -362,6 +362,13 @@ export function startChatSession(opts: {
   disallowedTools?: readonly string[];
   /** Start the session in bypassPermissions mode (Settings toggle). */
   bypassPermissions?: boolean;
+  /** The account's rate-limit window, as reported by this session. */
+  onRateLimit?: (info: {
+    status: 'allowed' | 'allowed_warning' | 'rejected';
+    utilization?: number;
+    resetsAt?: number;
+    rateLimitType?: string;
+  }) => void;
   /** Effort for this session; the SDK has no live setter, so it is fixed here. */
   effort?: EffortLevel;
   /** Dollars this session may spend before stopping itself. */
