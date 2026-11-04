@@ -65,6 +65,15 @@ jobs:
             echo "::error::the lines above should not be in the packaged app"
             exit 1
           fi
+      - name: Resources the app reads from disk are there
+        # extraResources, not the asar: the tray icon is loaded by path, and a
+        # missing one fails the way missing icons always do — an empty image,
+        # no tray, and an app that quietly cannot be reopened.
+        run: |
+          for f in assets/icon.png assets/default-layout.json assets/furniture/furniture-catalog.json; do
+            test -f "release/linux-unpacked/resources/$f" || {
+              echo "::error::packaged app is missing resources/$f"; exit 1; }
+          done
 
   # The suites that touch the OS — named pipes vs unix sockets, shim quoting,
   # real git, the macOS Keychain auth probe — had never run anywhere but Linux,

@@ -1,5 +1,15 @@
 import { execFileSync, spawn } from 'child_process';
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Notification,
+  shell,
+  Tray,
+} from 'electron';
 import * as fs from 'fs';
 import * as pty from 'node-pty';
 import * as os from 'os';
@@ -56,6 +66,7 @@ import {
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
 import { type AttentionEvent, AttentionTracker } from './attention.js';
+import { quitItemLabel, trayTooltip, windowCloseAction } from './backgroundMode.js';
 import type { CampusCommand, CampusResult, CampusServerHandle } from './campusServer.js';
 import {
   applyCampusCommand,
@@ -157,6 +168,8 @@ const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
 const BLOCKED_NOTIFY_AFTER_MS = 2 * 60_000;
 /** How often blocks are checked against BLOCKED_NOTIFY_AFTER_MS. */
 const ATTENTION_TICK_MS = 10_000;
+/** Tray icons are small; the shipped app icon is 512px and must be scaled. */
+const TRAY_ICON_SIZE = 16;
 /**
  * Trailing-edge window for pushing an agent's self-reported decoration. A
  * build loop can call `campus progress` hundreds of times a second; the
@@ -2289,6 +2302,9 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
 function onWebviewReady(): void {
   const assetsRoot = getAssetsRoot();
 
+  // Anything the host wanted to say while there was no renderer to say it to.
+  for (const notice of pendingNotices.splice(0)) ctx.send({ type: 'hostNotice', ...notice });
+
   // Session state, like chat-mode and the context gauge: a reloaded webview
   // has no idea the account is near its limit until some session says so
   // again, which may be hours.
@@ -2632,6 +2648,9 @@ function noteAttention(message: HostToWebviewMessage): void {
 }
 
 function attentionTick(): void {
+  // Cheap, and the only place the windowless app can notice its own count
+  // changing: nothing else runs while the office is away.
+  refreshTray();
   // Blocks only count as "seen" in the background; while you are looking at
   // the window the ageing bubble is the signal, so they stay due for later.
   if (windowHasFocus()) return;
@@ -2675,12 +2694,130 @@ function focusAgentTab(id: number): void {
 
 /** Notification click: bring the window up and land on that agent. */
 function showAgent(id: number): void {
-  if (!mainWindow) createWindow();
-  if (mainWindow?.isMinimized()) mainWindow.restore();
-  mainWindow?.show();
-  mainWindow?.focus();
+  showWindow();
   ctx.send({ type: 'agentSelected', id });
   focusAgentTab(id);
+}
+
+// ── Background mode: the app outlives its window ───────────
+// See backgroundMode.ts for why. Everything here is the glue the policy
+// cannot be: creating a tray, and whether that even worked.
+
+let tray: Tray | null = null;
+/** The "still running" explainer is a one-off per launch, not per close. */
+let backgroundNoticeShown = false;
+/**
+ * Notices that had nowhere to go: a window being re-created has no renderer
+ * to receive a hostNotice, so the message waits for its webviewReady.
+ */
+const pendingNotices: Array<{ level: 'info' | 'error'; text: string }> = [];
+
+/** Live sessions. Sub-agents are webview-only, so this counts real ones. */
+function liveAgentCount(): number {
+  return ctx.agents.size;
+}
+
+function activeScheduleCount(): number {
+  try {
+    return loadSchedules().filter((entry) => entry.enabled).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Bring the window up, creating it if the app is running without one. */
+function showWindow(): void {
+  if (!mainWindow) {
+    createWindow();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  // The tray exists to represent an app with no window; with one back up it
+  // would be a second, redundant way in.
+  destroyTray();
+}
+
+function trayIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'assets', 'icon.png')
+    : path.join(__dirname, '..', '..', 'icon.png');
+}
+
+/**
+ * The tray icon, or null when this desktop cannot show one.
+ *
+ * Linux is the reason for the null: a session with no StatusNotifier host
+ * either throws here or shows nothing at all, and an icon nobody can see is
+ * indistinguishable from a hung process. An empty image counts as failure for
+ * the same reason — a blank tray slot is not a way back.
+ */
+function ensureTray(): Tray | null {
+  if (tray) {
+    refreshTray();
+    return tray;
+  }
+  try {
+    const icon = nativeImage
+      .createFromPath(trayIconPath())
+      .resize({ width: TRAY_ICON_SIZE, height: TRAY_ICON_SIZE });
+    if (icon.isEmpty()) return null;
+    tray = new Tray(icon);
+    // Windows opens the menu on right-click and expects a left click to do
+    // the obvious thing; Linux desktops vary, which is why the menu carries
+    // the same action.
+    tray.on('click', () => showWindow());
+    tray.on('double-click', () => showWindow());
+    refreshTray();
+    return tray;
+  } catch (err) {
+    console.error('[Agent Campus] No system tray available:', err);
+    tray = null;
+    return null;
+  }
+}
+
+/** Keeps the tooltip and the Quit label honest as agents come and go. */
+function refreshTray(): void {
+  if (!tray) return;
+  const agents = liveAgentCount();
+  tray.setToolTip(trayTooltip(agents, activeScheduleCount()));
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Open Agent Campus', click: () => showWindow() },
+      { type: 'separator' },
+      { label: quitItemLabel(agents), click: () => app.quit() },
+    ]),
+  );
+}
+
+function destroyTray(): void {
+  tray?.destroy();
+  tray = null;
+}
+
+/**
+ * Says, once, that closing the window did not stop anything — otherwise the
+ * app has simply vanished, which is the behaviour this change exists to fix
+ * read the other way round.
+ */
+function noteBackgroundMode(agents: number): void {
+  if (backgroundNoticeShown || !Notification.isSupported()) return;
+  if (!loadSettings().notificationsEnabled) return;
+  backgroundNoticeShown = true;
+  const n = new Notification({
+    title: 'Agent Campus is still running',
+    body:
+      agents > 0
+        ? `${agents} agent${agents === 1 ? '' : 's'} kept working. Open it from the tray icon.`
+        : 'Schedules keep running. Open it from the tray icon.',
+    silent: true,
+  });
+  liveNotifications.add(n);
+  n.on('click', () => showWindow());
+  n.on('close', () => liveNotifications.delete(n));
+  n.show();
 }
 
 // ── App Lifecycle ────────────────────────────────────────────
@@ -2692,6 +2829,7 @@ let shuttingDown = false;
 
 function cleanupAndQuit(): void {
   shuttingDown = true;
+  destroyTray();
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
@@ -2736,11 +2874,36 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // On macOS the app keeps running (dock icon) — agents and PTYs must
-  // survive so reopening the window restores everything.
-  if (process.platform !== 'darwin') {
+  const agents = liveAgentCount();
+  const schedules = activeScheduleCount();
+  // Only reach for a tray when there is a reason to live in one: an idle app
+  // leaving an icon behind is clutter, and on macOS the dock already serves.
+  const wantsBackground =
+    !shuttingDown && process.platform !== 'darwin' && (agents > 0 || schedules > 0);
+  const action = windowCloseAction({
+    platform: process.platform,
+    liveAgents: agents,
+    activeSchedules: schedules,
+    trayAvailable: wantsBackground && ensureTray() !== null,
+    quitting: shuttingDown,
+  });
+
+  if (action === 'quit') {
+    destroyTray();
     app.quit();
+    return;
   }
+  if (action === 'reopen') {
+    // No tray, but agents are mid-flight. The window coming back needs
+    // explaining, so the notice waits for the new renderer.
+    pendingNotices.push({
+      level: 'info',
+      text: `Kept ${agents} running agent${agents === 1 ? '' : 's'} alive — this desktop has no tray icon to close the window into. Close their tabs first to stop them.`,
+    });
+    createWindow();
+    return;
+  }
+  if (process.platform !== 'darwin') noteBackgroundMode(agents);
 });
 
 app.on('before-quit', () => {

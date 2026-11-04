@@ -48,6 +48,10 @@
       {
         "from": "webview-ui/public/assets",
         "to": "assets"
+      },
+      {
+        "from": "icon.png",
+        "to": "assets/icon.png"
       }
     ],
     "mac": {
