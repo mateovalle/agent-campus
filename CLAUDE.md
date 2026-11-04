@@ -558,7 +558,7 @@ session — either a `chat` agent (Agent SDK, rich chat tab, what "+ Agent" crea
 transcript watcher, so the office animates them identically.
 
 **Host ↔ Webview**: `postMessage` protocol, fully typed as discriminated unions in
-`shared/protocol.ts` (`HostToWebviewMessage` ~50 variants / `WebviewToHostMessage` ~37) — add new
+`shared/protocol.ts` (`HostToWebviewMessage` ~70 variants / `WebviewToHostMessage` ~60) — add new
 message types THERE first; `electron/`, `webview-ui/` and `src/` all typecheck against it. The
 union is the index: read it rather than trusting any list here. Families: agent lifecycle
 (`agentCreated/Closed/Label/Selected`, `existingAgents`, `focusAgent`), tool activity
@@ -937,9 +937,11 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   fine and its CLI dies. `release.yml` gates all of it on the secrets existing (`CSC_LINK`,
   `APPLE_ID`…), so an unsigned release still builds; notarization needs BOTH a cert and notary
   credentials, since asking with one missing fails the build
-- Tests live in `__tests__/` (every one of them — the electron-builder `files` list excludes
-  those directories and `.map` files, so a stray test beside its module would otherwise ship
-  inside the asar importing vitest, a devDependency)
+- Tests in `src/` and `electron/` live in `__tests__/`, because the electron-builder `files` list
+  excludes those directories and `.map` files: a stray test beside its module there ships inside
+  the asar importing vitest, a devDependency. The webview's tests deliberately sit BESIDE their
+  modules (`webview-ui/src/**/*.test.ts`) — Vite bundles only what is imported, so they never
+  reach `dist/webview`, and the asar rule has nothing to say about them
 
 Drive the built desktop app without a screen: `.claude/skills/run-desktop/` (SKILL.md + Playwright REPL `driver.mjs`, isolated HOME, screenshots/clicks/keys) — use it to verify UI, editor and furniture changes in the real app.
 
