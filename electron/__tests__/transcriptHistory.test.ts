@@ -1,31 +1,13 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { isSyntheticUserText, loadTranscriptHistory } from '../transcriptHistory.js';
+import { eventsFromSessionMessages, isSyntheticUserText } from '../transcriptHistory.js';
 
-const tmpFiles: string[] = [];
-
-function writeTranscript(lines: unknown[]): string {
-  const file = path.join(
-    os.tmpdir(),
-    `agent-campus-test-${Math.random().toString(36).slice(2)}.jsonl`,
-  );
-  fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
-  tmpFiles.push(file);
-  return file;
-}
-
-afterEach(() => {
-  for (const file of tmpFiles.splice(0)) {
-    try {
-      fs.unlinkSync(file);
-    } catch {
-      /* already gone */
-    }
-  }
-});
+/** A stored message as the SDK hands it over. */
+const msg = (
+  type: 'user' | 'assistant' | 'system',
+  content: unknown,
+  parentToolUseId: string | null = null,
+) => ({ type, message: { content }, parent_tool_use_id: parentToolUseId });
 
 describe('isSyntheticUserText', () => {
   it('flags command wrappers, interrupts, and caveats', () => {
@@ -36,35 +18,25 @@ describe('isSyntheticUserText', () => {
   });
 });
 
-describe('loadTranscriptHistory', () => {
-  it('returns [] for a missing file', () => {
-    expect(loadTranscriptHistory('/nowhere/nope.jsonl')).toEqual([]);
+describe('eventsFromSessionMessages', () => {
+  it('answers with nothing for an empty session', () => {
+    expect(eventsFromSessionMessages([])).toEqual([]);
   });
 
   it('rebuilds user, assistant, tool, and thinking events in order', () => {
-    const file = writeTranscript([
-      { type: 'user', message: { role: 'user', content: 'fix the login bug' } },
-      {
-        type: 'assistant',
-        message: {
-          content: [
-            { type: 'thinking', thinking: 'hmm, auth flow' },
-            { type: 'text', text: 'Looking at it now.' },
-            { type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/a.ts' } },
-          ],
-        },
-      },
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'file body' }],
-        },
-      },
-      { type: 'system', subtype: 'turn_duration', durationMs: 1234 },
+    const events = eventsFromSessionMessages([
+      msg('user', 'fix the login bug'),
+      msg('assistant', [
+        { type: 'thinking', thinking: 'hmm, auth flow' },
+        { type: 'text', text: 'Looking at it now.' },
+        { type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/a.ts' } },
+      ]),
+      msg('user', [{ type: 'tool_result', tool_use_id: 'tu1', content: 'file body' }]),
+      // System messages are not requested, but one arriving must not break it.
+      msg('system', 'compacted'),
     ]);
 
-    expect(loadTranscriptHistory(file)).toEqual([
+    expect(events).toEqual([
       { kind: 'user-text', text: 'fix the login bug' },
       { kind: 'block-final', block: 'thinking', text: 'hmm, auth flow' },
       { kind: 'block-final', block: 'text', text: 'Looking at it now.' },
@@ -73,59 +45,58 @@ describe('loadTranscriptHistory', () => {
     ]);
   });
 
-  it('skips sidechain, meta, and synthetic user records', () => {
-    const file = writeTranscript([
-      { type: 'user', isMeta: true, message: { content: 'Caveat: local commands…' } },
-      { type: 'user', message: { content: '<command-name>/model</command-name>' } },
-      { type: 'user', isSidechain: true, message: { content: 'subagent prompt' } },
-      {
-        type: 'assistant',
-        isSidechain: true,
-        message: { content: [{ type: 'text', text: 'subagent reply' }] },
-      },
-      { type: 'user', message: { content: 'real prompt' } },
+  it('drops sub-agent traffic by parent_tool_use_id', () => {
+    // The SAME rule the live reduction uses, where this module used to read
+    // the transcript's own isSidechain flag and could disagree with it.
+    const events = eventsFromSessionMessages([
+      msg('user', 'subagent prompt', 'tu1'),
+      msg('assistant', [{ type: 'text', text: 'subagent reply' }], 'tu1'),
+      msg('user', 'real prompt'),
     ]);
+    expect(events).toEqual([{ kind: 'user-text', text: 'real prompt' }]);
+  });
 
-    expect(loadTranscriptHistory(file)).toEqual([{ kind: 'user-text', text: 'real prompt' }]);
+  it('drops the synthetic prompts the CLI writes for itself', () => {
+    const events = eventsFromSessionMessages([
+      msg('user', 'Caveat: local commands…'),
+      msg('user', '<command-name>/model</command-name>'),
+      msg('user', '[Request interrupted by user]'),
+      msg('user', 'real prompt'),
+    ]);
+    expect(events).toEqual([{ kind: 'user-text', text: 'real prompt' }]);
   });
 
   it('counts image blocks and joins text blocks in array-content prompts', () => {
-    const file = writeTranscript([
-      {
-        type: 'user',
-        message: {
-          content: [
-            { type: 'image', source: { type: 'base64', data: 'zzz' } },
-            { type: 'text', text: 'what is this?' },
-          ],
-        },
-      },
+    const events = eventsFromSessionMessages([
+      msg('user', [
+        { type: 'image', source: { type: 'base64', data: 'zzz' } },
+        { type: 'text', text: 'what is this?' },
+      ]),
     ]);
-
-    expect(loadTranscriptHistory(file)).toEqual([
-      { kind: 'user-text', text: 'what is this?', imageCount: 1 },
-    ]);
+    expect(events).toEqual([{ kind: 'user-text', text: 'what is this?', imageCount: 1 }]);
   });
 
-  it('survives corrupt lines and marks error tool results', () => {
-    const file = writeTranscript([{ type: 'user', message: { content: 'run it' } }]);
-    fs.appendFileSync(
-      file,
-      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu2","name":"Bash","input":{}}]}}\n' +
-        '{not json at all\n' +
-        JSON.stringify({
-          type: 'user',
-          message: {
-            content: [{ type: 'tool_result', tool_use_id: 'tu2', is_error: true, content: 'boom' }],
-          },
-        }) +
-        '\n',
-    );
-
-    expect(loadTranscriptHistory(file)).toEqual([
-      { kind: 'user-text', text: 'run it' },
-      { kind: 'tool-start', toolId: 'tu2', name: 'Bash', input: {} },
-      { kind: 'tool-result', toolId: 'tu2', isError: true, summary: 'boom' },
+  it('marks an errored tool result as one', () => {
+    const events = eventsFromSessionMessages([
+      msg('assistant', [{ type: 'tool_use', id: 'tu2', name: 'Bash', input: {} }]),
+      msg('user', [{ type: 'tool_result', tool_use_id: 'tu2', is_error: true, content: 'boom' }]),
     ]);
+    expect(events.at(-1)).toEqual({
+      kind: 'tool-result',
+      toolId: 'tu2',
+      isError: true,
+      summary: 'boom',
+    });
+  });
+
+  it('ignores a message whose content is missing or the wrong shape', () => {
+    // `SessionMessage.message` is typed `unknown`, so this module cannot
+    // assume anything about it.
+    const events = eventsFromSessionMessages([
+      { type: 'user', message: undefined, parent_tool_use_id: null },
+      { type: 'assistant', message: 'not an object', parent_tool_use_id: null },
+      msg('user', 'still here'),
+    ]);
+    expect(events).toEqual([{ kind: 'user-text', text: 'still here' }]);
   });
 });

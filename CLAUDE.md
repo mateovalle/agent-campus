@@ -253,10 +253,20 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 canUseTool → chat-permission-request/-response promise bridge, capped
                                 history buffer replayed on chatReady (seedable via initialHistory for
                                 resume), interrupt, dispose
-  transcriptHistory.ts        — loadTranscriptHistory(): rebuilds ChatEvent[] from a session's JSONL
-                                tail (2MB cap) so RESUMED chat tabs show the previous conversation
-                                (chat analog of PTY scrollback replay); skips sidechain/meta/synthetic
-                                records; exports isSyntheticUserText. main.ts focusChatTab() re-sends
+  transcriptHistory.ts        — loadTranscriptHistory(): the previous conversation of a RESUMED
+                                chat tab (the chat analog of PTY scrollback replay), from the SDK's
+                                `getSessionMessages` rather than our own read of the JSONL. What
+                                that removed is the half most likely to rot: a byte-counted tail
+                                read that could cut mid-line, a per-line JSON.parse with its own
+                                corrupt-line handling, and a dependence on the on-disk record shape
+                                — which already changed under us once, when CLI 2.1.x moved
+                                sub-agent traffic into its own files. What stays is the MAPPING,
+                                because `SessionMessage.message` is `unknown`: the pure, tested
+                                `eventsFromSessionMessages` walks the blocks into the same
+                                ChatEvents the live reduction produces, dropping sub-agent traffic
+                                on `parent_tool_use_id` — the SAME rule the live path uses, where
+                                this module used to read `isSidechain` and could disagree with it.
+                                Exports isSyntheticUserText. main.ts focusChatTab() re-sends
                                 chat-created (renderer dedupes by key) before chat-focus, so clicking
                                 a character always recovers a lost chat tab
   preload.ts                  — Minimal contextBridge: postMessage/onMessage + ptyInput/Resize/Kill/Ready
