@@ -226,6 +226,25 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 self-catch-up) → missedSchedules message → MissedRunsModal
                                 (pick-and-run checkboxes) → resolveMissedSchedules dispatches
                                 picks and stamps ALL offered ids handled (skip = don't re-offer)
+  backgroundMode.ts           — What CLOSING THE LAST WINDOW means. It used to mean app.quit() on
+                                Windows and Linux, which runs cleanupAndQuit(): every PTY killed and
+                                every SDK session disposed, mid-turn, for a WINDOW gesture — and it
+                                quietly made the scheduler and "Launch at Login" macOS-only, since
+                                neither can do anything for an app that is gone. Staying alive is
+                                only half the fix: an app with no window and no dock icon is
+                                invisible, so a Tray (icon.png, shipped via extraResources) carries
+                                "Open Agent Campus" and a Quit item LABELLED with what it stops —
+                                an honest label instead of a modal there is no window to host. The
+                                pure, tested windowCloseAction() decides between quit / background /
+                                reopen: agents running with no usable tray (a Linux desktop without
+                                one) REOPENS the window rather than leaving a process nobody can
+                                see or stop, while a schedule alone is worth outliving the window
+                                for but not worth forcing one back open. It also answers 'quit'
+                                while a quit is already under way: before-quit disposes the agents
+                                BEFORE the windows close, so this handler runs last and would
+                                otherwise read the moment as "idle app" and raise a tray on the way
+                                out. Reopening restores every tab through the normal onWebviewReady
+                                rebuild
   attention.ts                — Which agents need you: a pure tracker fed by EVERY host→webview message
                                 (main.ts taps ctx.send) — blocked = agentToolPermission until
                                 Clear/ToolStart/status, or open chat-permission-request ids; unread =
