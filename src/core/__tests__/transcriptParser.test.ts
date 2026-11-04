@@ -190,6 +190,23 @@ describe('processTranscriptLine', () => {
     processTranscriptLine(ctx, 1, textLine);
     expect(ctx.waitingTimers.has(1)).toBe(false);
   });
+
+  it('does not guess at all when the session reports its own state', () => {
+    // A chat agent's SDK session emits session_state_changed, so the
+    // five-seconds-of-silence guess is not a fallback here, it is a RACE:
+    // silence is indistinguishable from a model thinking, and losing the
+    // race means the office calls a turn over while the answer is still
+    // coming.
+    const { ctx, agent } = makeCtx();
+    agent.hasSessionState = true;
+
+    processTranscriptLine(
+      ctx,
+      1,
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } }),
+    );
+    expect(ctx.waitingTimers.has(1)).toBe(false);
+  });
 });
 
 describe('formatToolStatus', () => {
@@ -245,5 +262,25 @@ describe('formatToolStatus', () => {
 
   it('describes an unknown tool rather than dropping it', () => {
     expect(formatToolStatus('SomethingNew', {})).toBe('Using SomethingNew');
+  });
+});
+
+describe('permission timers', () => {
+  it('are not armed for an agent whose session reports its own state', () => {
+    // A chat agent's approvals come through the SDK's canUseTool bridge, so
+    // "a non-exempt tool has been quiet for five seconds" is not a fallback
+    // here — it is a second, worse answer that would raise a permission
+    // bubble for a tool that is merely slow.
+    const { ctx, agent } = makeCtx();
+    agent.hasSessionState = true;
+
+    processTranscriptLine(ctx, 1, toolUseLine('t1', 'Bash'));
+    expect(ctx.permissionTimers.has(1)).toBe(false);
+  });
+
+  it('are still armed for an agent nothing else reports on', () => {
+    const { ctx } = makeCtx();
+    processTranscriptLine(ctx, 1, toolUseLine('t1', 'Bash'));
+    expect(ctx.permissionTimers.has(1)).toBe(true);
   });
 });

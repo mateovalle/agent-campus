@@ -166,11 +166,21 @@ export function processTranscriptLine(
       if (hasNonExemptTool) {
         startPermissionTimer(ctx, agentId, PERMISSION_EXEMPT_TOOLS);
       }
-    } else if (blocks.some((b) => b.type === 'text') && !agent.hadToolsInTurn) {
+    } else if (
+      blocks.some((b) => b.type === 'text') &&
+      !agent.hadToolsInTurn &&
+      !agent.hasSessionState
+    ) {
       // Text-only response in a turn that hasn't used any tools.
       // turn_duration handles tool-using turns reliably but is never
       // emitted for text-only turns, so we use a silence-based timer:
       // if no new JSONL data arrives within TEXT_IDLE_DELAY_MS, mark as waiting.
+      //
+      // Only for agents nothing else reports on. A chat agent's session emits
+      // `session_state_changed` — the CLI's own turn-over signal — and
+      // guessing alongside it means racing it: five seconds of silence is
+      // indistinguishable from a model thinking, so the guess can call a turn
+      // over while the answer is still coming.
       startWaitingTimer(ctx, agentId, TEXT_IDLE_DELAY_MS);
     }
   } else if (record.type === 'progress') {

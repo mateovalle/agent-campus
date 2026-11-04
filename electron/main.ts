@@ -66,7 +66,13 @@ import {
   startCampusServer,
 } from './campusServer.js';
 import { campusBinDir, installCampusShims } from './campusShim.js';
-import { type ChatSession, resolveClaudeExecutable, startChatSession } from './chatAgent.js';
+import {
+  type ChatSession,
+  listResumableSessions,
+  renameSessionTitle,
+  resolveClaudeExecutable,
+  startChatSession,
+} from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
 import type { GitWriteResult } from './git.js';
 import {
@@ -109,7 +115,7 @@ import {
   moveTodo,
   toggleTodo,
 } from './todos.js';
-import { isSyntheticUserText, loadTranscriptHistory } from './transcriptHistory.js';
+import { loadTranscriptHistory } from './transcriptHistory.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
   getSetupCommand,
@@ -843,6 +849,9 @@ function registerAgent(
   const id = nextAgentId++;
   const agent: AgentState = {
     ...createCoreAgentState(id, projectDir, expectedFile),
+    // A chat agent's SDK session reports its own turn boundaries, so the
+    // transcript watcher must not also guess at them.
+    hasSessionState: kind === 'chat',
     kind,
     sessionId,
     cwd,
@@ -932,6 +941,11 @@ function applyAgentName(agentId: number, name: string): void {
   const bySession = loadSeatMetaBySession();
   bySession[agent.sessionId] = { ...bySession[agent.sessionId], name };
   saveJsonFile(AGENT_SEATS_FILE, { bySession });
+
+  // The CLI keeps its own index of sessions, and our resume picker now reads
+  // from it — so a rename that stops here would leave the picker offering
+  // this session under its first prompt forever.
+  void renameSessionTitle(agent.sessionId, name);
 
   ctx.send({ type: 'agentLabel', id: agentId, label: name });
 }
@@ -1666,75 +1680,6 @@ function schedulerTick(): void {
 
 // ── Session resume ───────────────────────────────────────────
 const RESUME_LIST_MAX = 20;
-const PREVIEW_READ_BYTES = 65536;
-const PREVIEW_MAX_CHARS = 120;
-
-/** Reads the first real user prompt from a transcript for the resume picker. */
-function readSessionPreview(jsonlFile: string): string {
-  try {
-    const fd = fs.openSync(jsonlFile, 'r');
-    const buf = Buffer.alloc(PREVIEW_READ_BYTES);
-    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
-    fs.closeSync(fd);
-    for (const line of buf.toString('utf-8', 0, bytesRead).split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const record = JSON.parse(line) as {
-          type?: string;
-          isMeta?: boolean;
-          message?: { content?: unknown };
-        };
-        if (record.type !== 'user' || record.isMeta) continue;
-        const content = record.message?.content;
-        const candidates: string[] = [];
-        if (typeof content === 'string') {
-          candidates.push(content);
-        } else if (Array.isArray(content)) {
-          for (const b of content as Array<{ type?: string; text?: string }>) {
-            if (b?.type === 'text' && b.text) candidates.push(b.text);
-          }
-        }
-        for (const candidate of candidates) {
-          const text = candidate.trim().replace(/\s+/g, ' ');
-          if (text && !isSyntheticUserText(text)) {
-            return text.length > PREVIEW_MAX_CHARS ? text.slice(0, PREVIEW_MAX_CHARS) + '…' : text;
-          }
-        }
-      } catch {
-        /* partial line */
-      }
-    }
-  } catch {
-    /* unreadable */
-  }
-  return '(no prompt)';
-}
-
-function listResumableSessions(cwd: string): ResumableSession[] {
-  const projectDir = getProjectDirPath(cwd);
-  const activeSessionIds = new Set([...ctx.agents.values()].map((a) => a.sessionId));
-  let files: Array<{ file: string; mtimeMs: number }>;
-  try {
-    files = fs
-      .readdirSync(projectDir)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => {
-        const file = path.join(projectDir, f);
-        return { file, mtimeMs: fs.statSync(file).mtimeMs };
-      });
-  } catch {
-    return [];
-  }
-  return files
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .filter(({ file }) => !activeSessionIds.has(path.basename(file, '.jsonl')))
-    .slice(0, RESUME_LIST_MAX)
-    .map(({ file, mtimeMs }) => ({
-      sessionId: path.basename(file, '.jsonl'),
-      mtimeMs,
-      preview: readSessionPreview(file),
-    }));
-}
 
 // ── Renderer message handling ────────────────────────────────
 function isTrustedSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
@@ -1905,7 +1850,17 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     void (async () => {
       const cwd = await resolveAgentCwd(msg.folderPath);
       if (cwd) {
-        ctx.send({ type: 'sessionList', folderPath: cwd, sessions: listResumableSessions(cwd) });
+        void (async () => {
+          const all = await listResumableSessions(cwd, RESUME_LIST_MAX);
+          // A session already open as an agent is not resumable: resuming it
+          // would attach a second character to the same transcript.
+          const live = new Set([...ctx.agents.values()].map((a) => a.sessionId));
+          ctx.send({
+            type: 'sessionList',
+            folderPath: cwd,
+            sessions: all.filter((session) => !live.has(session.sessionId)),
+          });
+        })();
       }
     })();
   } else if (msg.type === 'addWorkspace') {

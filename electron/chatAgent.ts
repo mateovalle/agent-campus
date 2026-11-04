@@ -173,6 +173,54 @@ function loadSdk(): Promise<SdkModule> {
   return sdkPromise;
 }
 
+/**
+ * Resumable sessions for a directory, from the CLI's own index.
+ *
+ * This used to be a readdir of the project hash directory plus a hand-rolled
+ * parse of each transcript's first user message. `listSessions` answers with
+ * what the CLI itself shows: a `summary` that is the user's custom title, or
+ * the generated one, or the first prompt — strictly better than the first
+ * prompt alone — and it knows about git worktrees, which the hash-directory
+ * walk did not.
+ */
+export async function listResumableSessions(
+  cwd: string,
+  limit: number,
+): Promise<Array<{ sessionId: string; mtimeMs: number; preview: string }>> {
+  try {
+    const sdk = await loadSdk();
+    const sessions = await sdk.listSessions({ dir: cwd, limit });
+    return sessions.map((info) => ({
+      sessionId: info.sessionId,
+      mtimeMs: info.lastModified,
+      preview: info.summary || '(no prompt)',
+    }));
+  } catch (err) {
+    console.error('[Agent Campus] Could not list resumable sessions:', err);
+    return [];
+  }
+}
+
+/**
+ * Tell the CLI what this session is called.
+ *
+ * The app already persists the name per session id for its own UI; this puts
+ * it in the CLI's index too, so the name shows up wherever the CLI names a
+ * session — including our own resume picker, which now reads `summary` from
+ * `listSessions` and would otherwise keep offering the first prompt of a
+ * session the user deliberately renamed.
+ */
+export async function renameSessionTitle(sessionId: string, title: string): Promise<void> {
+  try {
+    const sdk = await loadSdk();
+    await sdk.renameSession(sessionId, title);
+  } catch (err) {
+    // A session the CLI has not written yet, or an older CLI: the app's own
+    // name is unaffected, so this is not worth bothering the user about.
+    console.error('[Agent Campus] Could not rename the session in the CLI index:', err);
+  }
+}
+
 interface InputStream {
   iterable: AsyncIterable<SDKUserMessage>;
   push: (m: SDKUserMessage) => void;
@@ -657,6 +705,17 @@ export function startChatSession(opts: {
       // Arrives AFTER the turn's result message (hence the loop that keeps
       // iterating past it), at most once per turn.
       setSuggestion(msg.suggestion);
+    } else if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
+      // The CLI's own turn-over signal, which is why the transcript watcher
+      // stops guessing for chat agents (CoreAgentState.hasSessionState).
+      // 'requires_action' is deliberately NOT mapped: being blocked on a
+      // permission is not a finished turn, and the permission bridge already
+      // raises that bubble.
+      if (msg.state === 'idle') {
+        send({ type: 'agentStatus', id: agentId, status: 'waiting' });
+      } else if (msg.state === 'running') {
+        send({ type: 'agentStatus', id: agentId, status: 'active' });
+      }
     } else if (msg.type === 'system' && msg.subtype === 'task_started') {
       // Only real sub-agents, and only the ones worth drawing. A task with no
       // tool_use_id cannot be joined to the character the transcript already
