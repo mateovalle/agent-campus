@@ -289,6 +289,10 @@ interface SettingsModalProps {
   /** Desktop notifications + Dock badge for agents that need you. */
   notificationsEnabled: boolean;
   onSetNotificationsEnabled: (enabled: boolean) => void;
+  /** Whether the app asks GitHub about newer releases. */
+  updateChecksEnabled: boolean;
+  /** The last answer it got, or null before the first check. */
+  appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
   /** When on, new agents launch with permissions bypassed (--dangerously-skip-permissions). */
   bypassPermissions: boolean;
   /** Effort new agents start with; null = whatever the CLI does by default. */
@@ -578,11 +582,141 @@ function SchedulesSection({
   );
 }
 
+/**
+ * One checkbox row.
+ *
+ * Extracted because there were four byte-identical copies of this markup and
+ * a fifth was about to be pasted in — at which point a tweak to the checkbox
+ * means five edits and one of them gets missed.
+ */
+function ToggleRow({
+  id,
+  label,
+  title,
+  checked,
+  hovered,
+  setHovered,
+  onToggle,
+}: {
+  id: string;
+  label: string;
+  title?: string;
+  checked: boolean;
+  hovered: string | null;
+  setHovered: (id: string | null) => void;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      onMouseEnter={() => setHovered(id)}
+      onMouseLeave={() => setHovered(null)}
+      {...(title ? { title } : {})}
+      style={{
+        ...menuItemBase,
+        background: hovered === id ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+      }}
+    >
+      <span>{label}</span>
+      <span
+        style={{
+          width: 14,
+          height: 14,
+          border: '2px solid rgba(255, 255, 255, 0.5)',
+          borderRadius: 0,
+          background: checked ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '12px',
+          lineHeight: 1,
+          color: '#fff',
+        }}
+      >
+        {checked ? 'X' : ''}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The version, and whether there is a newer one.
+ *
+ * A row rather than a banner or a bubble: an update is never urgent, and the
+ * office reserves anything that catches the eye for things that need you now.
+ *
+ * Two shapes, never nested. With an update waiting the whole row is a link —
+ * the host's will-navigate guard sends https:// to the system browser — and
+ * otherwise the whole row is a button that re-checks. A link inside a button
+ * is invalid markup, and swapping a control in under the cursor on hover
+ * moves the thing you were about to click.
+ */
+function UpdateRow({
+  appUpdate,
+  hovered,
+  setHovered,
+}: {
+  appUpdate: Extract<HostToWebviewMessage, { type: 'appUpdate' }> | null;
+  hovered: string | null;
+  setHovered: (id: string | null) => void;
+}) {
+  const state = appUpdate?.state ?? 'idle';
+  const rowStyle: React.CSSProperties = {
+    ...menuItemBase,
+    fontSize: '18px',
+    gap: 8,
+    textDecoration: 'none',
+    background: hovered === 'version' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+  };
+  const hover = {
+    onMouseEnter: () => setHovered('version'),
+    onMouseLeave: () => setHovered(null),
+  };
+  const version = (
+    <span style={{ opacity: 0.6 }}>Version {appUpdate?.currentVersion ?? '\u2014'}</span>
+  );
+
+  if (state === 'available' && appUpdate?.newVersion) {
+    return (
+      <a href={appUpdate.url} style={{ ...rowStyle, color: 'var(--pixel-accent)' }} {...hover}>
+        {version}
+        <span>v{appUpdate.newVersion} available →</span>
+      </a>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => vscode.postMessage({ type: 'checkForUpdate' })}
+      disabled={state === 'checking'}
+      title="Check GitHub for a newer release"
+      style={{ ...rowStyle, cursor: state === 'checking' ? 'default' : 'pointer' }}
+      {...hover}
+    >
+      {version}
+      <span style={{ opacity: 0.5 }}>
+        {state === 'checking'
+          ? 'Checking\u2026'
+          : state === 'error'
+            ? (appUpdate?.message ?? 'Check failed')
+            : hovered === 'version'
+              ? 'Check now'
+              : 'Up to date'}
+      </span>
+    </button>
+  );
+}
+
 const menuItemBase: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   width: '100%',
+  // A <button> is border-box by the UA stylesheet and a <div> is not, so the
+  // rows built as divs (Effort, Budget, Version) were 20px wider than the
+  // modal and had their right-hand control clipped by its border.
+  boxSizing: 'border-box',
   padding: '6px 10px',
   fontSize: '24px',
   color: 'rgba(255, 255, 255, 0.8)',
@@ -609,6 +743,8 @@ export function SettingsModal({
   onSetLaunchAtLogin,
   notificationsEnabled,
   onSetNotificationsEnabled,
+  updateChecksEnabled,
+  appUpdate,
   bypassPermissions,
   defaultEffort,
   maxBudgetUsd,
@@ -766,129 +902,57 @@ export function SettingsModal({
         >
           Open Sessions Folder
         </button>
-        <button
-          onClick={() => {
+        <ToggleRow
+          id="sound"
+          label="Sound Notifications"
+          checked={soundOn}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() => {
             const newVal = !isSoundEnabled();
             setSoundEnabled(newVal);
             setSoundTick((n) => n + 1);
             vscode.postMessage({ type: 'setSoundEnabled', enabled: newVal });
           }}
-          onMouseEnter={() => setHovered('sound')}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            ...menuItemBase,
-            background: hovered === 'sound' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          <span>Sound Notifications</span>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              border: '2px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: 0,
-              background: soundOn ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              lineHeight: 1,
-              color: '#fff',
-            }}
-          >
-            {soundOn ? 'X' : ''}
-          </span>
-        </button>
-        <button
-          onClick={() => onSetLaunchAtLogin(!launchAtLogin)}
-          onMouseEnter={() => setHovered('login')}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            ...menuItemBase,
-            background: hovered === 'login' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          <span>Launch at Login</span>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              border: '2px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: 0,
-              background: launchAtLogin ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              lineHeight: 1,
-              color: '#fff',
-            }}
-          >
-            {launchAtLogin ? 'X' : ''}
-          </span>
-        </button>
-        <button
-          onClick={() => onSetNotificationsEnabled(!notificationsEnabled)}
-          onMouseEnter={() => setHovered('notify')}
-          onMouseLeave={() => setHovered(null)}
+        />
+        <ToggleRow
+          id="login"
+          label="Launch at Login"
+          checked={launchAtLogin}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() => onSetLaunchAtLogin(!launchAtLogin)}
+        />
+        <ToggleRow
+          id="notify"
+          label="Desktop Notifications"
           title="Notify when an agent has been waiting on you for a while, or finishes while the app is in the background"
-          style={{
-            ...menuItemBase,
-            background: hovered === 'notify' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          <span>Desktop Notifications</span>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              border: '2px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: 0,
-              background: notificationsEnabled ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              lineHeight: 1,
-              color: '#fff',
-            }}
-          >
-            {notificationsEnabled ? 'X' : ''}
-          </span>
-        </button>
-        <button
-          onClick={() => onSetBypassPermissions(!bypassPermissions)}
-          onMouseEnter={() => setHovered('bypass')}
-          onMouseLeave={() => setHovered(null)}
+          checked={notificationsEnabled}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() => onSetNotificationsEnabled(!notificationsEnabled)}
+        />
+        <ToggleRow
+          id="updates"
+          label="Check for Updates"
+          title="Ask GitHub every few hours whether a newer release exists. Nothing is downloaded or installed."
+          checked={updateChecksEnabled}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() =>
+            vscode.postMessage({ type: 'setUpdateChecksEnabled', enabled: !updateChecksEnabled })
+          }
+        />
+        <UpdateRow appUpdate={appUpdate} hovered={hovered} setHovered={setHovered} />
+        <ToggleRow
+          id="bypass"
+          label="Bypass Permissions"
           title="New agents start with all permission prompts skipped (--dangerously-skip-permissions)"
-          style={{
-            ...menuItemBase,
-            background: hovered === 'bypass' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-          }}
-        >
-          <span>Bypass Permissions</span>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              border: '2px solid rgba(255, 255, 255, 0.5)',
-              borderRadius: 0,
-              background: bypassPermissions ? 'rgba(255, 170, 60, 0.9)' : 'transparent',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              lineHeight: 1,
-              color: '#fff',
-            }}
-          >
-            {bypassPermissions ? 'X' : ''}
-          </span>
-        </button>
+          checked={bypassPermissions}
+          hovered={hovered}
+          setHovered={setHovered}
+          onToggle={() => onSetBypassPermissions(!bypassPermissions)}
+        />
         {/*
           Both are session options the SDK has no live setter for, so they are
           what a NEW agent starts with — including one a schedule sends out

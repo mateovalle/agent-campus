@@ -143,3 +143,28 @@ export const ROLE_SKIN_DEFS = [
  * name — moving it would strand everyone's offices, so it stays.
  */
 export const DATA_DIR_NAME = '.pixel-agents';
+
+// ── Update checks ───────────────────────────────────────────
+/**
+ * The repository whose releases the app compares itself against.
+ *
+ * Hard-coded rather than read from package.json: inside an asar that read is
+ * indirection for a string that only changes if the project moves, and a
+ * wrong value here is a silent no-op rather than a crash — exactly the kind
+ * of thing that is better stated once, in the open.
+ */
+export const UPDATE_CHECK_REPO = 'mateovalle/agent-campus';
+/** A check nobody asked for must never hang around; the UI just stays quiet. */
+export const UPDATE_CHECK_TIMEOUT_MS = 10_000;
+/**
+ * Between automatic checks. Releases happen on the order of weeks, GitHub's
+ * unauthenticated API allows 60 requests an hour, and an app left open for a
+ * month should still notice.
+ */
+export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/**
+ * After launch, before the first check. Startup is already loading sprites,
+ * probing auth and restoring agents; an update is the least urgent thing the
+ * app does and should not compete with any of it.
+ */
+export const UPDATE_CHECK_START_DELAY_MS = 20_000;

@@ -442,6 +442,23 @@ export type HostToWebviewMessage =
       defaultEffort?: string;
       /** Dollars a single agent may spend before stopping itself; 0 = no cap. */
       maxBudgetUsd?: number;
+      /** Whether the app asks GitHub about newer releases. */
+      updateChecksEnabled?: boolean;
+    }
+  /**
+   * Whether a newer release exists. Settings-only by design: an update is
+   * never urgent, and the office's bubbles are reserved for things that are.
+   */
+  | {
+      type: 'appUpdate';
+      state: 'idle' | 'checking' | 'available' | 'error';
+      currentVersion: string;
+      /** Present only with state 'available'. */
+      newVersion?: string;
+      /** The release page — where a manual update starts. */
+      url?: string;
+      /** Why a check came back empty-handed, for the Settings row. */
+      message?: string;
     }
   /**
    * A real sub-agent, from the SDK's own task stream rather than inferred
@@ -736,6 +753,9 @@ export type WebviewToHostMessage =
   | { type: 'saveLayout'; layout: unknown; workspacePath?: string }
   | { type: 'setSoundEnabled'; enabled: boolean }
   | { type: 'setNotificationsEnabled'; enabled: boolean }
+  | { type: 'setUpdateChecksEnabled'; enabled: boolean }
+  /** Check now, from the Settings button — the periodic one is silent. */
+  | { type: 'checkForUpdate' }
   | { type: 'setLaunchAtLogin'; enabled: boolean }
   // New agents (terminal + chat) start with permissions bypassed when enabled
   | { type: 'setBypassPermissions'; enabled: boolean }

@@ -49,6 +49,9 @@ import {
   JSONL_POLL_TIMEOUT_MS,
   LOGIN_SHELL_TIMEOUT_MS,
   PROJECT_SCAN_INTERVAL_MS,
+  UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_CHECK_REPO,
+  UPDATE_CHECK_START_DELAY_MS,
 } from '../src/core/constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
 import type { LayoutParseResult } from '../src/core/layoutPersistence.js';
@@ -132,6 +135,7 @@ import {
   toggleTodo,
 } from './todos.js';
 import { loadTranscriptHistory } from './transcriptHistory.js';
+import { fetchLatestRelease, isNewerVersion } from './updates.js';
 import { recordTurnUsage, summarizeUsage } from './usage.js';
 import {
   getSetupCommand,
@@ -360,6 +364,8 @@ function loadSettings(): {
   defaultEffort: EffortLevel | null;
   /** Dollars one agent may spend before stopping itself; 0 = no cap. */
   maxBudgetUsd: number;
+  /** Whether the app asks GitHub about newer releases. */
+  updateChecksEnabled: boolean;
 } {
   const stored = loadJsonFile<{
     soundEnabled?: boolean;
@@ -367,6 +373,7 @@ function loadSettings(): {
     notificationsEnabled?: boolean;
     defaultEffort?: string | null;
     maxBudgetUsd?: number;
+    updateChecksEnabled?: boolean;
   }>(SETTINGS_FILE);
   // Validated rather than trusted: both are passed to the SDK, and a typo in
   // a hand-edited settings file should fall back, not fail a launch.
@@ -377,6 +384,7 @@ function loadSettings(): {
     soundEnabled: true,
     bypassPermissions: false,
     notificationsEnabled: true,
+    updateChecksEnabled: true,
     ...stored,
     defaultEffort: effort,
     maxBudgetUsd: budget,
@@ -397,6 +405,92 @@ function sendSettings(): void {
 
 function saveSettings(patch: Partial<ReturnType<typeof loadSettings>>): void {
   saveJsonFile(SETTINGS_FILE, { ...loadSettings(), ...patch });
+}
+
+// ── Update checks ────────────────────────────────
+// Nobody revisits a Releases page, so an app that never mentions a new
+// version effectively never ships one. See updates.ts.
+
+let updateTimer: NodeJS.Timeout | null = null;
+/**
+ * The last answer, re-sent on webviewReady.
+ *
+ * SESSION state, like chat-mode and the rate-limit strip: a reloaded webview
+ * would otherwise show "never checked" until the next six-hourly tick.
+ */
+let updateState: Extract<HostToWebviewMessage, { type: 'appUpdate' }> = {
+  type: 'appUpdate',
+  state: 'idle',
+  currentVersion: '0.0.0',
+};
+
+function sendUpdateState(): void {
+  ctx.send(updateState);
+}
+
+/**
+ * Ask GitHub, once.
+ *
+ * `manual` is the difference between the button in Settings and the timer:
+ * a check the user clicked must say something even when it fails, while a
+ * background one that cannot reach the network should leave the row alone
+ * rather than parking an error there for the rest of the session.
+ */
+async function runUpdateCheck(manual: boolean): Promise<void> {
+  const currentVersion = app.getVersion();
+  if (manual) {
+    updateState = { type: 'appUpdate', state: 'checking', currentVersion };
+    sendUpdateState();
+  }
+
+  const release = await fetchLatestRelease(UPDATE_CHECK_REPO);
+  if (!release) {
+    if (manual) {
+      updateState = {
+        type: 'appUpdate',
+        state: 'error',
+        currentVersion,
+        message: 'Could not reach GitHub.',
+      };
+      sendUpdateState();
+    } else if (updateState.state === 'checking') {
+      updateState = { type: 'appUpdate', state: 'idle', currentVersion };
+      sendUpdateState();
+    }
+    return;
+  }
+
+  updateState = isNewerVersion(release.version, currentVersion)
+    ? {
+        type: 'appUpdate',
+        state: 'available',
+        currentVersion,
+        newVersion: release.version,
+        url: release.url,
+      }
+    : { type: 'appUpdate', state: 'idle', currentVersion };
+  sendUpdateState();
+}
+
+/** Starts the delayed first check and the periodic one, if they are wanted. */
+function startUpdateChecks(): void {
+  updateState = { type: 'appUpdate', state: 'idle', currentVersion: app.getVersion() };
+  if (!loadSettings().updateChecksEnabled) return;
+  // A dev build has no release to be behind, and telling a contributor their
+  // checkout is out of date is noise.
+  if (!app.isPackaged) return;
+
+  setTimeout(() => {
+    void runUpdateCheck(false);
+    updateTimer = setInterval(() => void runUpdateCheck(false), UPDATE_CHECK_INTERVAL_MS);
+  }, UPDATE_CHECK_START_DELAY_MS);
+}
+
+function stopUpdateChecks(): void {
+  if (updateTimer) {
+    clearInterval(updateTimer);
+    updateTimer = null;
+  }
 }
 
 /** Per-workspace office layout file (~/.pixel-agents/layouts/<sanitized>.json). */
@@ -2259,6 +2353,12 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     saveSettings({ soundEnabled: !!msg.enabled });
   } else if (msg.type === 'setNotificationsEnabled') {
     saveSettings({ notificationsEnabled: !!msg.enabled });
+  } else if (msg.type === 'setUpdateChecksEnabled') {
+    saveSettings({ updateChecksEnabled: !!msg.enabled });
+    stopUpdateChecks();
+    if (msg.enabled) startUpdateChecks();
+  } else if (msg.type === 'checkForUpdate') {
+    void runUpdateCheck(true);
     sendSettings();
   } else if (msg.type === 'setDefaultEffort') {
     const effort = EFFORT_LEVELS.find((level) => level === msg.effort) ?? null;
@@ -2400,6 +2500,7 @@ function onWebviewReady(): void {
 
   // Anything the host wanted to say while there was no renderer to say it to.
   for (const notice of pendingNotices.splice(0)) ctx.send({ type: 'hostNotice', ...notice });
+  sendUpdateState();
 
   // Session state, like chat-mode and the context gauge: a reloaded webview
   // has no idea the account is near its limit until some session says so
@@ -2926,6 +3027,7 @@ let shuttingDown = false;
 function cleanupAndQuit(): void {
   shuttingDown = true;
   destroyTray();
+  stopUpdateChecks();
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
     schedulerTimer = null;
@@ -2960,6 +3062,8 @@ app.whenReady().then(() => {
   watchWorkspaceLayouts();
 
   createWindow();
+
+  startUpdateChecks();
 
   schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
   attentionTimer = setInterval(attentionTick, ATTENTION_TICK_MS);

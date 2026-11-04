@@ -467,7 +467,13 @@ webview-ui/src/               — React + TypeScript (Vite)
     AchievementToast.tsx       — Unlock toast fed by the achievementUnlocked queue
     MissedRunsModal.tsx        — Pick-and-run list of schedule runs missed while the app was closed
     ZoomControls.tsx           — +/- zoom (top-right)
-    SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug toggle
+    SettingsModal.tsx          — Centered modal: settings, export/import layout, sound toggle, debug
+                                 toggle, and the version row (`UpdateRow`, fed by `appUpdate`).
+                                 Toggle rows are one `ToggleRow` — there were four identical copies.
+                                 `menuItemBase` must keep `boxSizing: 'border-box'`: a <button> is
+                                 border-box by the UA stylesheet and a <div> is NOT, so the rows
+                                 built as divs (Effort, Budget, Version) were 20px wider than the
+                                 modal and had their right-hand control clipped by its border
     WelcomeModal.tsx           — First-run panel when Claude Code is logged out or unreachable:
                                  explains both auth paths, opens a login terminal, re-checks, or
                                  steps aside (the office and the layout editor work logged out)
