@@ -46,6 +46,7 @@ import {
 } from './chatModel.js';
 import type { SlashCommandOption } from './commandPalette.js';
 import { applyCommand, matchCommands } from './commandPalette.js';
+import { applyFileMention, matchFileMention } from './fileMentions.js';
 import { ChatAgentContext } from './fileRefContext.js';
 import { Markdown } from './Markdown.js';
 import type { PermissionRequestInfo } from './PermissionCard.js';
@@ -917,6 +918,11 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [commands, setCommands] = useState<SlashCommandOption[]>([]);
   /** Which palette row is selected, reset whenever the query changes. */
   const [paletteIndex, setPaletteIndex] = useState(0);
+  /** The host's answer to the current @ mention, and the query it answered. */
+  const [fileMatches, setFileMatches] = useState<{ query: string; paths: string[] }>({
+    query: '',
+    paths: [],
+  });
   /** What the session settled on for effort; null when it sends none. */
   const [effort, setEffort] = useState<string | null>(null);
   /** How full the context window is; null until the CLI has said. */
@@ -975,6 +981,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-busy') {
         if (msg.agentId !== agentId) return;
         setBusy(msg.busy);
+      } else if (msg.type === 'fileMentions') {
+        if (msg.agentId !== agentId) return;
+        setFileMatches({ query: msg.query, paths: msg.paths });
       } else if (msg.type === 'chat-commands') {
         if (msg.agentId !== agentId) return;
         setCommands(msg.commands);
@@ -1390,13 +1399,59 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   // the palette is a VIEW of what has been typed, and a stale copy of it is
   // how a dropdown ends up showing matches for a word already deleted.
   const palette = ended ? null : matchCommands(commands, draft);
-  const paletteRow = palette ? Math.min(paletteIndex, palette.matches.length - 1) : 0;
+  const mention = ended || palette ? null : matchFileMention(draft);
 
+  // Neither of these refocuses the textarea: the keyboard path never left
+  // it, and the mouse path preventDefaults on mousedown precisely so the
+  // click cannot take focus away in the first place.
   const acceptCommand = (option: SlashCommandOption) => {
     setDraft(applyCommand(option));
     setPaletteIndex(0);
-    textareaRef.current?.focus();
   };
+
+  const acceptFile = (path: string) => {
+    if (mention) setDraft(applyFileMention(draft, mention, path));
+    setPaletteIndex(0);
+  };
+
+  // Asked per keystroke: the host answers from a cached listing, and the
+  // round trip is local. The reply carries its query back, so one that
+  // arrives after the user has typed past it is dropped rather than shown.
+  useEffect(() => {
+    if (mention) vscode.postMessage({ type: 'requestFileMentions', agentId, query: mention.query });
+  }, [agentId, mention?.query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * The one popup above the composer, whichever kind is open.
+   *
+   * Commands win when both could match, which is only ever a draft that
+   * starts with '/': they are mutually exclusive in practice, and one shared
+   * shape means the arrow/Enter/Esc handling is written once.
+   */
+  const popup: {
+    rows: Array<{ key: string; label: string; hint?: string; note?: string }>;
+    accept: (i: number) => void;
+  } | null = palette
+    ? {
+        rows: palette.matches.map((c) => ({
+          key: c.name,
+          label: `/${c.name}`,
+          ...(c.argumentHint ? { hint: c.argumentHint } : {}),
+          note: c.description,
+        })),
+        accept: (i) => acceptCommand(palette.matches[i]),
+      }
+    : mention && fileMatches.query === mention.query && fileMatches.paths.length > 0
+      ? {
+          rows: fileMatches.paths.map((p) => ({ key: p, label: p })),
+          accept: (i) => acceptFile(fileMatches.paths[i]),
+        }
+      : null;
+  const paletteRow = popup ? Math.min(paletteIndex, popup.rows.length - 1) : 0;
+  // Pulled out of the object so the JSX below needs no narrowing inside its
+  // callbacks, where TypeScript will not carry one.
+  const popupRows = popup?.rows ?? [];
+  const acceptRow = (i: number) => popup?.accept(i);
 
   const sendDisabled = ended || (draft.trim() === '' && attachments.length === 0);
 
@@ -1566,7 +1621,7 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
           </div>
         )}
 
-        {palette && (
+        {popup && (
           <div
             style={{
               display: 'flex',
@@ -1578,14 +1633,14 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
               background: 'var(--pixel-bg)',
             }}
           >
-            {palette.matches.map((option, i) => (
+            {popupRows.map((row, i) => (
               <button
-                key={option.name}
+                key={row.key}
                 onMouseDown={(e) => {
                   // mousedown, not click: the textarea must not lose focus
                   // first, or the composer scrolls away under the pointer.
                   e.preventDefault();
-                  acceptCommand(option);
+                  acceptRow(i);
                 }}
                 onMouseEnter={() => setPaletteIndex(i)}
                 style={{
@@ -1603,22 +1658,22 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
                   color: 'var(--pixel-text)',
                 }}
               >
-                <span>/{option.name}</span>
-                {option.argumentHint && (
-                  <span style={{ color: 'var(--pixel-text-dim)' }}>{option.argumentHint}</span>
+                <span>{row.label}</span>
+                {row.hint && <span style={{ color: 'var(--pixel-text-dim)' }}>{row.hint}</span>}
+                {row.note && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      color: 'var(--pixel-text-dim)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '60%',
+                    }}
+                  >
+                    {row.note}
+                  </span>
                 )}
-                <span
-                  style={{
-                    marginLeft: 'auto',
-                    color: 'var(--pixel-text-dim)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '60%',
-                  }}
-                >
-                  {option.description}
-                </span>
               </button>
             ))}
           </div>

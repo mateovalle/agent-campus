@@ -34,6 +34,7 @@ import type { EffortLevel } from '../src/core/constants.js';
 import {
   DATA_DIR_NAME,
   EFFORT_LEVELS,
+  FILE_MENTION_LIMIT,
   JSONL_POLL_INTERVAL_MS,
   JSONL_POLL_TIMEOUT_MS,
   LOGIN_SHELL_TIMEOUT_MS,
@@ -74,6 +75,7 @@ import {
   startChatSession,
 } from './chatAgent.js';
 import { probeClaudeAuth } from './claudeAuth.js';
+import { forgetWorkspaceFiles, listWorkspaceFiles, rankFileMatches } from './fileIndex.js';
 import type { GitWriteResult } from './git.js';
 import {
   changedFiles,
@@ -1336,6 +1338,11 @@ function removeAgent(agentId: number): void {
   cancelPermissionTimer(ctx, agentId);
   // The hook file outlives nothing: its only reader was this session's CLI.
   removeAgentHookSettings(agent.sessionId);
+  // Another agent may still be working in the same directory, so this only
+  // drops the listing when the last one leaves.
+  if (![...ctx.agents.values()].some((a) => a.id !== agentId && a.cwd === agent.cwd)) {
+    forgetWorkspaceFiles(agent.cwd);
+  }
 
   const ptyId = agentToPty.get(agentId);
   if (ptyId) {
@@ -1984,6 +1991,16 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     msg.type === 'createAgentPr'
   ) {
     void runAgentGitWrite(msg);
+  } else if (msg.type === 'requestFileMentions') {
+    void (async () => {
+      const agent = ctx.agents.get(msg.agentId);
+      // Answers even when the agent is gone: a composer left waiting on a
+      // reply it will never get shows a popup that never fills in.
+      const paths = agent
+        ? rankFileMatches(await listWorkspaceFiles(agent.cwd), msg.query, FILE_MENTION_LIMIT)
+        : [];
+      ctx.send({ type: 'fileMentions', agentId: msg.agentId, query: msg.query, paths });
+    })();
   } else if (msg.type === 'stopSubagentTask') {
     chatSessions.get(msg.agentId)?.stopTask(msg.taskId);
   } else if (msg.type === 'rewindAgentFiles') {

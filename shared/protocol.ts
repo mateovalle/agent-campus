@@ -497,6 +497,12 @@ export type HostToWebviewMessage =
         argumentHint?: string;
       }>;
     }
+  /**
+   * Files matching an `@` mention, for the agent's own working directory.
+   * Carries the `query` back so the composer can drop an answer to a prefix
+   * the user has already typed past.
+   */
+  | { type: 'fileMentions'; agentId: number; query: string; paths: string[] }
   /** The effort the running session actually settled on, per its init. */
   | { type: 'chat-effort'; agentId: number; effort: string | null }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }
@@ -767,6 +773,7 @@ export type WebviewToHostMessage =
   /** Preview (dryRun) or perform a rewind of the files to a past prompt. */
   | { type: 'rewindAgentFiles'; agentId: number; userMessageId: string; dryRun: boolean }
   | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
+  | { type: 'requestFileMentions'; agentId: number; query: string }
   | { type: 'stopSubagentTask'; agentId: number; taskId: string }
   | { type: 'setDefaultEffort'; effort: string | null }
   | { type: 'setMaxBudgetUsd'; usd: number }

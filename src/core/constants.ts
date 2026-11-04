@@ -60,6 +60,36 @@ export const MAX_ACTION_SUGGESTIONS = 3;
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
+// ── File mentions ───────────────────────────────────────────
+/**
+ * How long a workspace's file listing is reused before it is re-read. Short,
+ * because agents create files while you are typing about them, and cheap,
+ * because re-reading is one `git ls-files`.
+ */
+export const FILE_INDEX_TTL_MS = 10_000;
+/**
+ * Most paths kept for one workspace. A monorepo has far more than anyone will
+ * ever @-mention, and the list is held in memory and ranked on every
+ * keystroke.
+ */
+export const FILE_INDEX_MAX_FILES = 20_000;
+/** Most suggestions offered at once — the popup is a shortlist, not a tree. */
+export const FILE_MENTION_LIMIT = 12;
+/**
+ * Directories the non-git walk never descends into. Only relevant outside a
+ * repository, where there is no .gitignore to be right about.
+ */
+export const FILE_INDEX_WALK_SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'vendor',
+  'venv',
+  '__pycache__',
+]);
+
 // ── Layout validation ───────────────────────────────────────
 /**
  * The largest grid a layout may claim, matching the editor's own MAX_COLS /
