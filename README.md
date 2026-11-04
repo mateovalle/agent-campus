@@ -7,12 +7,16 @@
 ## What it does
 
 - 🏢 **Campus view** — register your project folders as offices on one pannable pixel-art map. See at a glance who's working, who's waiting for you, and what each project is costing today.
-- 💬 **Rich chat agents** — powered by the official Claude Agent SDK: streamed markdown, tool cards with real diffs, permission prompts as Allow/Deny buttons, permission modes (Ask / Accept Edits / Plan / Bypass), image paste & file drag-and-drop, session resume, exact per-turn cost.
+- 💬 **Rich chat agents** — powered by the official Claude Agent SDK: streamed markdown, tool cards with real diffs, permission prompts as Allow/Deny (with an "Always" that says how far the rule reaches), permission modes (Ask / Accept Edits / Plan / Bypass), slash commands and `@`-file mentions, a context-window gauge, image paste & file drag-and-drop, session resume.
 - ✅ **Task orchestration** — per-workspace task lists shared between you and your agents. Assign a task with one click and an agent spawns to do it; agents can read the backlog, log discovered work, and check tasks off when they truly finish. Their live internal plans are mirrored in real time.
-- 🤖 **The Assistant** — a campus-wide orchestrator with tools to read project status, backlogs and spending, and dispatch agents to any office by natural language.
-- 💸 **Spend dashboard** — exact costs (from the SDK, not estimates) per turn, per day, per project; live on each office's label.
+- 🌿 **A checkout per agent** — opt-in git worktrees, so two agents in one repo stop overwriting each other. A manager shows what deleting one would cost (uncommitted work, unmerged commits, agents still in it) and refuses to remove a checkout someone is working in.
+- 🔍 **See what changed, then ship it** — every file an agent touched, with diffs, readable *while it is still working*. Commit, push and open a PR without leaving the app; or rewind a prompt and the files it changed, with a preview of exactly what will move.
+- 🤖 **The Assistant** — a campus-wide orchestrator with tools to read project status, backlogs and spending, dispatch agents to any office by natural language, and reach the ones already running: message, interrupt, or close out a task.
+- 💸 **Spend dashboard** — every turn priced at API list rates, per day and per project, live on each office's label. On a Claude subscription none of it is billed (that usage comes out of your plan's limits), so it measures how much work you set in motion rather than what you owe. Per-agent budget caps stop a runaway unattended run.
 - 🏆 **Achievements** — milestones for shipped tasks, parallel agents and streaks (never for spend).
 - 🔔 **Notifications** — an agent left waiting on you for two minutes sends a desktop notification (click it to land on that agent), and the Dock icon counts everyone who needs you.
+- 📱 **Check in from your phone** — an optional read-only page on your local network listing who needs you, longest wait first. Off by default; nothing can be approved or changed from it.
+- 🧰 **It keeps working when the window doesn't** — closing the window puts the app in the tray instead of killing your agents, so scheduled runs still fire. Launch at login if you want it there already.
 - 🎨 **Layout editor** — design each office: 19 floors, 7 wall styles, 270+ pieces of furniture (steam rises, servers blink, fish swim), or stamp a ready-made room — café, game room, lab, library, garden. Per-workspace layouts.
 - ☕ **A campus that lives** — idle agents wander off to the espresso bar, the arcade or the koi pond; logged out, a demo fills the office with pretend agents so you can see it move.
 
