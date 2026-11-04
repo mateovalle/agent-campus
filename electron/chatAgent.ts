@@ -277,6 +277,8 @@ export interface ChatSession {
   mode: ChatPermissionMode;
   /** Models this session can switch to, as reported by the CLI (empty until init). */
   models: ChatModelOption[];
+  /** The slash commands this session accepts, for the composer's palette. */
+  commands: Array<{ name: string; description: string; argumentHint?: string }>;
   /** Active model id, or null until the CLI reports one. */
   model: string | null;
   /** Latest TodoWrite plan (resent on webviewReady). */
@@ -410,6 +412,7 @@ export function startChatSession(opts: {
     lastInputAt: Date.now(),
     mode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
     models: [],
+    commands: [],
     model: opts.model ?? null,
     latestTodos: [],
     latestSuggestion: null,

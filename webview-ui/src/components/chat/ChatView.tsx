@@ -30,6 +30,7 @@ import {
   CHAT_TOOL_GROUP_MIN,
   CHAT_TURN_ANCHOR_ATTR,
   CHAT_TURN_JUMP_TOLERANCE_PX,
+  COMMAND_PALETTE_MAX_HEIGHT_PX,
   CONTEXT_GAUGE_URGENT_PCT,
   CONTEXT_GAUGE_WARN_PCT,
 } from '../../constants.js';
@@ -43,6 +44,8 @@ import {
   emptyChatModel,
   parseAskUserQuestions,
 } from './chatModel.js';
+import type { SlashCommandOption } from './commandPalette.js';
+import { applyCommand, matchCommands } from './commandPalette.js';
 import { ChatAgentContext } from './fileRefContext.js';
 import { Markdown } from './Markdown.js';
 import type { PermissionRequestInfo } from './PermissionCard.js';
@@ -910,6 +913,10 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   const [model, setModel] = useState<ChatModel>(emptyChatModel);
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PermissionRequestInfo[]>([]);
+  /** Slash commands this session accepts; replaced wholesale on every push. */
+  const [commands, setCommands] = useState<SlashCommandOption[]>([]);
+  /** Which palette row is selected, reset whenever the query changes. */
+  const [paletteIndex, setPaletteIndex] = useState(0);
   /** What the session settled on for effort; null when it sends none. */
   const [effort, setEffort] = useState<string | null>(null);
   /** How full the context window is; null until the CLI has said. */
@@ -968,6 +975,9 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       } else if (msg.type === 'chat-busy') {
         if (msg.agentId !== agentId) return;
         setBusy(msg.busy);
+      } else if (msg.type === 'chat-commands') {
+        if (msg.agentId !== agentId) return;
+        setCommands(msg.commands);
       } else if (msg.type === 'chat-effort') {
         if (msg.agentId !== agentId) return;
         setEffort(msg.effort);
@@ -1376,6 +1386,17 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
   // Offered only on an empty composer: with a draft in progress the row would
   // compete with what the user is already writing, and Tab must stay Tab.
   const suggestionVisible = suggestion !== null && draft === '' && !busy && !ended;
+  // Recomputed from the draft every render rather than tracked in state:
+  // the palette is a VIEW of what has been typed, and a stale copy of it is
+  // how a dropdown ends up showing matches for a word already deleted.
+  const palette = ended ? null : matchCommands(commands, draft);
+  const paletteRow = palette ? Math.min(paletteIndex, palette.matches.length - 1) : 0;
+
+  const acceptCommand = (option: SlashCommandOption) => {
+    setDraft(applyCommand(option));
+    setPaletteIndex(0);
+    textareaRef.current?.focus();
+  };
 
   const sendDisabled = ended || (draft.trim() === '' && attachments.length === 0);
 
@@ -1545,6 +1566,64 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
           </div>
         )}
 
+        {palette && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: COMMAND_PALETTE_MAX_HEIGHT_PX,
+              overflowY: 'auto',
+              margin: '0 2px 4px',
+              border: '2px solid var(--pixel-border)',
+              background: 'var(--pixel-bg)',
+            }}
+          >
+            {palette.matches.map((option, i) => (
+              <button
+                key={option.name}
+                onMouseDown={(e) => {
+                  // mousedown, not click: the textarea must not lose focus
+                  // first, or the composer scrolls away under the pointer.
+                  e.preventDefault();
+                  acceptCommand(option);
+                }}
+                onMouseEnter={() => setPaletteIndex(i)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 8,
+                  textAlign: 'left',
+                  fontFamily: 'inherit',
+                  fontSize: '13px',
+                  padding: '3px 8px',
+                  border: 'none',
+                  borderRadius: 0,
+                  cursor: 'pointer',
+                  background: i === paletteRow ? 'var(--pixel-active-bg)' : 'transparent',
+                  color: 'var(--pixel-text)',
+                }}
+              >
+                <span>/{option.name}</span>
+                {option.argumentHint && (
+                  <span style={{ color: 'var(--pixel-text-dim)' }}>{option.argumentHint}</span>
+                )}
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    color: 'var(--pixel-text-dim)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '60%',
+                  }}
+                >
+                  {option.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {suggestionVisible && (
           <div style={suggestionRowStyle}>
             <button
@@ -1577,6 +1656,35 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
             onChange={(e) => setDraft(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {
+              // The palette claims its keys FIRST, and only while it is open:
+              // Enter has to mean "pick this one" there and "send" everywhere
+              // else, which is the whole reason matchCommands closes as soon
+              // as the command name is finished.
+              if (palette) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setPaletteIndex((i) => (i + 1) % palette.matches.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setPaletteIndex((i) => (i - 1 + palette.matches.length) % palette.matches.length);
+                  return;
+                }
+                if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                  e.preventDefault();
+                  acceptCommand(palette.matches[paletteRow]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  // Closing the palette is a smaller act than interrupting a
+                  // turn, so it takes the Escape before the subtree handler.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDraft('');
+                  return;
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();

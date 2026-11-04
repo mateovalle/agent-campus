@@ -483,6 +483,20 @@ export type HostToWebviewMessage =
       /** Which window: five_hour, seven_day, … */
       window?: string;
     }
+  /**
+   * The slash commands this session accepts — skills, plugins and built-ins.
+   * Session state, re-sent on chatReady, and REPLACED wholesale when the CLI
+   * pushes a new list (skills appear as an agent moves into a subdirectory).
+   */
+  | {
+      type: 'chat-commands';
+      agentId: number;
+      commands: Array<{
+        name: string;
+        description: string;
+        argumentHint?: string;
+      }>;
+    }
   /** The effort the running session actually settled on, per its init. */
   | { type: 'chat-effort'; agentId: number; effort: string | null }
   | { type: 'schedulesLoaded'; schedules: ScheduleEntry[] }

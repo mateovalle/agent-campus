@@ -347,6 +347,15 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 for a number shown as a percentage; amber at
                                 CONTEXT_GAUGE_WARN_PCT, red at URGENT, and re-asked on chatReady
                                 since it is session state, not transcript) +
+                                a SLASH-COMMAND PALETTE above the composer (`chat-commands`, from
+                                `query.supportedCommands()` at init and REPLACED wholesale by every
+                                `commands_changed` push — skills appear as an agent moves into a
+                                subdirectory). The open/closed rule is the pure, tested
+                                `matchCommands`: open only while the caret is inside the FIRST
+                                token, because once there is a space the user is writing arguments
+                                and an open palette would eat their Enter. ↑↓ move, Enter/Tab
+                                accept, Esc closes — and the palette claims those keys BEFORE the
+                                composer's own Enter-sends and Tab-accepts-suggestion +
                                 SessionSettings ⚙ popover (permission mode + model) +
                                 prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);
