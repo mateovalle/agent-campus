@@ -23,6 +23,10 @@ import {
 let tmp: string;
 let repo: string;
 const realHome = process.env.HOME;
+// USERPROFILE too: on Windows os.homedir() reads THAT and ignores HOME, so
+// redirecting only HOME would have this suite creating real worktrees under
+// the developer's own ~/.pixel-agents — and passing while it did it.
+const realProfile = process.env.USERPROFILE;
 
 const git = (args: string[], cwd: string) =>
   execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -30,6 +34,7 @@ const git = (args: string[], cwd: string) =>
 beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'campus-wt-'));
   process.env.HOME = path.join(tmp, 'home');
+  process.env.USERPROFILE = process.env.HOME;
   fs.mkdirSync(process.env.HOME, { recursive: true });
 
   repo = path.join(tmp, 'repo');
@@ -45,6 +50,8 @@ beforeAll(() => {
 afterAll(() => {
   if (realHome === undefined) delete process.env.HOME;
   else process.env.HOME = realHome;
+  if (realProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = realProfile;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
