@@ -109,7 +109,30 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 SESSION (not the numeric agent id, which changes across restart,
                                 restore and resume) — it prevents ACCIDENTS, not attackers, and is a
                                 same-user boundary, not a security feature
-  git.ts                      — What an agent CHANGED: `changedFiles(cwd)` (status --porcelain=v1
+  git.ts                      — What an agent CHANGED. EVERYTHING RUNS FROM THE REPO ROOT with an
+                                explicit `:(top)<prefix>` pathspec (`gitScope`), because git
+                                reports paths relative to the ROOT and resolves a pathspec
+                                relative to the CWD. Mixing them was not cosmetic: with an office
+                                one directory inside a repo, every diff came back empty (the
+                                pathspec resolved to `sub/sub/file`), untracked counts were read
+                                from paths that do not exist, files the USER edited elsewhere in
+                                the repo were listed as that agent's work, and `git add -A` —
+                                which ignores cwd entirely — staged the whole repository behind a
+                                button labelled with one agent's name. `commitAll` carries the
+                                same pathspec the panel was built from, so what is committed is
+                                what was shown. It also REFUSES mid-merge/rebase/cherry-pick or
+                                with unmerged paths (pure, tested `commitBlocker`): `git commit`
+                                does not stop you there, so add -A + commit happily wrote
+                                `<<<<<<< HEAD` into a file and COMPLETED the merge. `pushBranch`
+                                resolves the remote from `branch.<n>.pushRemote` /
+                                `remote.pushDefault` before falling back to origin — hardcoding
+                                origin published an agent's branch to the canonical shared repo
+                                in a triangular setup — and only passes `-u` when there is no
+                                upstream, since `-u` REWRITES one that points elsewhere. The
+                                write path sets GIT_WRITE_MAX_BUFFER: git folds pre-commit hook
+                                output into stderr, and node's 1MB default SIGTERMed `git commit`
+                                on a chatty hook, losing the commit while showing two lines of
+                                lint output as the error. Older notes: `changedFiles(cwd)` (status --porcelain=v1
                                 -z -uall merged with diff --numstat -z HEAD), `fileDiff()` and
                                 `currentBranch()`. Read-only, every call timed out like worktrees.ts.
                                 The parsers are exported and unit-tested because git's porcelain is
