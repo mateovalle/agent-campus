@@ -973,8 +973,26 @@ npm install && cd webview-ui && npm install && cd .. && npm run build
   checkout leaves the repo untouched), so keep the HOME override if you touch it. `vitest.config.ts` scopes it. The webview has no DOM test setup and needs none, but its PURE
   modules ARE covered (`webview-ui/src/**/*.test.ts` — filePaths): component files stay out by
   matching only `*.test.ts`
-- Husky pre-commit runs lint-staged (eslint --fix + prettier); CI: .github/workflows/ci.yml,
-  release: .github/workflows/release.yml
+- **`npm run gate` IS the gate.** GitHub Actions is off for this project (the account is locked
+  on billing and is not being unlocked), so nothing checks a change unless someone runs it. The
+  script mirrors what the `check` job did — types, both lints, format, tests, the usage suite
+  under three timezones, build, `electron-builder --dir`, and the asar and extraResources
+  assertions — and exits non-zero on the first failure. `--quick` skips packaging.
+  What no local script can replace is the **Windows and Linux legs**, which earned their keep
+  twice: `path.resolve` cannot reconcile 8.3 short names or junctions (a worktree was offered for
+  removal, with force, while an agent worked in it), and `os.homedir()` reads USERPROFILE rather
+  than HOME (a suite wrote into the real user profile). Anything touching paths, home
+  directories or child processes is UNVERIFIED there; prefer a pure function plus a test over
+  trusting a local green. `electron/__tests__/testHygiene.test.ts` enforces what can be enforced
+  without the platform: no suite redirects HOME without USERPROFILE, and no backend test lives
+  outside `__tests__`
+- **`build:electron` cleans `dist-electron` first.** `tsc` does not remove output for sources
+  that are gone, so a deleted file's compiled `.js` lingers and gets packaged — `attention.test.js`
+  shipped inside the asar for two days after its source was deleted. CI never saw it because CI
+  starts from a clean checkout; without CI every build is on a dirty tree, which is exactly when
+  this matters
+- Husky pre-commit runs lint-staged (eslint --fix + prettier). `.github/workflows/` is kept for
+  the day CI can run again, but it cannot run now — do not read a red check as a code signal
 - **Release signing env**: `release.yml` EXPORTS the signing variables through `$GITHUB_ENV` and
   never sets them in the Package step's `env:`. electron-builder reads them by PRESENCE, so
   `CSC_LINK=''` is not "unsigned" — it is "the certificate is at the empty path", resolved against
