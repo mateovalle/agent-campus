@@ -154,18 +154,21 @@ describe('phone server', () => {
     expect(second).toBeNull();
   });
 
-  it('reports why it could not start', async () => {
+  it('reports why it could not start, exactly once', async () => {
+    // Two handlers used to fire on a listen failure, and the generic one
+    // went first — so the user got "listen EADDRINUSE: address already in
+    // use 0.0.0.0:4517" on top of the one line that says what to do.
     const first = await start(0);
-    let reported = '';
+    const reported: string[] = [];
     await startPhoneServer({
       port: first.port,
       token: TOKEN,
       status: () => STATUS,
-      onError: (text) => {
-        reported = text;
-      },
+      onError: (text) => reported.push(text),
     });
-    expect(reported).toContain('already in use');
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain('already in use');
+    expect(reported[0]).toContain('phone view is off');
   });
 
   it('survives a client that hangs up mid-request', async () => {

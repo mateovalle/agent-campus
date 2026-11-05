@@ -202,9 +202,6 @@ export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServ
   // A socket reset by a phone that walked out of wifi emits 'error' on the
   // server; unhandled, that takes down the process that owns every agent.
   server.on('clientError', (_err, socket) => socket.destroy());
-  // Same reasoning for anything the server itself raises after it is up —
-  // `once('error')` below only covers the listen attempt.
-  server.on('error', (err) => options.onError(`The phone view errored: ${err.message}`));
 
   return new Promise((resolve) => {
     server.once('error', (err: NodeJS.ErrnoException) => {
@@ -216,6 +213,13 @@ export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServ
       resolve(null);
     });
     server.listen(options.port, '0.0.0.0', () => {
+      // Registered only now, and deliberately not before `listen`: a
+      // persistent handler added earlier also fires on a LISTEN failure, so
+      // a busy port produced this generic line on top of the specific one
+      // below and buried the only message that tells the user what to do.
+      // From here on, though, an error has no other handler and an
+      // unhandled one on a server kills the process that owns every agent.
+      server.on('error', (err) => options.onError(`The phone view errored: ${err.message}`));
       const address = server.address();
       resolve({
         port: typeof address === 'object' && address ? address.port : options.port,
