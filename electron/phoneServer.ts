@@ -14,7 +14,7 @@
 
 import * as http from 'http';
 
-import { PHONE_VIEW_POLL_MS } from '../src/core/constants.js';
+import { PHONE_VIEW_POLL_MS, PHONE_VIEW_URGENT_MS } from '../src/core/constants.js';
 import { type PhoneStatus, tokenMatches } from './phoneView.js';
 
 export interface PhoneServerHandle {
@@ -91,7 +91,7 @@ const age = (ms) => {
   return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
 };
 function card(a) {
-  const urgent = a.waitingForMs >= 300000;
+  const urgent = a.waitingForMs >= ${PHONE_VIEW_URGENT_MS};
   const cls = a.state === 'blocked' ? (urgent ? 'card blocked urgent' : 'card blocked')
             : a.state === 'done' ? 'card done' : 'card';
   const wait = a.waitingForMs != null ? '<span class="wait">' + esc(age(a.waitingForMs)) + '</span>' : '';
@@ -134,7 +134,7 @@ setInterval(tick, ${PHONE_VIEW_POLL_MS});
 export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServerHandle | null> {
   const page = renderPhonePage();
 
-  const server = http.createServer((req, res) => {
+  const handle = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     // The token is checked before the route, so an unauthenticated caller
     // cannot even learn which paths exist.
@@ -143,10 +143,12 @@ export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServ
       res.end('Unauthorized');
       return;
     }
-    // GET only: there is nothing here to POST to, and saying so is clearer
-    // than a 404 that suggests the route might exist by another name.
-    if (req.method !== 'GET') {
-      res.writeHead(405, { Allow: 'GET' });
+    // Reads only: there is nothing here to POST to, and saying so is clearer
+    // than a 404 that suggests the route might exist by another name. HEAD is
+    // allowed because the resource is GET-able and node answers it by writing
+    // the headers and dropping the body for us.
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD' });
       res.end();
       return;
     }
@@ -174,11 +176,35 @@ export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServ
     }
     res.writeHead(404);
     res.end();
+  };
+
+  /**
+   * Nothing a request does may reach the event loop as an exception.
+   *
+   * Not a precaution in the abstract: a token whose BYTE length differed from
+   * the expected one used to throw out of timingSafeEqual right here, and an
+   * exception thrown from a request listener has no handler above it — it
+   * killed the process that owns every PTY and every SDK session, from one
+   * unauthenticated GET. The byte-length bug is fixed in tokenMatches; this
+   * is so the next one costs a 500 instead of everyone's work. `status()`
+   * reads live agent state, which is the most likely place for the next one.
+   */
+  const server = http.createServer((req, res) => {
+    try {
+      handle(req, res);
+    } catch (err) {
+      options.onError(`The phone view failed to answer a request: ${String(err)}`);
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
   });
 
   // A socket reset by a phone that walked out of wifi emits 'error' on the
   // server; unhandled, that takes down the process that owns every agent.
   server.on('clientError', (_err, socket) => socket.destroy());
+  // Same reasoning for anything the server itself raises after it is up —
+  // `once('error')` below only covers the listen attempt.
+  server.on('error', (err) => options.onError(`The phone view errored: ${err.message}`));
 
   return new Promise((resolve) => {
     server.once('error', (err: NodeJS.ErrnoException) => {
@@ -193,7 +219,14 @@ export function startPhoneServer(options: PhoneServerOptions): Promise<PhoneServ
       const address = server.address();
       resolve({
         port: typeof address === 'object' && address ? address.port : options.port,
-        close: () => server.close(),
+        close: () => {
+          // close() alone stops NEW connections and lets one already in
+          // flight finish — which means a request half-sent when the user
+          // switched the feature off still gets answered with the live
+          // agent list. Switching it off has to mean off.
+          server.closeAllConnections();
+          server.close();
+        },
       });
     });
   });

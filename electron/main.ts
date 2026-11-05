@@ -511,6 +511,23 @@ function stopUpdateChecks(): void {
 // Read-only, off by default, token-gated. See phoneView.ts.
 
 let phoneServer: PhoneServerHandle | null = null;
+/**
+ * Start and stop run one at a time.
+ *
+ * Starting is asynchronous (binding a port), and `if (phoneServer) return`
+ * only guards the synchronous entry. Without this chain, a toggle-off landing
+ * inside a start's await closes nothing and the start then assigns a live
+ * handle to a feature the user just switched off; and two starts racing leave
+ * one server bound with no reference to it, so neither stopPhoneView nor quit
+ * can ever close it.
+ */
+let phoneViewOp: Promise<void> = Promise.resolve();
+
+function queuePhoneView(op: () => Promise<void> | void): void {
+  phoneViewOp = phoneViewOp.then(op).catch((err: unknown) => {
+    console.error('[Agent Campus] Phone view:', err);
+  });
+}
 
 /** Live agents in the shape the phone payload is built from. */
 function phoneAgentInputs(nowMs: number): PhoneAgentInput[] {
@@ -2465,8 +2482,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     void runUpdateCheck(true);
   } else if (msg.type === 'setPhoneViewEnabled') {
     saveSettings({ phoneViewEnabled: !!msg.enabled });
-    if (msg.enabled) void startPhoneView();
-    else stopPhoneView();
+    queuePhoneView(() => (msg.enabled ? startPhoneView() : stopPhoneView()));
     sendSettings();
   } else if (msg.type === 'setDefaultEffort') {
     const effort = EFFORT_LEVELS.find((level) => level === msg.effort) ?? null;
@@ -3174,7 +3190,7 @@ app.whenReady().then(() => {
   createWindow();
 
   startUpdateChecks();
-  if (loadSettings().phoneViewEnabled) void startPhoneView();
+  if (loadSettings().phoneViewEnabled) queuePhoneView(startPhoneView);
 
   schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
   attentionTimer = setInterval(attentionTick, ATTENTION_TICK_MS);

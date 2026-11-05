@@ -87,6 +87,53 @@ describe('phone server', () => {
     expect(statusCalls).toBe(0);
   });
 
+  it('survives a token crafted to crash it', async () => {
+    // One unauthenticated GET used to kill the process that owns every PTY
+    // and every SDK session: 31 ASCII characters plus one multi-byte one is
+    // 32 characters and 33 bytes, which sailed past a character-length guard
+    // and threw out of timingSafeEqual inside the request listener.
+    const url = await base();
+    const res = await fetch(`${url}/?t=${'a'.repeat(31)}%FF`);
+    expect(res.status).toBe(401);
+    // Still serving afterwards is the actual assertion.
+    const after = await fetch(`${url}/api/status?t=${TOKEN}`);
+    expect(after.status).toBe(200);
+  });
+
+  it('answers HEAD, since the resource is GET-able', async () => {
+    const url = await base();
+    const res = await fetch(`${url}/api/status?t=${TOKEN}`, { method: 'HEAD' });
+    expect(res.status).toBe(200);
+  });
+
+  it('names GET and HEAD when it refuses a method', async () => {
+    const url = await base();
+    const res = await fetch(`${url}/?t=${TOKEN}`, { method: 'DELETE' });
+    expect(res.status).toBe(405);
+    expect(res.headers.get('allow')).toBe('GET, HEAD');
+  });
+
+  it('answers 500 rather than dying if building the status throws', async () => {
+    // `status()` reads live agent state, which is the most likely place for
+    // the next exception. The process surviving is the point.
+    const h = await startPhoneServer({
+      port: 0,
+      token: TOKEN,
+      status: () => {
+        throw new Error('live state blew up');
+      },
+      onError: () => {
+        /* reported to the host */
+      },
+    });
+    if (!h) throw new Error('server did not start');
+    handle = h;
+    const res = await fetch(`http://127.0.0.1:${h.port}/api/status?t=${TOKEN}`);
+    expect(res.status).toBe(500);
+    const page = await fetch(`http://127.0.0.1:${h.port}/?t=${TOKEN}`);
+    expect(page.status).toBe(200);
+  });
+
   it('404s an unknown path rather than falling through to the page', async () => {
     const url = await base();
     const res = await fetch(`${url}/admin?t=${TOKEN}`);

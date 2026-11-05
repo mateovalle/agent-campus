@@ -183,3 +183,10 @@ export const PHONE_VIEW_PORT = 4517;
  * short lists.
  */
 export const PHONE_VIEW_POLL_MS = 5_000;
+/**
+ * When a wait on the phone turns from amber to red. Mirrors the office's own
+ * `BUBBLE_AGE_URGENT_SEC`, so the oldest block looks equally urgent on both
+ * screens — it lives here because the page is rendered by the HOST, which
+ * cannot reach the webview's constants.
+ */
+export const PHONE_VIEW_URGENT_MS = 5 * 60 * 1000;
