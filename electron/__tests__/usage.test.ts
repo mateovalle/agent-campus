@@ -118,6 +118,46 @@ describe('retentionStart', () => {
   });
 });
 
+describe('the 14-day series across a clock change', () => {
+  // A local day is 23 or 25 hours long twice a year, so `- n * 86_400_000`
+  // is not "n days ago". It used to shift every bucket by an hour and drop a
+  // date from the axis entirely. These assertions hold in EVERY timezone:
+  // where there is no DST they are simply never stressed.
+  const axis = (now: Date) => summarizeEntries([], now).days.map((d) => d.day);
+
+  it('always names fourteen distinct consecutive days', () => {
+    for (const now of [
+      new Date(2026, 2, 15, 14, 0), // US spring forward was Mar 8
+      new Date(2026, 10, 5, 14, 0), // US fall back was Nov 1
+      new Date(2026, 9, 30, 14, 0), // EU change was Oct 25
+      new Date(2026, 3, 8, 14, 0), // southern-hemisphere changes
+      new Date(2027, 0, 5, 14, 0), // across a year boundary
+    ]) {
+      const days = axis(now);
+      expect(days).toHaveLength(14);
+      expect(new Set(days).size).toBe(14);
+    }
+  });
+
+  it('puts a turn in the column for the day it happened', () => {
+    const now = new Date(2026, 2, 15, 14, 0);
+    const at = (d: Date, c: number) => ({ t: d.getTime(), c, d: 0, p: '/r' });
+    const s = summarizeEntries(
+      [at(new Date(2026, 2, 7, 12, 0), 2), at(new Date(2026, 2, 8, 12, 0), 5)],
+      now,
+    );
+    expect(s.days.find((d) => d.usd === 2)?.day).toBe('03-07');
+    expect(s.days.find((d) => d.usd === 5)?.day).toBe('03-08');
+  });
+
+  it('counts a turn just after local midnight as that day, not the one before', () => {
+    const now = new Date(2026, 10, 5, 14, 0);
+    const justAfterMidnight = new Date(2026, 10, 1, 0, 30);
+    const s = summarizeEntries([{ t: justAfterMidnight.getTime(), c: 7, d: 0, p: '/r' }], now);
+    expect(s.days.find((d) => d.usd === 7)?.day).toBe('11-01');
+  });
+});
+
 describe('compactEntries', () => {
   it('leaves a ledger inside the window completely alone', () => {
     const list = [at(daysAgo(0)), at(daysAgo(3)), at(daysAgo(10))];

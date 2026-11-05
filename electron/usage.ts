@@ -25,7 +25,6 @@ import { DATA_DIR_NAME } from '../src/core/constants.js';
 
 const USAGE_FILE = path.join(os.homedir(), DATA_DIR_NAME, 'usage.jsonl');
 const MAX_PROJECTS_IN_SUMMARY = 10;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_IN_SERIES = 14;
 
 export interface UsageEntry {
@@ -155,6 +154,26 @@ function readEntries(): UsageEntry[] {
 }
 
 /**
+ * Local midnight, `daysBack` CALENDAR days before the day `now` falls in.
+ *
+ * Calendar arithmetic, not `- n * 86_400_000`: a local day is 23 or 25 hours
+ * long twice a year. Subtracting thirteen fixed days from midnight on
+ * 2026-03-15 in New York lands at 23:00 on the 1st, an hour short of the day
+ * it is supposed to name — which skewed every bucket in the chart and made a
+ * date vanish from its axis. `new Date(y, m, d - n)` normalises across month
+ * and year ends and lands on real local midnight either way.
+ */
+function startOfLocalDay(now: Date, daysBack = 0): number {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack).getTime();
+}
+
+/** The local calendar day an instant falls in, as a sortable YYYYMMDD. */
+function localDayKey(t: number): number {
+  const d = new Date(t);
+  return d.getFullYear() * 10_000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+/**
  * The oldest instant whose entries must survive verbatim.
  *
  * Everything the summary reports on a per-entry basis comes from one of two
@@ -164,10 +183,8 @@ function readEntries(): UsageEntry[] {
  * the two is what makes a fold safe on any day of any month.
  */
 export function retentionStart(now: Date): number {
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const seriesStart = startOfDay - (DAYS_IN_SERIES - 1) * DAY_MS;
-  return Math.min(startOfMonth, seriesStart);
+  return Math.min(startOfMonth, startOfLocalDay(now, DAYS_IN_SERIES - 1));
 }
 
 /**
@@ -220,7 +237,7 @@ export function summarizeUsage(now = new Date()): UsageSummary {
 
 /** The aggregation itself, pure: entries in, summary out. */
 export function summarizeEntries(list: readonly UsageEntry[], now = new Date()): UsageSummary {
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDay = startOfLocalDay(now);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
   let todayUsd = 0;
@@ -229,7 +246,13 @@ export function summarizeEntries(list: readonly UsageEntry[], now = new Date()):
   let turnCount = 0;
   const byProject = new Map<string, { monthUsd: number; allTimeUsd: number }>();
   const dayBuckets = new Array<number>(DAYS_IN_SERIES).fill(0);
-  const seriesStart = startOfDay - (DAYS_IN_SERIES - 1) * DAY_MS;
+  // The series is fourteen CALENDAR days, keyed by date rather than measured
+  // in elapsed milliseconds, so a 23- or 25-hour day cannot shift an entry
+  // into its neighbour's column or drop a date from the axis.
+  const dayStarts = Array.from({ length: DAYS_IN_SERIES }, (_, i) =>
+    startOfLocalDay(now, DAYS_IN_SERIES - 1 - i),
+  );
+  const bucketOfDay = new Map(dayStarts.map((start, i) => [localDayKey(start), i]));
   const todayByWorkspace: Record<string, number> = {};
 
   let earliestMs: number | null = null;
@@ -242,10 +265,8 @@ export function summarizeEntries(list: readonly UsageEntry[], now = new Date()):
       todayUsd += e.c;
       todayByWorkspace[e.p] = (todayByWorkspace[e.p] ?? 0) + e.c;
     }
-    if (e.t >= seriesStart) {
-      const idx = Math.min(DAYS_IN_SERIES - 1, Math.floor((e.t - seriesStart) / DAY_MS));
-      dayBuckets[idx] += e.c;
-    }
+    const bucket = bucketOfDay.get(localDayKey(e.t));
+    if (bucket !== undefined) dayBuckets[bucket] += e.c;
 
     let proj = byProject.get(e.p);
     if (!proj) {
@@ -267,7 +288,7 @@ export function summarizeEntries(list: readonly UsageEntry[], now = new Date()):
     .slice(0, MAX_PROJECTS_IN_SUMMARY);
 
   const days = dayBuckets.map((usd, i) => {
-    const d = new Date(seriesStart + i * DAY_MS);
+    const d = new Date(dayStarts[i]);
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return { day: `${mm}-${dd}`, usd };
