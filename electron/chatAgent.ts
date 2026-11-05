@@ -148,6 +148,13 @@ export function turnCostFromRunningTotal(runningTotal: number, previousTotal: nu
 }
 
 /** Human-readable (capped) rendering of a tool input/result value. */
+/** Just the fields of the SDK's SlashCommand that the palette uses. */
+interface SlashCommandLike {
+  name: string;
+  description: string;
+  argumentHint?: string;
+}
+
 /**
  * Whether a `user` record is something the person actually typed.
  *
@@ -665,6 +672,33 @@ export function startChatSession(opts: {
     }
   }
 
+  /**
+   * The slash commands this session accepts.
+   *
+   * Asked once at init and then REPLACED wholesale by every
+   * `commands_changed` push — the SDK's own instruction, because skills
+   * appear as an agent moves into a subdirectory. Without this the composer
+   * palette had an empty list and could never open, which is what shipped.
+   */
+  async function loadCommands(): Promise<void> {
+    try {
+      const commands = await query?.supportedCommands();
+      if (disposed || !commands) return;
+      setCommands(commands);
+    } catch (err) {
+      console.error(`[Agent Campus] Chat ${agentId}: supportedCommands failed`, err);
+    }
+  }
+
+  function setCommands(commands: ReadonlyArray<SlashCommandLike>): void {
+    session.commands = commands.map((c) => ({
+      name: c.name,
+      description: c.description,
+      ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+    }));
+    send({ type: 'chat-commands', agentId, commands: session.commands });
+  }
+
   function handleMessage(msg: SDKMessage): void {
     if (msg.type === 'stream_event') {
       const event = msg.event;
@@ -749,6 +783,15 @@ export function startChatSession(opts: {
       // Arrives AFTER the turn's result message (hence the loop that keeps
       // iterating past it), at most once per turn.
       setSuggestion(msg.suggestion);
+    } else if (msg.type === 'system' && msg.subtype === 'commands_changed') {
+      // Replaced wholesale, per the SDK: skills appear as an agent moves
+      // into a subdirectory, and the push carries the full list.
+      setCommands(msg.commands);
+    } else if (msg.type === 'rate_limit_event') {
+      // The ACCOUNT's window, not this session's — the host keeps the
+      // newest answer from whichever session reported it. Without this
+      // branch the banner never mounted and the scheduler never deferred.
+      opts.onRateLimit?.(msg.rate_limit_info);
     } else if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
       // The CLI's own turn-over signal, which is why the transcript watcher
       // stops guessing for chat agents (CoreAgentState.hasSessionState).
@@ -809,6 +852,7 @@ export function startChatSession(opts: {
       // model-support downgrades — not what we asked for.
       send({ type: 'chat-effort', agentId, effort: msg.effort ?? null });
       void loadModels();
+      void loadCommands();
     }
   }
 

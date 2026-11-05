@@ -9,7 +9,10 @@
  * opposite of that.
  */
 
+import { resetsAtMs } from '../../../src/core/rateLimit.js';
 import { RATE_LIMIT_WARN_PCT } from '../constants.js';
+
+export { resetsAtMs };
 
 export interface RateLimitInfo {
   status: 'allowed' | 'allowed_warning' | 'rejected';
@@ -19,19 +22,6 @@ export interface RateLimitInfo {
   resetsAt?: number;
   /** five_hour, seven_day, … */
   window?: string;
-}
-
-/**
- * `resetsAt` as epoch milliseconds.
- *
- * The SDK types it as a bare number with no unit. Anything below ~1e12 cannot
- * be a plausible millisecond timestamp (that boundary passed in 2001), so a
- * value under it is seconds. Guessing wrong by a factor of 1000 puts the
- * reset time in 1970 or in the year 56000, which is worse than showing none.
- */
-export function resetsAtMs(resetsAt: number | undefined): number | null {
-  if (resetsAt === undefined || !Number.isFinite(resetsAt) || resetsAt <= 0) return null;
-  return resetsAt < 1e12 ? resetsAt * 1000 : resetsAt;
 }
 
 /** 'five_hour' → '5h window'; anything unrecognised just says 'usage'. */

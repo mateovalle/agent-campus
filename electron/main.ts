@@ -57,6 +57,7 @@ import {
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
 import type { LayoutParseResult } from '../src/core/layoutPersistence.js';
 import { isValidLayout, parseLayout } from '../src/core/layoutPersistence.js';
+import { rateLimitStillBlocks } from '../src/core/rateLimit.js';
 import { AGENT_ROLE_DEFS, DISPATCH_ROLE_IDS, roleForTaskText } from '../src/core/roles.js';
 import {
   cancelPermissionTimer,
@@ -330,9 +331,7 @@ function recordRateLimit(info: {
  * hand.
  */
 function rateLimitBlocksDispatch(nowMs = Date.now()): boolean {
-  if (latestRateLimit?.status !== 'rejected') return false;
-  const resetsAtMs = latestRateLimit.resetsAt ? latestRateLimit.resetsAt * 1000 : null;
-  return resetsAtMs === null || resetsAtMs > nowMs;
+  return rateLimitStillBlocks(latestRateLimit, nowMs);
 }
 
 // ── Small JSON persistence helpers ───────────────────────────

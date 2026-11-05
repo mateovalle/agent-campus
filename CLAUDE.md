@@ -493,7 +493,12 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 a SLASH-COMMAND PALETTE above the composer (`chat-commands`, from
                                 `query.supportedCommands()` at init and REPLACED wholesale by every
                                 `commands_changed` push — skills appear as an agent moves into a
-                                subdirectory). The open/closed rule is the pure, tested
+                                subdirectory). Both producers were MISSING for a release: the
+                                field was initialised to `[]` and never written, so the palette
+                                could not open and this paragraph described code that did not
+                                exist. A documented feature with no producer is the failure mode
+                                to watch for here — the webview half typechecks perfectly against
+                                a host that never emits. The open/closed rule is the pure, tested
                                 `matchCommands`: open only while the caret is inside the FIRST
                                 token, because once there is a space the user is writing arguments
                                 and an open palette would eat their Enter. ↑↓ move, Enter/Tab
@@ -848,7 +853,13 @@ number rather than "error".
 
 **Rate limits**: the account's window, not an agent's — every session reports the same one, so the
 host keeps the newest answer (`recordRateLimit`) and re-sends it on `webviewReady` like the other
-session state. `RateLimitBanner` follows the bubble rule: a healthy account shows NOTHING, and the
+session state. The producer is chatAgent's `rate_limit_event` branch; it was MISSING for a
+release, so `onRateLimit` was declared, passed in from two call sites and never called — banner
+never mounted, scheduler never deferred, and the webview half sat wired to nothing. The
+seconds-vs-milliseconds judgement now lives once, in `src/core/rateLimit.ts`, because the host
+had re-implemented it and got it wrong (`* 1000` unconditionally, which on a milliseconds reading
+lands in ~57000 AD and defers every scheduled run forever — the exact outcome its own comment
+promised to prevent). `RateLimitBanner` follows the bubble rule: a healthy account shows NOTHING, and the
 strip appears only when the CLI warns, when utilization crosses `RATE_LIMIT_WARN_PCT`, or when
 requests are refused. The judgement lives in the pure, tested `rateLimitText` — including that
 `resetsAt` has no documented unit (under ~1e12 is seconds; guessing wrong by 1000 puts the reset
