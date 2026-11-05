@@ -23,6 +23,7 @@ import * as path from 'path';
 import type { GitFileChange, GitFileStatus } from '../shared/protocol.js';
 import {
   GIT_COMMAND_TIMEOUT_MS,
+  GIT_WRITE_MAX_BUFFER,
   GIT_WRITE_TIMEOUT_MS,
   UNTRACKED_COUNT_MAX_BYTES,
 } from '../src/core/constants.js';
@@ -127,14 +128,59 @@ function untrackedLineCount(absolute: string): number {
 }
 
 /** Everything different from HEAD in `cwd`, untracked files included. */
+/**
+ * Where to run, and what to limit ourselves to.
+ *
+ * git reports paths relative to the REPO ROOT but resolves a pathspec
+ * relative to the CWD, and mixing the two is not a cosmetic error: with an
+ * office one directory inside a repo, every diff came back empty (the
+ * pathspec resolved to `sub/sub/file`), untracked line counts were read from
+ * paths that do not exist, and `git add -A` — which ignores cwd entirely —
+ * staged the WHOLE repository, including the user's own edits elsewhere,
+ * behind a button labelled with one agent's name.
+ *
+ * So everything runs from the root and carries an explicit pathspec limiting
+ * it to the agent's own directory. For a worktree agent, or an office that is
+ * a repo, the pathspec is the root and nothing changes.
+ */
+export interface GitScope {
+  /** Run every command here, so reported paths and pathspecs agree. */
+  root: string;
+  /** `:(top)sub/dir` — or null when the agent owns the whole repo. */
+  pathspec: string | null;
+}
+
+export function gitScope(cwd: string): GitScope | null {
+  const root = git(['rev-parse', '--show-toplevel'], cwd)?.trim();
+  if (!root) return null;
+  const prefix = git(['rev-parse', '--show-prefix'], cwd)?.trim() ?? '';
+  // `:(top)` anchors the pathspec at the repo root rather than at cwd, which
+  // is the whole point: it means the same thing wherever it is evaluated.
+  return { root, pathspec: prefix ? `:(top)${prefix.replace(/\/$/, '')}` : null };
+}
+
+/** The pathspec arguments for a scope, as argv tail (empty when unscoped). */
+function spec(scope: GitScope): string[] {
+  return scope.pathspec ? ['--', scope.pathspec] : [];
+}
+
 export function changedFiles(cwd: string): GitFileChange[] {
-  const status = git(['status', '--porcelain=v1', '-z', '-uall'], cwd);
+  const scope = gitScope(cwd);
+  if (!scope) return [];
+  const status = git(['status', '--porcelain=v1', '-z', '-uall', ...spec(scope)], scope.root);
   if (status === null) return [];
-  const counts = parseNumstat(git(['diff', '--numstat', '-z', 'HEAD'], cwd) ?? '');
+  const counts = parseNumstat(
+    git(['diff', '--numstat', '-z', 'HEAD', ...spec(scope)], scope.root) ?? '',
+  );
 
   return parseStatusPorcelain(status).map((change) => {
     if (change.status === 'untracked') {
-      return { ...change, added: untrackedLineCount(path.join(cwd, change.path)), removed: 0 };
+      // Joined with the ROOT, because that is what the path is relative to.
+      return {
+        ...change,
+        added: untrackedLineCount(path.join(scope.root, change.path)),
+        removed: 0,
+      };
     }
     const counted = counts.get(change.path) ?? { added: 0, removed: 0 };
     return { ...change, ...counted };
@@ -150,11 +196,14 @@ export function changedFiles(cwd: string): GitFileChange[] {
  * here, so its output has to be read from the thrown error.
  */
 export function fileDiff(cwd: string, file: string, untracked: boolean): string {
-  if (!untracked) return git(['diff', 'HEAD', '--', file], cwd) ?? '';
+  // From the repo root: `file` came out of `changedFiles`, so it is
+  // root-relative, and a pathspec is resolved against the cwd it runs in.
+  const root = gitScope(cwd)?.root ?? cwd;
+  if (!untracked) return git(['diff', 'HEAD', '--', file], root) ?? '';
   try {
     return (
       execFileSync('git', ['diff', '--no-index', '--', nullDevice(), file], {
-        cwd,
+        cwd: root,
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: GIT_COMMAND_TIMEOUT_MS,
@@ -202,6 +251,12 @@ function runGit(args: string[], cwd: string): Promise<GitWriteResult> {
         cwd,
         encoding: 'utf-8',
         timeout: GIT_WRITE_TIMEOUT_MS,
+        // The read path sets this and the write path did not, so node's 1MB
+        // default applied — and git folds pre-commit hook output into
+        // stderr. A verbose lint-staged run crossed it, node SIGTERMed
+        // `git commit`, the commit was LOST, and the red box showed two
+        // lines of lint output with nothing saying the app had killed it.
+        maxBuffer: GIT_WRITE_MAX_BUFFER,
         env: {
           ...process.env,
           // Never let git stop to ASK. A credential prompt or an ssh
@@ -234,33 +289,125 @@ function lastLines(text: string, count = 2): string {
  * created a file meant to create it. .gitignore still applies, so this does
  * not sweep up build output.
  */
+/**
+ * Conflict codes from `git status --porcelain`. Both sides modified, both
+ * added, one side deleted — all of them mean "a human has not finished here".
+ */
+const UNMERGED_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
+/**
+ * Why committing right now would be a mistake, or null if it would not.
+ *
+ * Pure so the judgement can be tested without a repo mid-merge.
+ *
+ * `git commit` does not stop you here, which is the problem: with a conflict
+ * staged, `add -A` + `commit` succeeds and writes `<<<<<<< HEAD` into the
+ * file, COMPLETING the merge with broken content under an agent's name. A
+ * rebase is the same with a detached HEAD. Both are states a person is in the
+ * middle of resolving, and a button in another window has no business
+ * finishing them.
+ */
+export function commitBlocker(
+  statusPorcelain: string,
+  inProgress: 'merge' | 'rebase' | 'cherry-pick' | null,
+): string | null {
+  if (inProgress) {
+    return `This repository is in the middle of a ${inProgress}. Finish or abort it first — committing now would complete it with whatever is in the files.`;
+  }
+  const unmerged = statusPorcelain
+    .split('\0')
+    .filter((record) => UNMERGED_CODES.has(record.slice(0, 2)))
+    .map((record) => record.slice(3));
+  if (unmerged.length > 0) {
+    return `Unresolved conflicts in ${unmerged.slice(0, 3).join(', ')}${unmerged.length > 3 ? ` and ${unmerged.length - 3} more` : ''}. Resolve them first — committing now would save the conflict markers.`;
+  }
+  return null;
+}
+
+/** Which multi-step git operation, if any, is half-finished. */
+function operationInProgress(gitDir: string): 'merge' | 'rebase' | 'cherry-pick' | null {
+  if (fs.existsSync(path.join(gitDir, 'MERGE_HEAD'))) return 'merge';
+  if (fs.existsSync(path.join(gitDir, 'CHERRY_PICK_HEAD'))) return 'cherry-pick';
+  if (
+    fs.existsSync(path.join(gitDir, 'rebase-merge')) ||
+    fs.existsSync(path.join(gitDir, 'rebase-apply'))
+  ) {
+    return 'rebase';
+  }
+  return null;
+}
+
+/**
+ * Stage the agent's work and commit it.
+ *
+ * `add -A` carries the SAME pathspec the Changes panel was built from, so
+ * what gets committed is what the user was shown. Without it `add -A`
+ * ignores cwd altogether and stages the entire repository — an office one
+ * directory inside a monorepo committed the whole monorepo.
+ */
 export async function commitAll(cwd: string, message: string): Promise<GitWriteResult> {
-  const staged = await runGit(['add', '-A'], cwd);
+  const scope = gitScope(cwd);
+  if (!scope) return { ok: false, message: 'This agent is not working in a git repository.' };
+
+  const gitDir = git(['rev-parse', '--absolute-git-dir'], scope.root)?.trim();
+  const status = git(['status', '--porcelain=v1', '-z'], scope.root) ?? '';
+  const blocker = commitBlocker(status, gitDir ? operationInProgress(gitDir) : null);
+  if (blocker) return { ok: false, message: blocker };
+
+  const staged = await runGit(['add', '-A', ...spec(scope)], scope.root);
   if (!staged.ok) return staged;
-  const committed = await runGit(['commit', '-m', message], cwd);
+  const committed = await runGit(['commit', '-m', message], scope.root);
   if (!committed.ok) return committed;
   return { ok: true, message: lastLines(committed.message, 1) };
 }
 
 /**
- * Push, setting upstream when there isn't one.
+ * Where this branch's pushes are supposed to go.
  *
- * `-u origin <branch>` unconditionally: an agent's branch is usually brand
- * new, and re-setting an upstream that already points there is a no-op.
+ * NOT always `origin`. In a triangular setup — which is how anyone works on
+ * a repo they cannot write to — `origin` is the canonical shared repository
+ * and pushes go to a personal fork via `remote.pushDefault` or
+ * `branch.<name>.pushRemote`. Hardcoding origin published an agent's
+ * half-finished branch to the shared repo, and `-u` then repointed the
+ * user's own `git push` at it too.
+ */
+export function pushRemote(cwd: string, branch: string): string | null {
+  const configured =
+    git(['config', '--get', `branch.${branch}.pushRemote`], cwd)?.trim() ||
+    git(['config', '--get', 'remote.pushDefault'], cwd)?.trim();
+  const remotes = (git(['remote'], cwd) ?? '')
+    .split('\n')
+    .map((r) => r.trim())
+    .filter(Boolean);
+  if (configured && remotes.includes(configured)) return configured;
+  return remotes.includes('origin') ? 'origin' : null;
+}
+
+/**
+ * Push, setting upstream only when the branch does not have one.
+ *
+ * `-u` is not a no-op when an upstream already exists and points elsewhere:
+ * it rewrites it, which silently retargets every later `git push` the user
+ * runs by hand.
  */
 export async function pushBranch(cwd: string, branch: string): Promise<GitWriteResult> {
-  // Checked first because of what git says otherwise: with no remote named
-  // origin it treats 'origin' as a URL, fails to reach it, and reports
-  // "make sure you have the correct access rights" — sending the user to look
-  // for a permissions problem they do not have.
-  const remotes = git(['remote'], cwd) ?? '';
-  if (!remotes.split('\n').some((r) => r.trim() === 'origin')) {
+  const root = gitScope(cwd)?.root ?? cwd;
+  // Checked first because of what git says otherwise: with no remote of that
+  // name it treats the name as a URL, fails to reach it, and reports "make
+  // sure you have the correct access rights" — sending the user to look for
+  // a permissions problem they do not have.
+  const remote = pushRemote(root, branch);
+  if (!remote) {
     return { ok: false, message: 'This repository has no "origin" remote to push to.' };
   }
 
-  const pushed = await runGit(['push', '-u', 'origin', branch], cwd);
+  // git() answers null when the command fails, which is what "no upstream"
+  // looks like: `rev-parse <branch>@{upstream}` exits non-zero.
+  const hasUpstream = git(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`], root) !== null;
+  const args = hasUpstream ? ['push', remote, branch] : ['push', '-u', remote, branch];
+  const pushed = await runGit(args, root);
   if (!pushed.ok) return pushed;
-  return { ok: true, message: `Pushed ${branch} to origin.` };
+  return { ok: true, message: `Pushed ${branch} to ${remote}.` };
 }
 
 /**

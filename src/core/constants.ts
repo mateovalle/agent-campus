@@ -27,6 +27,12 @@ export const TEXT_IDLE_DELAY_MS = 5000;
  * exotic.
  */
 export const GIT_COMMAND_TIMEOUT_MS = 10_000;
+/**
+ * Output a git WRITE may produce before node kills it. Generous because git
+ * folds pre-commit hook output into stderr, and node's 1MB default meant a
+ * chatty hook silently lost the commit.
+ */
+export const GIT_WRITE_MAX_BUFFER = 32 * 1024 * 1024;
 /** `which` / `where` — a PATH lookup is either instant or broken. */
 export const COMMAND_LOOKUP_TIMEOUT_MS = 2_000;
 /** A login shell runs the user's whole profile, which can be slow on purpose. */

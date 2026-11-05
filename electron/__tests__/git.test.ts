@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseNumstat, parseStatusPorcelain } from '../git.js';
+import { commitBlocker, parseNumstat, parseStatusPorcelain } from '../git.js';
 
 /** The NUL separator, written out so the fixtures read like git's output. */
 const z = '\0';
@@ -69,5 +69,51 @@ describe('parseNumstat', () => {
 
   it('ignores blank and malformed records', () => {
     expect(parseNumstat(`${z}garbage${z}1\t2\tfine.txt${z}`).size).toBe(1);
+  });
+});
+
+describe('commitBlocker', () => {
+  const rec = (...records: string[]) => records.join('\0');
+
+  it('lets an ordinary dirty tree through', () => {
+    expect(commitBlocker(rec(' M a.ts', '?? b.ts', 'A  c.ts'), null)).toBeNull();
+    expect(commitBlocker('', null)).toBeNull();
+  });
+
+  it('refuses while a merge is half-finished', () => {
+    // `git commit` does NOT stop you here: add -A + commit succeeds and
+    // writes <<<<<<< HEAD into the file, completing the merge with broken
+    // content under an agent's name. Reproduced against real git.
+    const why = commitBlocker('', 'merge');
+    expect(why).toContain('middle of a merge');
+    expect(why).toContain('abort');
+  });
+
+  it('names the operation, since aborting a rebase is not aborting a merge', () => {
+    expect(commitBlocker('', 'rebase')).toContain('rebase');
+    expect(commitBlocker('', 'cherry-pick')).toContain('cherry-pick');
+  });
+
+  it('refuses on unresolved conflicts even with no operation flagged', () => {
+    const why = commitBlocker(rec('UU f.txt', ' M ok.ts'), null);
+    expect(why).toContain('f.txt');
+    expect(why).toContain('conflict markers');
+  });
+
+  it('recognises every unmerged code, not just UU', () => {
+    for (const code of ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']) {
+      expect(commitBlocker(rec(`${code} f.txt`), null)).not.toBeNull();
+    }
+  });
+
+  it('lists a few names and then counts the rest', () => {
+    const why = commitBlocker(rec('UU a', 'UU b', 'UU c', 'UU d', 'UU e'), null) ?? '';
+    expect(why).toContain('a, b, c');
+    expect(why).toContain('2 more');
+  });
+
+  it('does not mistake a normal status code for a conflict', () => {
+    // 'AM' and 'MM' start with letters that appear in conflict codes.
+    expect(commitBlocker(rec('AM a.ts', 'MM b.ts', 'R  new\0old'), null)).toBeNull();
   });
 });
