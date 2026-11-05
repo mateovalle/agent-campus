@@ -459,6 +459,13 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 plus `user-id`, which attaches the CLI's id to the LAST user item:
                                 our echo of a prompt is emitted optimistically on send, so its id
                                 only exists once the SDK echoes it back).
+                                `user-id` is emitted ONLY for a real prompt (`isRealUserPrompt`,
+                                pure and tested): the CLI reports tool_results as `user` records
+                                too, with their own uuid, and emitting those overwrote the
+                                prompt's — so "Undo to here" on a prompt rewound to the
+                                checkpoint AFTER its own tool had run, reverting the NEXT turn's
+                                edits and leaving that turn's on disk. `isSynthetic` is the SDK's
+                                marker for this but is OPTIONAL, so the content is checked too.
                                 REWIND (`Options.enableFileCheckpointing` + `Query.rewindFiles`):
                                 "↶ Undo to here" on any of your own prompts, offered only while the
                                 session is IDLE (rewinding files under a running turn would pull

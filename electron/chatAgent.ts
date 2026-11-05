@@ -148,6 +148,34 @@ export function turnCostFromRunningTotal(runningTotal: number, previousTotal: nu
 }
 
 /** Human-readable (capped) rendering of a tool input/result value. */
+/**
+ * Whether a `user` record is something the person actually typed.
+ *
+ * The CLI reports tool_results as `user` records as well, and they carry
+ * their own uuid. Anything keyed off "the id of the last user message" has
+ * to tell them apart, which is what this is for: the rewind button targets
+ * that id, and a tool_result's uuid is the checkpoint AFTER the tool ran.
+ *
+ * `isSynthetic` is the SDK's own marker, but it is OPTIONAL, so the content
+ * is checked too: a tool_result carrier is made ENTIRELY of tool_result
+ * blocks, while a real prompt has text or an image in it.
+ */
+export function isRealUserPrompt(msg: {
+  isSynthetic?: boolean;
+  message?: { content?: unknown };
+}): boolean {
+  if (msg.isSynthetic) return false;
+  const content = msg.message?.content;
+  if (typeof content === 'string') return content.length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some(
+    (block) =>
+      typeof block === 'object' &&
+      block !== null &&
+      (block as { type?: unknown }).type !== 'tool_result',
+  );
+}
+
 export function summarizeToolValue(value: unknown): string {
   let text: string;
   if (typeof value === 'string') {
@@ -675,7 +703,12 @@ export function startChatSession(opts: {
       // The CLI's id for this prompt, which is what a rewind rewinds TO. It
       // exists only now: our own 'user-text' was emitted optimistically when
       // the user pressed send, before the SDK had seen it at all.
-      if (msg.uuid) emit({ kind: 'user-id', messageId: msg.uuid });
+      //
+      // Only for a REAL prompt. The CLI sends tool_results as `user` records
+      // too, and emitting their uuid overwrote the prompt's — so "Undo to
+      // here" on a prompt rewound to the checkpoint AFTER its own tool ran,
+      // reverting the NEXT turn's edits and leaving that turn's on disk.
+      if (msg.uuid && isRealUserPrompt(msg)) emit({ kind: 'user-id', messageId: msg.uuid });
       const content = msg.message.content;
       if (!Array.isArray(content)) return;
       for (const block of content) {
