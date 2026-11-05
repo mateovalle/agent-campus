@@ -250,8 +250,16 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 invisible, so a Tray (icon.png, shipped via extraResources) carries
                                 "Open Agent Campus" and a Quit item LABELLED with what it stops —
                                 an honest label instead of a modal there is no window to host. The
-                                pure, tested windowCloseAction() decides between quit / background /
-                                reopen: agents running with no usable tray (a Linux desktop without
+                                pure, tested `liveWorkCount()` answers how much a quit would
+                                destroy — and NOT from `ctx.agents`, which is the trap: the
+                                ASSISTANT starts a chat session without registerAgent (no office,
+                                no character), and a worktree's setup command and the
+                                `claude auth login` terminal are PTYs with no agent behind them
+                                yet. All three are torn down by cleanupAndQuit, so counting
+                                agents read "idle app" and quit on top of them. Counting sessions
+                                plus PTYs also counts each unit of work exactly once.
+                                The pure, tested windowCloseAction() then decides between
+                                quit / background / reopen: agents running with no usable tray (a Linux desktop without
                                 one) REOPENS the window rather than leaving a process nobody can
                                 see or stop, while a schedule alone is worth outliving the window
                                 for but not worth forcing one back open. It also answers 'quit'
@@ -259,7 +267,14 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 BEFORE the windows close, so this handler runs last and would
                                 otherwise read the moment as "idle app" and raise a tray on the way
                                 out. Reopening restores every tab through the normal onWebviewReady
-                                rebuild
+                                rebuild. A host→webview message raised while NO renderer exists
+                                (a windowless app, or a window still loading) is queued on
+                                `pendingNotices` rather than dropped — `mainWindow !== null` is
+                                not the same as "listening", hence the `rendererReady` flag — and
+                                a notification clicked with no window parks its agent in
+                                `pendingFocusAgentId` for the end of onWebviewReady, because
+                                focusing a tab needs the tab to exist and acknowledging an agent
+                                the user never landed on clears the badge for nothing
   phoneView.ts / phoneServer.ts
                               — "Who needs me", readable from a PHONE on the same network. The
                                 campus premise is that nobody watches agents work, which is

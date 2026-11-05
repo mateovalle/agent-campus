@@ -70,7 +70,7 @@ import {
 } from '../src/core/types.js';
 import { type AchievementEvent, listAchievements, recordAchievementEvent } from './achievements.js';
 import { type AttentionEvent, AttentionTracker } from './attention.js';
-import { quitItemLabel, trayTooltip, windowCloseAction } from './backgroundMode.js';
+import { liveWorkCount, quitItemLabel, trayTooltip, windowCloseAction } from './backgroundMode.js';
 import type { CampusCommand, CampusResult, CampusServerHandle } from './campusServer.js';
 import {
   applyCampusCommand,
@@ -177,6 +177,11 @@ const CLAUDE_BYPASS_FLAG = '--dangerously-skip-permissions';
 const BLOCKED_NOTIFY_AFTER_MS = 2 * 60_000;
 /** How often blocks are checked against BLOCKED_NOTIFY_AFTER_MS. */
 const ATTENTION_TICK_MS = 10_000;
+/**
+ * Most queued host notices. A windowless app can accumulate them for hours,
+ * and the oldest failure of a long-forgotten run is the least useful one.
+ */
+const MAX_PENDING_NOTICES = 20;
 /** Tray icons are small; the shipped app icon is 512px and must be scaled. */
 const TRAY_ICON_SIZE = 16;
 /**
@@ -802,8 +807,32 @@ function inWorkspace(cwd: string): AgentPlacement {
 }
 
 /** Tells the user something the UI that asked for it can no longer report. */
+/**
+ * Notices that had nowhere to go: a window being re-created, or no window at
+ * all, has no renderer to receive a hostNotice, so the message waits for the
+ * next webviewReady.
+ */
+const pendingNotices: Array<{ level: 'info' | 'error'; text: string }> = [];
+/**
+ * True between the renderer saying webviewReady and the window going away or
+ * starting to reload. `mainWindow !== null` is NOT the same thing: a window
+ * that exists but has not loaded drops everything sent to it.
+ */
+let rendererReady = false;
+
 function notify(level: 'info' | 'error', text: string): void {
   console.log(`[Agent Campus] ${level}: ${text}`);
+  if (!rendererReady) {
+    // Nothing is listening: there is no window, or one is still loading.
+    // Since closing the window became a normal state on every platform
+    // rather than a quit, that is no longer a corner case — a scheduled run
+    // that fails at 3am has nobody to tell until morning. Dropping the
+    // message would make the failure silent, which is the one thing this
+    // function exists to prevent.
+    pendingNotices.push({ level, text });
+    if (pendingNotices.length > MAX_PENDING_NOTICES) pendingNotices.shift();
+    return;
+  }
   ctx.send({ type: 'hostNotice', level, text });
 }
 
@@ -2620,6 +2649,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
 }
 
 function onWebviewReady(): void {
+  rendererReady = true;
   const assetsRoot = getAssetsRoot();
 
   // Anything the host wanted to say while there was no renderer to say it to.
@@ -2779,6 +2809,16 @@ function onWebviewReady(): void {
       ctx.send({ type: 'agentStatus', id: agentId, status: 'waiting' });
     }
   }
+
+  // Last, because focusing a tab needs the tab: a notification clicked while
+  // the app had no window parked its agent here rather than firing into a
+  // renderer that did not exist yet.
+  if (pendingFocusAgentId !== null) {
+    const id = pendingFocusAgentId;
+    pendingFocusAgentId = null;
+    ctx.send({ type: 'agentSelected', id });
+    focusAgentTab(id);
+  }
 }
 
 /**
@@ -2928,8 +2968,14 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '..', '..', 'dist', 'webview', 'index.html'));
   }
 
+  // A reload tears the renderer down and sends webviewReady again when it is
+  // back; anything pushed in between would be dropped.
+  mainWindow.webContents.on('did-start-loading', () => {
+    rendererReady = false;
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
+    rendererReady = false;
   });
 }
 
@@ -3014,9 +3060,23 @@ function focusAgentTab(id: number): void {
   }
 }
 
+/**
+ * A deferred "land on this agent", for a notification clicked with no window.
+ */
+let pendingFocusAgentId: number | null = null;
+
 /** Notification click: bring the window up and land on that agent. */
 function showAgent(id: number): void {
   showWindow();
+  if (!rendererReady) {
+    // The window is only now being created. Selecting and focusing here
+    // would send three messages into a renderer that does not exist — and
+    // focusAgentTab also ACKNOWLEDGES the agent, so the badge would clear
+    // for an agent the user never actually landed on. Wait for the rebuild;
+    // the tabs have to exist before one of them can be focused anyway.
+    pendingFocusAgentId = id;
+    return;
+  }
   ctx.send({ type: 'agentSelected', id });
   focusAgentTab(id);
 }
@@ -3028,15 +3088,10 @@ function showAgent(id: number): void {
 let tray: Tray | null = null;
 /** The "still running" explainer is a one-off per launch, not per close. */
 let backgroundNoticeShown = false;
-/**
- * Notices that had nowhere to go: a window being re-created has no renderer
- * to receive a hostNotice, so the message waits for its webviewReady.
- */
-const pendingNotices: Array<{ level: 'info' | 'error'; text: string }> = [];
 
-/** Live sessions. Sub-agents are webview-only, so this counts real ones. */
+/** Live work a quit would destroy — see liveWorkCount for why not ctx.agents. */
 function liveAgentCount(): number {
-  return ctx.agents.size;
+  return liveWorkCount(chatSessions.values(), ptys.size);
 }
 
 function activeScheduleCount(): number {
