@@ -21,14 +21,38 @@ import { CHAT_HISTORY_MAX_EVENTS, loadSdk, summarizeToolValue } from './chatAgen
 const HISTORY_MAX_MESSAGES = 600;
 
 /**
+ * The tags Claude Code wraps its own bookkeeping in. Named rather than
+ * matched by a leading '<', which is what this used to do and which ate
+ * anything a person started with a tag or a generic: "<Button> renders
+ * twice — fix it" simply disappeared from a resumed conversation, and the
+ * answer to it appeared with nothing above it.
+ */
+const SYNTHETIC_TAGS = [
+  'command-name',
+  'command-message',
+  'command-args',
+  'command-contents',
+  'local-command-stdout',
+  'local-command-stderr',
+  'system-reminder',
+  'user-prompt-submit-hook',
+];
+const SYNTHETIC_TAG_RE = new RegExp(`^<(${SYNTHETIC_TAGS.join('|')})[\\s>]`);
+/** The full sentence, not the word: "Caveat:" alone is a plausible prompt. */
+const CAVEAT_RE = /^Caveat: the messages below/i;
+
+/**
  * True for synthetic user records Claude Code writes into transcripts:
- * slash-command bookkeeping (<command-name>…), local command output
- * (<local-command-stdout>…), the local-command caveat, system reminders,
- * and interrupt markers. None of these are what the human actually asked.
+ * slash-command bookkeeping, local command output, system reminders, the
+ * local-command caveat and interrupt markers. None of these are what the
+ * human actually asked, so none belong in a replayed conversation.
+ *
+ * Each pattern is anchored to the real marker. The cost of being too broad
+ * here is silent: the prompt is not shown as skipped, it is simply gone.
  */
 export function isSyntheticUserText(text: string): boolean {
   return (
-    text.startsWith('<') || text.startsWith('[Request interrupted') || text.startsWith('Caveat:')
+    SYNTHETIC_TAG_RE.test(text) || text.startsWith('[Request interrupted') || CAVEAT_RE.test(text)
   );
 }
 

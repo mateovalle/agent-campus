@@ -14,12 +14,20 @@
  * `tolerancePx` is what makes repeated presses work: after a jump the anchor
  * sits at scrollTop, so without a margin "up" would keep selecting the anchor
  * you just landed on.
+ *
+ * `maxScrollTop` is what makes the LAST press work. That premise — the anchor
+ * ends up at scrollTop — fails at the bottom: an element clamps scrollTop to
+ * scrollHeight - clientHeight, so a target past it never arrives, and the
+ * next press picks the same unreachable anchor forever. With a short answer
+ * to a short question, which is common, ↓ simply did nothing. Answering null
+ * sends the caller to its scroll-to-bottom fallback, which lands on it.
  */
 export function turnJumpTarget(
   anchorTops: readonly number[],
   scrollTop: number,
   direction: 'up' | 'down',
   tolerancePx: number,
+  maxScrollTop?: number,
 ): number | null {
   if (direction === 'up') {
     let best: number | null = null;
@@ -29,7 +37,9 @@ export function turnJumpTarget(
     return best;
   }
   for (const top of anchorTops) {
-    if (top > scrollTop + tolerancePx) return top;
+    if (top > scrollTop + tolerancePx) {
+      return maxScrollTop !== undefined && top > maxScrollTop ? null : top;
+    }
   }
   return null;
 }

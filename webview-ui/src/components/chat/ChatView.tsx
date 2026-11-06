@@ -1121,7 +1121,16 @@ export function ChatView({ agentId, visible }: ChatViewProps) {
       const tops = [...el.querySelectorAll(`[${CHAT_TURN_ANCHOR_ATTR}]`)].map(
         (node) => node.getBoundingClientRect().top - listTop + el.scrollTop,
       );
-      const target = turnJumpTarget(tops, el.scrollTop, direction, CHAT_TURN_JUMP_TOLERANCE_PX);
+      // The furthest this element can actually scroll: a target past it is
+      // unreachable, and turnJumpTarget answers null so the fallback below
+      // takes us to the bottom instead of pressing against a clamp.
+      const target = turnJumpTarget(
+        tops,
+        el.scrollTop,
+        direction,
+        CHAT_TURN_JUMP_TOLERANCE_PX,
+        el.scrollHeight - el.clientHeight,
+      );
       if (target === null) {
         // Past the last turn there is only the newest answer — go read it.
         if (direction === 'down') scrollToBottom();

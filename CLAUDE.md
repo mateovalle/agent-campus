@@ -392,7 +392,11 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 ChatEvents the live reduction produces, dropping sub-agent traffic
                                 on `parent_tool_use_id` — the SAME rule the live path uses, where
                                 this module used to read `isSidechain` and could disagree with it.
-                                Exports isSyntheticUserText. main.ts focusChatTab() re-sends
+                                Exports isSyntheticUserText, whose patterns are ANCHORED to the
+                                real markers: it used to treat any leading `<` as synthetic, so
+                                "<Button> renders twice — fix it" vanished from a resumed
+                                conversation and its answer appeared with nothing above it. The
+                                cost of being too broad there is silent. main.ts focusChatTab() re-sends
                                 chat-created (renderer dedupes by key) before chat-focus, so clicking
                                 a character always recovers a lost chat tab
   preload.ts                  — Minimal contextBridge: postMessage/onMessage + ptyInput/Resize/Kill/Ready
@@ -459,7 +463,11 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 SECOND slash, so inspecting the preceding characters is not enough),
                                 and PROSE_JS_WORDS stops "node.js" becoming a link. Inside
                                 BACKTICKS the span is first tried as ONE path, spaces and all
-                                (wholeFileRef): a tokeniser turns `~/Downloads/My Report.html`
+                                (wholeFileRef — a LIST is two or more tokens that are each a
+                                COMPLETE reference; asking whether every word was path-shaped
+                                was wrong in both directions, rejecting
+                                `~/Downloads/My Report.html` and accepting
+                                `src/a.ts and src/b.ts` as one path): a tokeniser turns `~/Downloads/My Report.html`
                                 into rubble, and the only crumb still shaped like a file resolves
                                 against the agent's cwd to nothing. Conservative — needs a
                                 separator, a linkable extension and no shell punctuation, and a
@@ -534,7 +542,11 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 prompt-suggestion row); PermissionCard; ResumePicker;
                                 ToolGroup / toolIcons / toolMeta (grouped tool cards);
                                 ToolCard (collapsible, Edit diffs),
-                                turnNavigation.ts (pure turnJumpTarget) + the ▲▼ arrows at the
+                                turnNavigation.ts (pure turnJumpTarget — it takes `maxScrollTop`
+                                because an element clamps, so a target past
+                                scrollHeight-clientHeight never arrives and the next press picks
+                                the same unreachable anchor; ↓ did nothing at all whenever the
+                                last answer was short) + the ▲▼ arrows at the
                                 top-right of the message list and Alt+↑/↓: jump between TURNS,
                                 anchored on the user's own messages (each starts a turn, so the
                                 answer lands right below it) — reading something from earlier

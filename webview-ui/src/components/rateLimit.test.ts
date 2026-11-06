@@ -76,3 +76,25 @@ describe('rateLimitText', () => {
     ).toContain('7-day window');
   });
 });
+
+describe('a warning with no number', () => {
+  const NOW = new Date('2026-11-05T12:00:00Z');
+
+  it('does not claim 0% used', () => {
+    // `utilization` is optional in the SDK. `pct ?? 0` turned "you are near
+    // a limit" into a strip asserting the opposite of why it is on screen.
+    const text = rateLimitText({ status: 'allowed_warning', window: 'five_hour' }, NOW);
+    expect(text).not.toContain('0%');
+    expect(text).toContain('Close to the 5h window limit');
+  });
+
+  it('still shows the number when there is one', () => {
+    expect(
+      rateLimitText({ status: 'allowed_warning', window: 'five_hour', utilization: 0.87 }, NOW),
+    ).toContain('87% used');
+  });
+
+  it('a refusal with no number still reads as a refusal', () => {
+    expect(rateLimitText({ status: 'rejected' }, NOW)).toBe('Out of usage');
+  });
+});
