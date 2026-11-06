@@ -113,6 +113,23 @@ const PROSE_JS_WORDS = new Set([
   'chart.js',
 ]);
 
+/**
+ * Is this token, on its own, a complete file reference?
+ *
+ * The distinction that matters for `wholeFileRef`: `~/Downloads/My` is
+ * path-SHAPED (it has a separator) but it is not a reference to anything —
+ * it is the first half of a name with a space in it. Only a token whose
+ * base name ends in a linkable extension stands alone.
+ */
+function looksLikeCompleteRef(token: string): boolean {
+  const withoutLine = token.replace(/:\d+(?::\d+)?$/, '');
+  const base = withoutLine.slice(withoutLine.lastIndexOf('/') + 1);
+  if (!base.includes('.')) return false;
+  if (PROSE_JS_WORDS.has(base.toLowerCase())) return false;
+  const ext = base.split('.').pop();
+  return ext !== undefined && LINKABLE_EXTENSIONS.has(ext.toLowerCase());
+}
+
 /** Does this token look like a file rather than a word with a dot in it? */
 function looksLikePath(token: string): boolean {
   if (token.includes('/')) {
@@ -198,8 +215,14 @@ const WHOLE_REF_MAX = 300;
  * directory separator, end in a linkable extension, and carry no shell
  * punctuation. Returns null (fall back to `splitFileRefs`) for spans with no
  * space — the tokeniser already handles those, including `:line` — and for a
- * span whose every word is path-shaped, which is a LIST of paths rather than
- * one path that happens to contain spaces.
+ * LIST of paths rather than one path that happens to contain spaces.
+ *
+ * A list is two or more tokens that are each a COMPLETE reference on their
+ * own. The earlier rule asked whether every word was path-shaped, which was
+ * wrong in both directions: `~/Downloads/My Report.html` failed it (the
+ * first word has a separator, the last has an extension) — the very example
+ * this function was written for — while `src/a.ts and src/b.ts` passed it,
+ * because "and" is not path-shaped, and came back as one absurd path.
  */
 export function wholeFileRef(text: string): FileRef | null {
   const trimmed = text.trim();
@@ -211,7 +234,8 @@ export function wholeFileRef(text: string): FileRef | null {
   if (!ref.path.includes('/')) return null;
   const base = ref.path.slice(ref.path.lastIndexOf('/') + 1);
   if (!base || !looksLikePath(base)) return null;
-  if (trimmed.split(/\s+/).every(looksLikePath)) return null;
+  const completeRefs = trimmed.split(/\s+/).filter(looksLikeCompleteRef).length;
+  if (completeRefs > 1) return null;
 
   return ref;
 }

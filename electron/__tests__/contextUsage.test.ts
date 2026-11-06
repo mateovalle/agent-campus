@@ -47,9 +47,18 @@ describe('summarizeContextUsage', () => {
     ).toMatchObject({ usedTokens: 20_000, percentage: 20 });
   });
 
-  it('clamps a window already over its limit', () => {
-    // total_tokens may exceed the window, and "117%" on a gauge is noise.
+  it('reads 100% when the window is entirely used', () => {
+    // There used to be a Math.min(100, …) here described as clamping an
+    // over-full window. It could never fire: windowTokens is the sum that
+    // usedTokens is part of, so the ratio cannot exceed 1 — and this test
+    // fed exactly 100%, so it demonstrated nothing about clamping either.
     expect(summarizeContextUsage([{ tokens: 120_000, kind: 'used' }])?.percentage).toBe(100);
+    expect(
+      summarizeContextUsage([
+        { tokens: 120_000, kind: 'used' },
+        { tokens: 0, kind: 'free' },
+      ])?.percentage,
+    ).toBe(100);
   });
 
   it('answers null when there is no window to measure against', () => {

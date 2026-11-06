@@ -54,5 +54,9 @@ export function rateLimitText(
   const resets = ms !== null && ms > now.getTime() ? ` · resets ${formatTime(new Date(ms))}` : '';
 
   if (info.status === 'rejected') return `Out of usage${resets}`;
-  return `${windowLabel(info.window)} ${pct ?? 0}% used${resets}`;
+  // Without a number, say there isn't one. `utilization` is optional in the
+  // SDK, and `pct ?? 0` turned "you are near a limit" into "0% used" — a
+  // strip asserting the opposite of the reason it is on screen.
+  if (pct === null) return `Close to the ${windowLabel(info.window)} limit${resets}`;
+  return `${windowLabel(info.window)} ${pct}% used${resets}`;
 }

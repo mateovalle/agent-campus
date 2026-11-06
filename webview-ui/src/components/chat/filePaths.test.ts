@@ -160,3 +160,43 @@ describe('wholeFileRef', () => {
     expect(wholeFileRef('a very long sentence about things')).toBeNull();
   });
 });
+
+describe('wholeFileRef: one path with spaces vs a list of paths', () => {
+  // The old rule asked whether EVERY word was path-shaped, which was wrong
+  // in both directions at once.
+  it('joins a two-word path — the case the function exists for', () => {
+    // `~/Downloads/My` is path-shaped (it has a separator) and `Report.html`
+    // has an extension, so the old guard saw "a list" and returned null,
+    // leaving the tokeniser to produce two dead links.
+    expect(wholeFileRef('~/Downloads/My Report.html')).toEqual({
+      path: '~/Downloads/My Report.html',
+    });
+    expect(wholeFileRef('docs/Release Notes.md')).toEqual({ path: 'docs/Release Notes.md' });
+    expect(wholeFileRef('src/a b.ts')).toEqual({ path: 'src/a b.ts' });
+  });
+
+  it('keeps the line number on a spaced path', () => {
+    expect(wholeFileRef('/tmp/My Notes/plan.md:42')).toEqual({
+      path: '/tmp/My Notes/plan.md',
+      line: 42,
+    });
+  });
+
+  it('refuses an actual list', () => {
+    // These passed the old guard, because "and" is not path-shaped, and came
+    // back as one absurd path.
+    expect(wholeFileRef('src/a.ts and src/b.ts')).toBeNull();
+    expect(wholeFileRef('README.md CHANGELOG.md')).toBeNull();
+  });
+
+  it('still refuses a command', () => {
+    expect(wholeFileRef('npm run build && node x.js')).toBeNull();
+    expect(wholeFileRef('rm -rf build/*.log')).toBeNull();
+  });
+
+  it('still refuses something with no separator or no extension', () => {
+    expect(wholeFileRef('just some prose here')).toBeNull();
+    expect(wholeFileRef('My Report.html')).toBeNull();
+    expect(wholeFileRef('src/some directory')).toBeNull();
+  });
+});

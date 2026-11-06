@@ -52,6 +52,10 @@ export function summarizeContextUsage(categories: ContextCategory[]): ContextSum
   return {
     usedTokens,
     totalTokens: windowTokens,
-    percentage: Math.min(100, Math.round((usedTokens / windowTokens) * 100)),
+    // No clamp: `windowTokens` is the sum that `usedTokens` is one part of,
+    // so the ratio cannot exceed 1. A Math.min(100, …) here looked like it
+    // guarded against an over-full window and guarded against nothing —
+    // and its test fed exactly 100%, so it demonstrated nothing either.
+    percentage: Math.round((usedTokens / windowTokens) * 100),
   };
 }
