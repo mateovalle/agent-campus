@@ -7,11 +7,49 @@ extension's `1.x`.
 
 ## Unreleased
 
+Mostly the results of reading v0.4.0 back adversarially. Several of these are
+things the app did wrong to your repository or your files, so they are listed
+before the features.
+
+### Fixed — things that could damage your work
+
+- **Commit could commit the whole repository.** With an office one directory inside a repo (a
+  monorepo app, say), every diff showed as empty, your own edits elsewhere in the repo were
+  listed as the agent's, and `git add -A` staged all of it behind a button labelled with one
+  agent's name.
+- **Commit could finish a merge you were in the middle of**, writing the conflict markers into
+  the file. It now refuses during a merge, rebase or cherry-pick, and names what to resolve.
+- **Push could publish to the wrong remote.** If you push to a fork and keep `origin` as the
+  shared repository, an agent's branch went to the shared one — and reset your branch's upstream
+  so your own `git push` followed it.
+- **"Undo to here" reverted the wrong turn.** On any turn that used a tool it rewound to the
+  checkpoint *after* that turn's edits, so undoing an earlier prompt reverted the later work and
+  kept the earlier.
+- **A chatty pre-commit hook silently lost the commit**, showing two lines of its output as the
+  error.
+
+### Fixed — things that were not true
+
+- **The spend chart skipped a day** around a daylight-saving change and filed turns under the
+  wrong date for the following fortnight.
+- **Diffs quietly dropped lines** beginning with `-- ` or `++ ` (SQL and Lua comments, signature
+  delimiters) and mis-numbered every line after them.
+- **New binary files reported invented line counts** — a PNG as "+14".
+- **A prompt starting with `<`** (`<Button> renders twice`) vanished from a resumed conversation.
+- **A fresh `git init` was reported as a detached HEAD**, and a removed worktree as "git is not
+  installed".
+- **Closing the window on Windows and Linux** could still kill the Assistant mid-turn, or a
+  worktree's setup command.
+- The slash-command palette and the rate-limit warning **never appeared at all** — both were
+  wired to a host that emitted nothing.
+
 ### Features
 
 - **Watch the campus from a phone** — an optional, read-only page on your local network listing
   who needs you, longest wait first. Off by default, and nothing can be approved or changed from
   it: approving a permission remotely needs an auth story the app does not have yet.
+- **The Assistant can reach a running agent** — message it, interrupt it, or close a task,
+  instead of starting a fresh session for every correction.
 
 ## v0.4.0 — 2026-11-04
 
