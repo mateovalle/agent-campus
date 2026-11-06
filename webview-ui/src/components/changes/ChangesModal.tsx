@@ -121,6 +121,9 @@ export function ChangesModal({ agentId, agentName, onClose }: ChangesModalProps)
         agentId,
         file: file.path,
         untracked: file.status === 'untracked',
+        // Both names, or git cannot pair the rename and reports the file as
+        // wholly new — contradicting the count in the row above.
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
       });
     }
   };

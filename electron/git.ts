@@ -213,11 +213,17 @@ export function changedFiles(cwd: string): GitFileChange[] {
  * wants to see anyway. `--no-index` exits 1 when the files differ, i.e. always
  * here, so its output has to be read from the thrown error.
  */
-export function fileDiff(cwd: string, file: string, untracked: boolean): string {
+export function fileDiff(cwd: string, file: string, untracked: boolean, oldPath?: string): string {
   // From the repo root: `file` came out of `changedFiles`, so it is
   // root-relative, and a pathspec is resolved against the cwd it runs in.
   const root = gitScope(cwd)?.root ?? cwd;
-  if (!untracked) return git(['diff', 'HEAD', '--', file], root) ?? '';
+  if (!untracked) {
+    // Both names for a rename. Given only the new one git cannot pair them
+    // and reports the file as wholly new — six added lines under a row that
+    // says "+1", because the count came from numstat, which did pair them.
+    const paths = oldPath && oldPath !== file ? [file, oldPath] : [file];
+    return git(['diff', 'HEAD', '--', ...paths], root) ?? '';
+  }
   try {
     return (
       execFileSync('git', ['diff', '--no-index', '--', nullDevice(), file], {
@@ -331,6 +337,22 @@ function lastLines(text: string, count = 2): string {
  * not sweep up build output.
  */
 /**
+ * Why this directory cannot be acted on, or null when it can.
+ *
+ * The missing-directory case is first because it is the one that reads
+ * worst without it: a worktree force-removed under a live agent made
+ * execFile fail with `spawn git ENOENT`, which says "git is not installed"
+ * to anyone who reads it.
+ */
+export function workingDirProblem(cwd: string): string | null {
+  if (!fs.existsSync(cwd)) {
+    return 'That folder no longer exists — its worktree was probably removed.';
+  }
+  if (gitScope(cwd) === null) return 'This agent is not working in a git repository.';
+  return null;
+}
+
+/**
  * Conflict codes from `git status --porcelain`. Both sides modified, both
  * added, one side deleted — all of them mean "a human has not finished here".
  */
@@ -387,6 +409,8 @@ function operationInProgress(gitDir: string): 'merge' | 'rebase' | 'cherry-pick'
  * directory inside a monorepo committed the whole monorepo.
  */
 export async function commitAll(cwd: string, message: string): Promise<GitWriteResult> {
+  const problem = workingDirProblem(cwd);
+  if (problem) return { ok: false, message: problem };
   const scope = gitScope(cwd);
   if (!scope) return { ok: false, message: 'This agent is not working in a git repository.' };
 
@@ -432,6 +456,8 @@ export function pushRemote(cwd: string, branch: string): string | null {
  * runs by hand.
  */
 export async function pushBranch(cwd: string, branch: string): Promise<GitWriteResult> {
+  const problem = workingDirProblem(cwd);
+  if (problem) return { ok: false, message: problem };
   const root = gitScope(cwd)?.root ?? cwd;
   // An unborn branch has a name but nothing behind it, and git answers
   // "src refspec main does not match any", which reads like a typo.
@@ -467,11 +493,29 @@ export async function pushBranch(cwd: string, branch: string): Promise<GitWriteR
  * this button needs no second form.
  */
 export function createPullRequest(cwd: string): Promise<GitWriteResult> {
+  const problem = workingDirProblem(cwd);
+  if (problem) return Promise.resolve({ ok: false, message: problem });
   return new Promise((resolve) => {
     execFile(
       'gh',
       ['pr', 'create', '--fill'],
-      { cwd, encoding: 'utf-8', timeout: GIT_WRITE_TIMEOUT_MS },
+      {
+        cwd,
+        encoding: 'utf-8',
+        timeout: GIT_WRITE_TIMEOUT_MS,
+        maxBuffer: GIT_WRITE_MAX_BUFFER,
+        // The same treatment runGit gives, and for the same reason: with no
+        // upstream `gh pr create` shells out to `git push`, which will stop
+        // to ask for a credential or an ssh passphrase at a terminal that
+        // does not exist here, and wait out the timeout instead.
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_ASKPASS: 'echo',
+          SSH_ASKPASS: 'echo',
+          SSH_ASKPASS_REQUIRE: 'never',
+        },
+      },
       (err, stdout, stderr) => {
         if (!err) {
           // gh prints the URL of the new PR and nothing else worth keeping.

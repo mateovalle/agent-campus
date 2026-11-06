@@ -818,7 +818,18 @@ export type WebviewToHostMessage =
   | { type: 'createAgentPr'; agentId: number }
   /** Preview (dryRun) or perform a rewind of the files to a past prompt. */
   | { type: 'rewindAgentFiles'; agentId: number; userMessageId: string; dryRun: boolean }
-  | { type: 'requestAgentFileDiff'; agentId: number; file: string; untracked: boolean }
+  | {
+      type: 'requestAgentFileDiff';
+      agentId: number;
+      file: string;
+      untracked: boolean;
+      /**
+       * Where a renamed file came from. git cannot pair a rename given only
+       * the new name — it reports the file as wholly new, which disagrees
+       * with the line count beside it.
+       */
+      oldPath?: string;
+    }
   | { type: 'requestFileMentions'; agentId: number; query: string }
   | { type: 'stopSubagentTask'; agentId: number; taskId: string }
   | { type: 'setDefaultEffort'; effort: string | null }

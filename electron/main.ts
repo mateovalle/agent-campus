@@ -1041,6 +1041,20 @@ const NO_BRANCH_MESSAGE: Record<NoBranchReason, string> = {
   'not-a-repo': 'This agent is not working in a git repository.',
 };
 
+/**
+ * Agents with a git write already running.
+ *
+ * The panel disables its buttons while one is in flight, but that state
+ * lives in the MODAL: closing and reopening it resets `busy`, so Commit was
+ * live again while the first `add -A`/`commit` was still inside the repo's
+ * pre-commit hooks — up to two minutes. Two concurrent commitAll in one
+ * checkout produced "nothing to commit, working tree clean" and, on another
+ * run, "Aborting commit due to empty commit message" for a commit that did
+ * supply -m. Two agents sharing a repo had the same race with no guard at
+ * all, since each has its own modal. The host is the only place that knows.
+ */
+const gitWritesInFlight = new Set<number>();
+
 async function runAgentGitWrite(
   msg:
     | { type: 'commitAgentWork'; agentId: number; message: string }
@@ -1049,6 +1063,16 @@ async function runAgentGitWrite(
 ): Promise<void> {
   const action =
     msg.type === 'commitAgentWork' ? 'commit' : msg.type === 'pushAgentWork' ? 'push' : 'pr';
+  if (gitWritesInFlight.has(msg.agentId)) {
+    ctx.send({
+      type: 'agentGitResult',
+      agentId: msg.agentId,
+      action,
+      ok: false,
+      message: 'Another git command is still running for this agent.',
+    });
+    return;
+  }
   const agent = ctx.agents.get(msg.agentId);
   // Every path out of here answers: a button that was pressed and never hears
   // back spins forever, which is worse than being told the agent is gone.
@@ -1064,15 +1088,22 @@ async function runAgentGitWrite(
   }
 
   let result: GitWriteResult;
-  if (msg.type === 'commitAgentWork') {
-    result = await commitAll(agent.cwd, msg.message);
-  } else if (msg.type === 'pushAgentWork') {
-    const branch = currentBranch(agent.cwd);
-    result = branch
-      ? await pushBranch(agent.cwd, branch)
-      : { ok: false, message: NO_BRANCH_MESSAGE[noBranchReason(agent.cwd)] };
-  } else {
-    result = await createPullRequest(agent.cwd);
+  gitWritesInFlight.add(msg.agentId);
+  try {
+    if (msg.type === 'commitAgentWork') {
+      result = await commitAll(agent.cwd, msg.message);
+    } else if (msg.type === 'pushAgentWork') {
+      const branch = currentBranch(agent.cwd);
+      result = branch
+        ? await pushBranch(agent.cwd, branch)
+        : { ok: false, message: NO_BRANCH_MESSAGE[noBranchReason(agent.cwd)] };
+    } else {
+      result = await createPullRequest(agent.cwd);
+    }
+  } finally {
+    // In a finally because a throw here would otherwise wedge the agent out
+    // of every future git action for the life of the app.
+    gitWritesInFlight.delete(msg.agentId);
   }
 
   ctx.send({
@@ -2418,7 +2449,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
       type: 'agentFileDiff',
       agentId: msg.agentId,
       file: msg.file,
-      patch: fileDiff(agent.cwd, msg.file, msg.untracked),
+      patch: fileDiff(agent.cwd, msg.file, msg.untracked, msg.oldPath),
     });
   } else if (msg.type === 'addTodo') {
     ctx.send({ type: 'workspaceTodos', path: msg.path, todos: addTodo(msg.path, msg.text) });
