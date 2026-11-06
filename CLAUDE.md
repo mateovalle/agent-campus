@@ -129,6 +129,18 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 origin published an agent's branch to the canonical shared repo
                                 in a triangular setup — and only passes `-u` when there is no
                                 upstream, since `-u` REWRITES one that points elsewhere. The
+                                `fileDiff` takes the OLD path for a rename and passes both: given
+                                only the new name git cannot pair them and reports the file as
+                                wholly new, so a row reading "+1" expanded to six added lines.
+                                `workingDirProblem()` is checked before every write — a worktree
+                                force-removed under a live agent made execFile fail with
+                                `spawn git ENOENT`, which reads as "git is not installed".
+                                `createPullRequest` gets the same askpass neutering as runGit,
+                                since `gh pr create` shells out to `git push`. main.ts keeps
+                                `gitWritesInFlight` because the panel's own busy flag lives in the
+                                MODAL: reopening it re-armed Commit while the first one was still
+                                inside the repo's pre-commit hooks, and two agents sharing a repo
+                                had no guard at all. The
                                 write path sets GIT_WRITE_MAX_BUFFER: git folds pre-commit hook
                                 output into stderr, and node's 1MB default SIGTERMed `git commit`
                                 on a chatty hook, losing the commit while showing two lines of

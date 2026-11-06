@@ -1,6 +1,8 @@
+import * as os from 'os';
+import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { commitBlocker, parseNumstat, parseStatusPorcelain } from '../git.js';
+import { commitBlocker, parseNumstat, parseStatusPorcelain, workingDirProblem } from '../git.js';
 
 /** The NUL separator, written out so the fixtures read like git's output. */
 const z = '\0';
@@ -115,5 +117,24 @@ describe('commitBlocker', () => {
   it('does not mistake a normal status code for a conflict', () => {
     // 'AM' and 'MM' start with letters that appear in conflict codes.
     expect(commitBlocker(rec('AM a.ts', 'MM b.ts', 'R  new\0old'), null)).toBeNull();
+  });
+});
+
+describe('workingDirProblem', () => {
+  it('names a directory that is gone rather than blaming git', () => {
+    // A worktree force-removed under a live agent made execFile fail with
+    // `spawn git ENOENT`, which reads as "git is not installed".
+    const why = workingDirProblem('/tmp/definitely-not-here-98f3a2');
+    expect(why).toContain('no longer exists');
+    expect(why).not.toContain('ENOENT');
+  });
+
+  it('tells a real directory that is not a repo apart from a missing one', () => {
+    expect(workingDirProblem(os.tmpdir())).toBe('This agent is not working in a git repository.');
+  });
+
+  it('answers null for a repo it can act on', () => {
+    // This checkout is one.
+    expect(workingDirProblem(path.join(__dirname, '..', '..'))).toBeNull();
   });
 });
