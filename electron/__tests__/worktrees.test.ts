@@ -162,3 +162,37 @@ describe('worktreeRemovalBlocker', () => {
     expect(worktreeRemovalBlocker({ isMain: true, agentIds: [1] })).toMatch(/repository itself/i);
   });
 });
+
+describe('parseWorktreeList: a checkout whose directory is gone', () => {
+  it('reads the prunable line git emits for it', () => {
+    // git keeps listing it, so without this the row looks perfectly healthy
+    // and "+ Agent here" launches into a path that does not exist.
+    const porcelain = [
+      'worktree /repo',
+      'HEAD aaaa',
+      'branch refs/heads/main',
+      '',
+      'worktree /gone/fix-auth',
+      'HEAD bbbb',
+      'branch refs/heads/fix-auth',
+      'prunable gitdir file points to non-existent location',
+      '',
+    ].join('\n');
+    const out = parseWorktreeList(porcelain);
+    expect(out).toHaveLength(2);
+    expect(out[0].prunable).toBeUndefined();
+    expect(out[1]).toMatchObject({ path: '/gone/fix-auth', branch: 'fix-auth', prunable: true });
+  });
+
+  it('leaves a healthy list untouched', () => {
+    const out = parseWorktreeList(
+      ['worktree /repo', 'HEAD aaaa', 'branch refs/heads/main', ''].join('\n'),
+    );
+    expect(out).toEqual([{ path: '/repo', branch: 'main' }]);
+  });
+
+  it('still reads a detached checkout as having no branch', () => {
+    const out = parseWorktreeList(['worktree /repo/det', 'HEAD bbbb', 'detached', ''].join('\n'));
+    expect(out).toEqual([{ path: '/repo/det' }]);
+  });
+});

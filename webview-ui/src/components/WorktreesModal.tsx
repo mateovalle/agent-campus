@@ -186,6 +186,14 @@ export function WorktreesModal({ workspace, worktrees, agents, onClose }: Worktr
                       {worktree.ahead} unmerged
                     </span>
                   )}
+                  {/*
+                    git still lists a checkout whose folder is gone. Saying
+                    so is the whole point: an untagged row looks healthy and
+                    "+ Agent here" would launch into a path that is not there.
+                  */}
+                  {worktree.prunable && (
+                    <span style={{ ...tagStyle, color: WORKTREE_DIRTY_COLOR }}>folder missing</span>
+                  )}
                   {busy && (
                     <span style={{ ...tagStyle, color: 'var(--pixel-chat-green)' }}>
                       {worktree.agentIds.length === 1
@@ -223,7 +231,9 @@ export function WorktreesModal({ workspace, worktrees, agents, onClose }: Worktr
                     title={
                       busy
                         ? 'An agent is working here — close it first'
-                        : 'Remove this checkout (its branch and commits are kept)'
+                        : worktree.branch
+                          ? 'Remove this checkout (its branch and commits are kept)'
+                          : 'Remove this checkout — it is on a detached HEAD, so its commits are on no branch'
                     }
                     onClick={() => {
                       if (isConfirming) remove(worktree);
@@ -235,9 +245,17 @@ export function WorktreesModal({ workspace, worktrees, agents, onClose }: Worktr
                 </div>
                 {isConfirming && (
                   <div style={{ fontSize: '14px', color: 'var(--pixel-text-dim)' }}>
-                    {risky
-                      ? `Deletes the checkout${worktree.dirty ? ' and its uncommitted changes' : ''}. The branch ${worktree.branch ?? ''} and its commits stay.`
-                      : 'Deletes the checkout. The branch stays.'}
+                    {/*
+                      A detached checkout has no branch to keep, so the
+                      reassurance that one survives is simply false — and
+                      its commits really are lost, which is the opposite of
+                      what this sentence used to promise.
+                    */}
+                    {worktree.branch === undefined
+                      ? `Deletes the checkout${worktree.dirty ? ' and its uncommitted changes' : ''}. It is on a detached HEAD${worktree.ahead > 0 ? `, so its ${worktree.ahead} commit${worktree.ahead === 1 ? '' : 's'} are on no branch and will be lost` : ''}.`
+                      : risky
+                        ? `Deletes the checkout${worktree.dirty ? ' and its uncommitted changes' : ''}. The branch ${worktree.branch} and its commits stay.`
+                        : 'Deletes the checkout. The branch stays.'}
                   </div>
                 )}
               </div>

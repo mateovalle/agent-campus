@@ -1174,6 +1174,17 @@ async function placeForRequest(
       notify('error', 'That worktree is no longer part of this repository.');
       return null;
     }
+    // git keeps listing a checkout whose directory was deleted by hand, so
+    // "it is in the list" is not "it is there". Launching anyway gave a
+    // terminal agent a chdir failure and a chat agent a spawn error, both
+    // of which read as the app being broken.
+    if (known.prunable || !fs.existsSync(known.path)) {
+      notify(
+        'error',
+        `${path.basename(known.path)} is listed but its folder is gone. Run \`git worktree prune\` in the repo, or remove it from the worktree manager.`,
+      );
+      return null;
+    }
     return {
       cwd: known.path,
       workspacePath: repoRoot,
@@ -2522,7 +2533,15 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     }
     try {
       removeWorktreeDir(repoRoot, msg.path, msg.force);
-      notify('info', `Removed ${path.basename(msg.path)} — its branch and commits are kept.`);
+      // Only true when there IS a branch: a detached checkout's commits are
+      // on nothing else, and saying they are kept was the app reassuring
+      // the user about work it had just orphaned.
+      notify(
+        'info',
+        target && !target.branch
+          ? `Removed ${path.basename(msg.path)} — it was on a detached HEAD, so its commits are on no branch.`
+          : `Removed ${path.basename(msg.path)} — its branch and commits are kept.`,
+      );
     } catch (err) {
       notify('error', `Could not remove the worktree: ${(err as Error).message}`);
     }
