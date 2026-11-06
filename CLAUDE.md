@@ -179,7 +179,17 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 owns it, not itself. NOTHING here deletes a worktree on its own —
                                 it holds unmerged work; removal is always asked for.
                                 summarizeWorktrees() adds what a removal decision needs: dirty
-                                (uncommitted), ahead (commits the repo's branch lacks) and isMain;
+                                (uncommitted), `ahead` — commits a removal would ORPHAN, not
+                                simply "ahead of main" — `prunable`, and isMain. `ahead` is the
+                                subtle one: computed only as `base..branch`, it answered 0 for a
+                                DETACHED checkout (no branch, so the condition never ran) while
+                                the confirmation promised "the branch stays" about a branch that
+                                did not exist, and removal left the work as an unreachable
+                                commit. It also answered 0 for EVERY checkout when the repo
+                                itself was detached. A detached checkout is now measured in its
+                                own directory against `--branches --remotes --tags` — never
+                                `--all`, which deliberately includes other worktrees' HEADs, so
+                                the checkout would exclude itself and always read 0;
                                 main.ts fills agentIds by matching each agent's cwd. The policy
                                 itself is the pure, tested worktreeRemovalBlocker().
                                 samePath() answers "the same directory" via fs.realpathSync.native

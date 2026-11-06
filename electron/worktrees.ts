@@ -134,9 +134,11 @@ export function freeWorktreePath(
  * blank-line separated; a detached checkout has no branch line, and the
  * branch arrives as a full ref ("refs/heads/x").
  */
-export function parseWorktreeList(porcelain: string): Array<{ path: string; branch?: string }> {
-  const out: Array<{ path: string; branch?: string }> = [];
-  let current: { path: string; branch?: string } | null = null;
+export function parseWorktreeList(
+  porcelain: string,
+): Array<{ path: string; branch?: string; prunable?: boolean }> {
+  const out: Array<{ path: string; branch?: string; prunable?: boolean }> = [];
+  let current: { path: string; branch?: string; prunable?: boolean } | null = null;
   for (const line of porcelain.split('\n')) {
     const trimmed = line.trim();
     if (trimmed.startsWith('worktree ')) {
@@ -144,6 +146,12 @@ export function parseWorktreeList(porcelain: string): Array<{ path: string; bran
       current = { path: trimmed.slice('worktree '.length) };
     } else if (trimmed.startsWith('branch ') && current) {
       current.branch = trimmed.slice('branch '.length).replace(/^refs\/heads\//, '');
+    } else if (trimmed.startsWith('prunable') && current) {
+      // git still lists a checkout whose directory was deleted by hand, with
+      // a `prunable` line saying why. Without reading it the row looks
+      // perfectly healthy and "+ Agent here" launches into a path that does
+      // not exist — a terminal agent dies on chdir, a chat agent at spawn.
+      current.prunable = true;
     }
   }
   if (current) out.push(current);
@@ -269,7 +277,9 @@ function localBranches(repoRoot: string): string[] {
 }
 
 /** The checkouts a repo currently has (the main one included). */
-export function listWorktrees(repoRoot: string): Array<{ path: string; branch?: string }> {
+export function listWorktrees(
+  repoRoot: string,
+): Array<{ path: string; branch?: string; prunable?: boolean }> {
   const out = git(['worktree', 'list', '--porcelain'], repoRoot);
   return out ? parseWorktreeList(out) : [];
 }
@@ -296,6 +306,53 @@ function commitsAhead(repoRoot: string, branch: string, base: string): number {
  * The main checkout is included and flagged, so the manager can show which
  * branch the repo itself is on rather than implying it does not exist.
  */
+/** Local branch refs other than `except`, for "what else holds these commits". */
+function otherBranchRefs(repoRoot: string, except?: string): string[] {
+  return (git(['for-each-ref', '--format=%(refname)', 'refs/heads'], repoRoot) ?? '')
+    .split('\n')
+    .map((ref) => ref.trim())
+    .filter((ref) => ref.length > 0 && ref !== `refs/heads/${except}`);
+}
+
+/**
+ * Commits that would be ORPHANED by removing this checkout.
+ *
+ * The old answer was `base..branch`, which silently returned 0 in the two
+ * cases where it mattered most:
+ *
+ *   - A DETACHED checkout has no branch, so the condition never ran and the
+ *     row reported 0 unmerged — while the confirmation promised "the branch
+ *     stays" about a branch that does not exist. Removing it left the work
+ *     as an unreachable commit, i.e. waiting for gc. An agent only has to
+ *     run `git checkout <sha>` once to be here.
+ *   - When the REPO ITSELF is detached (a bisect, a tag checkout) there is
+ *     no base branch, so every worktree in it reported 0.
+ *
+ * Detached is measured in its own directory, because the question is about
+ * that worktree's HEAD. `--branches --remotes --tags` rather than `--all`:
+ * git deliberately includes other worktrees' HEADs in `--all`, so the
+ * checkout would exclude itself and always answer 0.
+ */
+function commitsOnlyHere(
+  repoRoot: string,
+  w: { path: string; branch?: string },
+  base?: string,
+): number {
+  const count = (out: string | null): number => {
+    const n = Number.parseInt((out ?? '').trim(), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+  if (!w.branch) {
+    return count(
+      git(['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'], w.path),
+    );
+  }
+  if (base && base !== w.branch) return commitsAhead(repoRoot, w.branch, base);
+  const others = otherBranchRefs(repoRoot, w.branch);
+  if (others.length === 0) return 0;
+  return count(git(['rev-list', '--count', w.branch, '--not', ...others], repoRoot));
+}
+
 export function summarizeWorktrees(repoRoot: string): WorktreeSummary[] {
   const all = listWorktrees(repoRoot);
   const main = all.find((w) => path.resolve(w.path) === path.resolve(repoRoot)) ?? all[0];
@@ -306,8 +363,9 @@ export function summarizeWorktrees(repoRoot: string): WorktreeSummary[] {
       path: w.path,
       ...(w.branch ? { branch: w.branch } : {}),
       isMain,
+      ...(w.prunable ? { prunable: true } : {}),
       dirty: isDirty(w.path),
-      ahead: !isMain && w.branch && baseBranch ? commitsAhead(repoRoot, w.branch, baseBranch) : 0,
+      ahead: isMain || w.prunable ? 0 : commitsOnlyHere(repoRoot, w, baseBranch),
       agentIds: [],
     };
   });

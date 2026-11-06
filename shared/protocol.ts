@@ -222,8 +222,16 @@ export interface WorktreeSummary {
   isMain: boolean;
   /** Uncommitted changes live here. */
   dirty: boolean;
-  /** Commits this branch has that the repo's branch does not. */
+  /**
+   * Commits that removing this checkout would ORPHAN — the repo's branch
+   * does not have them, and for a detached checkout nothing else does.
+   */
   ahead: number;
+  /**
+   * git still lists it, but its directory is gone. Nothing can run here and
+   * nothing is lost by pruning it.
+   */
+  prunable?: boolean;
   /** Agents currently working in this checkout. */
   agentIds: number[];
 }
