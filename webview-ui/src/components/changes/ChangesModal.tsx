@@ -125,8 +125,10 @@ export function ChangesModal({ agentId, agentName, onClose }: ChangesModalProps)
     }
   };
 
+  // Files whose counts are absent (a binary) contribute nothing rather than
+  // NaN — and the header total stays the sum of what is actually countable.
   const totals = (files ?? []).reduce(
-    (sum, f) => ({ added: sum.added + f.added, removed: sum.removed + f.removed }),
+    (sum, f) => ({ added: sum.added + (f.added ?? 0), removed: sum.removed + (f.removed ?? 0) }),
     { added: 0, removed: 0 },
   );
 

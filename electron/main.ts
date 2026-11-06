@@ -100,6 +100,8 @@ import {
   createPullRequest,
   currentBranch,
   fileDiff,
+  type NoBranchReason,
+  noBranchReason,
   pushBranch,
 } from './git.js';
 import { removeAgentHookSettings, writeAgentHookSettings } from './hookSettings.js';
@@ -1027,6 +1029,18 @@ function worktreesWithAgents(repoRoot: string): WorktreeSummary[] {
  * of them. The panel is told how it went either way, and a successful commit
  * is followed by a fresh file list, because the old one is now a lie.
  */
+/**
+ * Why there is nothing to push — each with a different thing to do next,
+ * which is why they are not one message. A fresh `git init` used to be
+ * reported as a detached HEAD, sending the user to check out a branch they
+ * are already on.
+ */
+const NO_BRANCH_MESSAGE: Record<NoBranchReason, string> = {
+  detached: 'This checkout is on a detached HEAD, so there is no branch to push.',
+  unborn: 'This repository has no commits yet, so there is nothing to push. Commit first.',
+  'not-a-repo': 'This agent is not working in a git repository.',
+};
+
 async function runAgentGitWrite(
   msg:
     | { type: 'commitAgentWork'; agentId: number; message: string }
@@ -1056,10 +1070,7 @@ async function runAgentGitWrite(
     const branch = currentBranch(agent.cwd);
     result = branch
       ? await pushBranch(agent.cwd, branch)
-      : {
-          ok: false,
-          message: 'This checkout is on a detached HEAD, so there is no branch to push.',
-        };
+      : { ok: false, message: NO_BRANCH_MESSAGE[noBranchReason(agent.cwd)] };
   } else {
     result = await createPullRequest(agent.cwd);
   }
@@ -1071,6 +1082,16 @@ async function runAgentGitWrite(
     ok: result.ok,
     message: result.message,
   });
+  // Also as a toast, because agentGitResult has exactly one consumer: the
+  // MOUNTED Changes panel. Close it after pressing Push — Esc, the
+  // backdrop, or opening the layout editor — and a `! [rejected]
+  // non-fast-forward` went nowhere at all, leaving the user to assume it
+  // worked. A write to their repository is not something to report only to
+  // whoever happens to still be looking.
+  notify(
+    result.ok ? 'info' : 'error',
+    `${agent.label}: ${result.ok ? result.message : `${action} failed — ${result.message}`}`,
+  );
   // Opened here rather than handed to the webview: the browser is the host's
   // to open, and the panel has nowhere to put a link anyway.
   if (result.url) void shell.openExternal(result.url);

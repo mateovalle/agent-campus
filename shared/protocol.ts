@@ -108,8 +108,13 @@ export interface GitFileChange {
   /** Set only for a rename: where the file came from. */
   oldPath?: string;
   status: GitFileStatus;
-  added: number;
-  removed: number;
+  /**
+   * Lines added / removed. ABSENT when counting them would be a fiction —
+   * an untracked binary, or a file too large to read — because 0 is itself
+   * a claim, and a new PNG reporting "+14" was worse than reporting nothing.
+   */
+  added?: number;
+  removed?: number;
 }
 
 export type LayoutData = Record<string, unknown>;

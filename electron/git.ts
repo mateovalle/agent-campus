@@ -112,18 +112,37 @@ export function parseNumstat(out: string): Map<string, { added: number; removed:
   return counts;
 }
 
-/** Lines in an untracked file, which no diff against HEAD can know about. */
-function untrackedLineCount(absolute: string): number {
+/**
+ * Whether a buffer is binary, by git's own rule: a NUL byte in the first
+ * 8000. Cheap, and it agrees with what the diff will say a moment later.
+ */
+function looksBinary(buffer: Buffer): boolean {
+  return buffer.subarray(0, 8000).includes(0);
+}
+
+/**
+ * Lines in an untracked file, which no diff against HEAD can know about —
+ * or null when counting lines is not a meaningful thing to do to it.
+ *
+ * Null rather than 0 for a binary: a new 5KB PNG was read as UTF-8 and
+ * reported `+14`, an invented number, while expanding the same row correctly
+ * said "Binary file — nothing to show." Zero would be its own small lie, so
+ * the count is simply absent and the UI shows nothing where a number would
+ * have been.
+ */
+function untrackedLineCount(absolute: string): number | null {
   try {
     const stat = fs.statSync(absolute);
     // A huge file is almost certainly not something to review line by line,
     // and reading it would stall the main process.
-    if (!stat.isFile() || stat.size > UNTRACKED_COUNT_MAX_BYTES) return 0;
-    const text = fs.readFileSync(absolute, 'utf-8');
+    if (!stat.isFile() || stat.size > UNTRACKED_COUNT_MAX_BYTES) return null;
+    const buffer = fs.readFileSync(absolute);
+    if (looksBinary(buffer)) return null;
+    const text = buffer.toString('utf-8');
     if (text === '') return 0;
     return text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -176,11 +195,10 @@ export function changedFiles(cwd: string): GitFileChange[] {
   return parseStatusPorcelain(status).map((change) => {
     if (change.status === 'untracked') {
       // Joined with the ROOT, because that is what the path is relative to.
-      return {
-        ...change,
-        added: untrackedLineCount(path.join(scope.root, change.path)),
-        removed: 0,
-      };
+      const added = untrackedLineCount(path.join(scope.root, change.path));
+      // Absent, not zero, when the count would be a fiction (a binary, a
+      // file too big to read): the row then shows no number at all.
+      return added === null ? { ...change } : { ...change, added, removed: 0 };
     }
     const counted = counts.get(change.path) ?? { added: 0, removed: 0 };
     return { ...change, ...counted };
@@ -219,10 +237,33 @@ function nullDevice(): string {
   return process.platform === 'win32' ? 'NUL' : '/dev/null';
 }
 
-/** The branch checked out in `cwd`, or null outside a repo / on a detached HEAD. */
+/** Why there is no branch to push, when there isn't one. */
+export type NoBranchReason = 'detached' | 'unborn' | 'not-a-repo';
+
+/**
+ * The branch checked out in `cwd`.
+ *
+ * On an UNBORN branch — a fresh `git init` with no commit yet —
+ * `rev-parse --abbrev-ref HEAD` prints `HEAD` and exits 128, which read as
+ * a detached HEAD and told the user so. Those are different situations with
+ * different answers ("make a commit" versus "check out a branch"), so they
+ * are distinguished rather than collapsed.
+ */
 export function currentBranch(cwd: string): string | null {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)?.trim();
-  return branch && branch !== 'HEAD' ? branch : null;
+  if (branch && branch !== 'HEAD') return branch;
+  // --symbolic-full-name succeeds on an unborn branch where --abbrev-ref
+  // does not: HEAD still points at refs/heads/<name>, there is just no
+  // commit at the other end of it yet.
+  const symbolic = git(['symbolic-ref', '--short', '-q', 'HEAD'], cwd)?.trim();
+  return symbolic || null;
+}
+
+/** Why `currentBranch` answered null, so the UI can say something true. */
+export function noBranchReason(cwd: string): NoBranchReason {
+  if (gitScope(cwd) === null) return 'not-a-repo';
+  // A symbolic HEAD with no commit behind it is unborn, not detached.
+  return git(['symbolic-ref', '-q', 'HEAD'], cwd) !== null ? 'unborn' : 'detached';
 }
 
 // ── Writing ──────────────────────────────────────────────────
@@ -392,7 +433,15 @@ export function pushRemote(cwd: string, branch: string): string | null {
  */
 export async function pushBranch(cwd: string, branch: string): Promise<GitWriteResult> {
   const root = gitScope(cwd)?.root ?? cwd;
-  // Checked first because of what git says otherwise: with no remote of that
+  // An unborn branch has a name but nothing behind it, and git answers
+  // "src refspec main does not match any", which reads like a typo.
+  if (git(['rev-parse', '--verify', '-q', 'HEAD'], root) === null) {
+    return {
+      ok: false,
+      message: 'This repository has no commits yet, so there is nothing to push. Commit first.',
+    };
+  }
+  // Checked next because of what git says otherwise: with no remote of that
   // name it treats the name as a URL, fails to reach it, and reports "make
   // sure you have the correct access rights" — sending the user to look for
   // a permissions problem they do not have.
