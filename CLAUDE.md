@@ -436,7 +436,19 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 prompt, so "fix-auth-timeout" beats an empty box), then Commit /
                                 Push / Open PR. Every request answers, including when the agent was
                                 closed while its panel was open — a button that is pressed and
-                                never hears back spins forever
+                                never hears back spins forever. The answer ALSO goes out as a
+                                hostNotice: `agentGitResult` has exactly one consumer, the
+                                mounted panel, so closing it after pressing Push sent a
+                                `! [rejected] non-fast-forward` nowhere at all. A write to the
+                                user's repository is not something to report only to whoever
+                                happens to still be looking. `parseUnifiedDiff` tests its header
+                                prefixes ONLY outside a hunk — inside one every line is content,
+                                and a removed `-- comment` arrives as `--- comment`, which
+                                matched: those lines vanished from the rendered diff AND their
+                                absence shifted every gutter number after them off the real file.
+                                `GitFileChange.added/removed` are OPTIONAL: absent when counting
+                                would be a fiction (an untracked binary, a file too large), since
+                                a new PNG reporting "+14" is worse than reporting nothing
   components/chat/            — Rich chat UI for SDK agents. filePaths.ts turns the paths an agent
                                 writes into click-to-open links (a terminal does this; the chat tab
                                 left them as dead text, worst exactly when it matters). Detection is

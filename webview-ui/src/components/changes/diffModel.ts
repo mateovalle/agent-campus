@@ -29,24 +29,21 @@ export interface ParsedDiff {
   truncated: boolean;
 }
 
-/** Headers that describe the file rather than its contents. */
-const HEADER_PREFIXES = [
-  'diff --git ',
-  'index ',
-  '--- ',
-  '+++ ',
-  'new file mode',
-  'deleted file mode',
-  'old mode',
-  'new mode',
-  'similarity index',
-  'dissimilarity index',
-  'rename from',
-  'rename to',
-  'copy from',
-  'copy to',
-  '\\ No newline at end of file',
-];
+/**
+ * Where a file's section starts. Seeing one means we are back in a preamble.
+ *
+ * The long list of header prefixes this replaced (`--- `, `+++ `, `index `,
+ * `rename from`…) was tested against EVERY line, including inside a hunk —
+ * and a removed line reading `-- legacy comment` arrives as `--- legacy
+ * comment`, which matched. Those lines were deleted from the rendered diff
+ * and, worse, `oldLine` was not advanced for them, so every number after
+ * them pointed at the wrong line of the real file. The list was also
+ * unnecessary: anything before the first hunk is already skipped for having
+ * nothing to number.
+ */
+const FILE_HEADER = 'diff --git ';
+/** Not content, and it legitimately appears INSIDE a hunk. */
+const NO_NEWLINE_MARKER = '\\ No newline at end of file';
 
 /** `@@ -oldStart,oldCount +newStart,newCount @@ optional context` */
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
@@ -65,6 +62,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       truncated = true;
       break;
     }
+    // A new file section: back to a preamble, and the old numbering is spent.
+    if (raw.startsWith(FILE_HEADER)) {
+      oldLine = 0;
+      newLine = 0;
+      continue;
+    }
     const hunk = HUNK_HEADER.exec(raw);
     if (hunk) {
       oldLine = Number(hunk[1]);
@@ -72,9 +75,10 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
       lines.push({ kind: 'hunk', text: raw });
       continue;
     }
-    if (HEADER_PREFIXES.some((prefix) => raw.startsWith(prefix))) continue;
+    if (raw.startsWith(NO_NEWLINE_MARKER)) continue;
     // Before the first hunk header there is nothing to number, and anything
-    // there is still part of the preamble.
+    // there is still part of the preamble. INSIDE a hunk every line is
+    // content, whatever it happens to begin with.
     if (oldLine === 0 && newLine === 0) continue;
 
     if (raw.startsWith('+')) {
@@ -97,9 +101,12 @@ export function parseUnifiedDiff(patch: string): ParsedDiff {
 }
 
 /** '+12 −3', or nothing at all when a file's content did not change. */
-export function formatChangeCount(added: number, removed: number): string {
+export function formatChangeCount(added?: number, removed?: number): string {
   const parts: string[] = [];
-  if (added > 0) parts.push(`+${added}`);
-  if (removed > 0) parts.push(`−${removed}`);
+  // Undefined is not zero: the host leaves these out when counting lines
+  // would be a fiction (a binary, a file too big to read), and the row then
+  // shows nothing rather than an invented "+14" beside a PNG.
+  if (added !== undefined && added > 0) parts.push(`+${added}`);
+  if (removed !== undefined && removed > 0) parts.push(`−${removed}`);
   return parts.join(' ');
 }
