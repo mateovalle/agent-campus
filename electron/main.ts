@@ -50,6 +50,7 @@ import {
   LOGIN_SHELL_TIMEOUT_MS,
   PHONE_VIEW_PORT,
   PROJECT_SCAN_INTERVAL_MS,
+  SCHEDULE_MAX_LIVE_AGENTS,
   UPDATE_CHECK_INTERVAL_MS,
   UPDATE_CHECK_REPO,
   UPDATE_CHECK_START_DELAY_MS,
@@ -127,7 +128,9 @@ import {
   loadSchedules,
   markSchedulesHandled,
   removeSchedule,
+  scheduleProblem,
   SCHEDULER_TICK_MS,
+  schedulesLoadError,
   setScheduleEnabled,
 } from './schedules.js';
 import {
@@ -291,6 +294,14 @@ let assistantAgentId: number | null = null;
 // Scheduler state
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 const scheduleLastAgent = new Map<string, number>(); // scheduleId → last dispatched agentId
+/**
+ * Every agent a schedule has dispatched, agentId → scheduleId.
+ *
+ * `scheduleLastAgent` only remembers the most recent one, which is why the
+ * cap could not be enforced from it: a schedule that left five finished
+ * agents open looked, through that map, exactly like one that had left none.
+ */
+const scheduleAgents = new Map<number, string>();
 
 /**
  * The account's rate-limit window, as last reported by any session.
@@ -1650,6 +1661,10 @@ function removeAgent(agentId: number): void {
   const agent = ctx.agents.get(agentId);
   if (!agent) return;
 
+  // Closing a scheduled agent is what frees its schedule to run again, so
+  // the bookkeeping has to come off here or the cap would latch forever.
+  scheduleAgents.delete(agentId);
+
   const jp = jsonlPollTimers.get(agentId);
   if (jp) clearInterval(jp);
   jsonlPollTimers.delete(agentId);
@@ -2066,15 +2081,22 @@ function openAssistant(): void {
                 everyMinutes: z.number().min(1).optional(),
               },
               async (args) => {
-                if ((args.kind === 'daily' || args.kind === 'weekly') && !args.time) {
-                  return { content: [{ type: 'text', text: 'Error: this kind needs time.' }] };
-                }
-                if (args.kind === 'weekly' && !args.days?.length) {
-                  return { content: [{ type: 'text', text: 'Error: weekly needs days.' }] };
-                }
-                if (args.kind === 'interval' && !args.everyMinutes) {
+                // One validator, shared with the Settings form and with the
+                // scheduler's own parseTime. Three separate regexes let
+                // `24:00` through into a schedule that could never fire and
+                // reported itself enabled.
+                const problem = scheduleProblem(args);
+                if (problem) return { content: [{ type: 'text', text: problem }], isError: true };
+                const where = registeredWorkspacePath(args.workspacePath);
+                if (!where) {
                   return {
-                    content: [{ type: 'text', text: 'Error: interval needs everyMinutes.' }],
+                    content: [
+                      {
+                        type: 'text',
+                        text: `${args.workspacePath} is not a registered workspace. Use list_workspaces and pass one of those paths — a schedule pointing anywhere else would create a phantom office and an agent that cannot start.`,
+                      },
+                    ],
+                    isError: true,
                   };
                 }
                 addSchedule({
@@ -2136,6 +2158,8 @@ function openAssistant(): void {
 // and role. On macOS this keeps working with the window closed (the app
 // stays alive); unattended runs that hit permissions land in "Needs You".
 function sendSchedules(): void {
+  const scheduleError = schedulesLoadError();
+  if (scheduleError) notify('error', scheduleError);
   ctx.send({ type: 'schedulesLoaded', schedules: loadSchedules() });
 }
 
@@ -2149,7 +2173,40 @@ async function dispatchSchedule(s: ScheduleEntry): Promise<void> {
     s.role,
   );
   scheduleLastAgent.set(s.id, agentId);
+  scheduleAgents.set(agentId, s.id);
   trackAchievement('scheduleRan');
+}
+
+/** Schedules whose cap has already been reported, so it is said once. */
+const scheduleCapAnnounced = new Set<string>();
+
+/**
+ * Agents this schedule has dispatched that are still open.
+ *
+ * Open, not busy: nothing closes a finished scheduled agent, so "is the last
+ * one working" undercounts by everything that already finished and is still
+ * sitting there holding a session and a character.
+ */
+function liveAgentsForSchedule(scheduleId: string): number[] {
+  return [...scheduleAgents.entries()]
+    .filter(([, id]) => id === scheduleId)
+    .map(([agentId]) => agentId)
+    .filter((agentId) => {
+      const session = chatSessions.get(agentId);
+      return session !== undefined && !session.ended;
+    });
+}
+
+/**
+ * The registered workspace a path refers to, or null.
+ *
+ * A schedule's workspacePath comes from a model via add_schedule, which
+ * accepted any string: at fire time it reached registerWorkspace, which does
+ * not check either, so one hallucinated path created a phantom office on the
+ * campus permanently plus an agent that failed at spawn.
+ */
+function registeredWorkspacePath(candidate: string): string | null {
+  return loadWorkspaces().find((w) => samePath(w.path, candidate))?.path ?? null;
 }
 
 function schedulerTick(): void {
@@ -2173,6 +2230,22 @@ function schedulerTick(): void {
       console.log(`[Agent Campus] Schedule ${s.id}: previous agent still busy — skipping run`);
       continue;
     }
+    // Busy was never the whole question: a FINISHED agent is not closed by
+    // anything, so an interval schedule accumulated one live session and one
+    // billed turn per run forever. Said out loud the first time, because an
+    // app that quietly stops doing what you asked is its own problem.
+    const live = liveAgentsForSchedule(s.id);
+    if (live.length >= SCHEDULE_MAX_LIVE_AGENTS) {
+      if (!scheduleCapAnnounced.has(s.id)) {
+        scheduleCapAnnounced.add(s.id);
+        notify(
+          'error',
+          `A scheduled run is paused: ${live.length} of its agents are still open. Close them and it resumes on the next tick.`,
+        );
+      }
+      continue;
+    }
+    scheduleCapAnnounced.delete(s.id);
     // Fire and forget: a slow start must not hold up the other due
     // schedules, and the stamp that stops it firing twice is already set.
     void dispatchSchedule(s).then(sendSchedules);
@@ -2606,16 +2679,19 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     setScheduleEnabled(msg.id, msg.enabled);
     sendSchedules();
   } else if (msg.type === 'addSchedule') {
-    // Manual creation from the Settings form; same validation the
-    // Assistant's add_schedule tool applies.
-    const timeOk = /^\d{1,2}:\d{2}$/.test(msg.time ?? '');
-    const valid =
-      msg.workspacePath.length > 0 &&
-      msg.prompt.trim().length > 0 &&
-      (msg.kind === 'interval'
-        ? (msg.everyMinutes ?? 0) >= 1
-        : timeOk && (msg.kind !== 'weekly' || (msg.days?.length ?? 0) > 0));
-    if (valid) {
+    // Manual creation from the Settings form; the SAME validator the
+    // Assistant's add_schedule tool applies, so neither can accept a
+    // schedule the scheduler will silently ignore.
+    const problem =
+      msg.workspacePath.length === 0 || msg.prompt.trim().length === 0
+        ? 'A schedule needs a workspace and a prompt.'
+        : scheduleProblem(msg);
+    if (problem) {
+      // Previously an `if (valid)` with no else: an invalid schedule was a
+      // silent no-op and the form looked like it had worked.
+      notify('error', problem);
+      sendSchedules();
+    } else {
       addSchedule({
         workspacePath: msg.workspacePath,
         prompt: msg.prompt.trim(),
@@ -3298,6 +3374,8 @@ function cleanupAndQuit(): void {
   for (const id of [...ctx.agents.keys()]) removeAgent(id);
   for (const ptyId of [...ptys.keys()]) killPty(ptyId);
   ptys.clear();
+  scheduleAgents.clear();
+  scheduleCapAnnounced.clear();
   for (const timer of decorPushTimers.values()) clearTimeout(timer);
   decorPushTimers.clear();
   campusServer?.close();

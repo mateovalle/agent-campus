@@ -196,3 +196,16 @@ export const PHONE_VIEW_POLL_MS = 5_000;
  * cannot reach the webview's constants.
  */
 export const PHONE_VIEW_URGENT_MS = 5 * 60 * 1000;
+
+// ── Scheduled dispatch ──────────────────────────────────────
+/**
+ * Live sessions a schedule may leave behind before it stops dispatching.
+ *
+ * The old guard only skipped while the IMMEDIATELY PREVIOUS agent was busy,
+ * and nothing ever closes a finished one — chat sessions live until the user
+ * closes the tab. So a 1-minute interval whose runs finish in 30s piled up a
+ * session and a billed turn every minute, about 1440 a day, each with its own
+ * office character. The cap is per schedule because that is the thing a
+ * person set up and forgot about.
+ */
+export const SCHEDULE_MAX_LIVE_AGENTS = 3;

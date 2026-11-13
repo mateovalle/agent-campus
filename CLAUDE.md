@@ -291,7 +291,27 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 (anchor = lastRunAtMs ?? createdAtMs, 7-day lookback; intervals
                                 self-catch-up) → missedSchedules message → MissedRunsModal
                                 (pick-and-run checkboxes) → resolveMissedSchedules dispatches
-                                picks and stamps ALL offered ids handled (skip = don't re-offer)
+                                picks and stamps ALL offered ids handled (skip = don't re-offer).
+                                `scheduleProblem()` is the ONE validator, shared by the Settings
+                                form and the Assistant's add_schedule: both used to carry their
+                                own `/^\d{1,2}:\d{2}$/`, which accepts `24:00` — a very
+                                plausible way for a model to write "midnight" — while parseTime
+                                rejects it, so the schedule saved, reported `enabled: true`,
+                                never became due, and never reached the missed-runs modal either.
+                                The Settings path now SAYS when it refuses; it was an `if (valid)`
+                                with no else, i.e. a silent no-op behind a form that looked like
+                                it worked. `SCHEDULE_MAX_LIVE_AGENTS` caps the agents one schedule
+                                may leave open: skipping only while the IMMEDIATELY PREVIOUS agent
+                                was busy missed that nothing ever closes a finished one, so a
+                                1-minute interval accumulated a live session and a billed turn
+                                every minute — ~1440 a day. add_schedule also requires a REGISTERED
+                                workspace, since it took any string and `registerWorkspace` does
+                                not check either, so one hallucinated path made a permanent
+                                phantom office plus an agent that could not start. The file is
+                                written .tmp + rename like the layouts and the ledger (it saves on
+                                every due-stamp, so a mid-write crash was likelier here than
+                                anywhere), and a file that exists but will not parse now raises a
+                                notice instead of silently reading as "you have no schedules"
   backgroundMode.ts           — What CLOSING THE LAST WINDOW means. It used to mean app.quit() on
                                 Windows and Linux, which runs cleanupAndQuit(): every PTY killed and
                                 every SDK session disposed, mid-turn, for a WINDOW gesture — and it
