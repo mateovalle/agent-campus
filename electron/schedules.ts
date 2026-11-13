@@ -19,8 +19,22 @@ export const SCHEDULER_TICK_MS = 30_000;
 
 let cache: ScheduleEntry[] | null = null;
 
+/**
+ * Set when the file existed but could not be read, so the caller can tell
+ * "you have no schedules" apart from "your schedules could not be loaded" —
+ * which used to look identical, both answering an empty list.
+ */
+let loadError: string | null = null;
+
+/** Why the stored schedules could not be read, if they could not. */
+export function schedulesLoadError(): string | null {
+  loadSchedules();
+  return loadError;
+}
+
 export function loadSchedules(): ScheduleEntry[] {
   if (cache) return cache;
+  loadError = null;
   try {
     const raw = JSON.parse(fs.readFileSync(SCHEDULES_FILE, 'utf-8')) as {
       schedules?: ScheduleEntry[];
@@ -28,18 +42,42 @@ export function loadSchedules(): ScheduleEntry[] {
     cache = (raw.schedules ?? []).filter(
       (s) => typeof s.id === 'string' && typeof s.workspacePath === 'string',
     );
-  } catch {
+  } catch (err) {
+    // A file that is not there is a new install and means nothing. A file
+    // that IS there and will not parse means the user's schedules have
+    // vanished from Settings, and saying so is the difference between a bug
+    // report and a shrug.
+    if (fs.existsSync(SCHEDULES_FILE)) {
+      loadError = `Could not read ${path.basename(SCHEDULES_FILE)}: ${String(err)}`;
+      console.error('[Agent Campus]', loadError);
+    }
     cache = [];
   }
   return cache;
 }
 
+/**
+ * Writes the schedule list, atomically.
+ *
+ * `.tmp` + rename like the layouts and the usage ledger, and for the same
+ * reason — except this one ran on every due-stamp, potentially every 30
+ * seconds, so a crash or a power loss mid-write was far likelier to land
+ * here. A truncated file then parsed as nothing, and every schedule
+ * disappeared from Settings with no notice at all.
+ */
 function save(): void {
+  const tmp = `${SCHEDULES_FILE}.tmp`;
   try {
     fs.mkdirSync(path.dirname(SCHEDULES_FILE), { recursive: true });
-    fs.writeFileSync(SCHEDULES_FILE, JSON.stringify({ schedules: cache ?? [] }, null, 2), 'utf-8');
+    fs.writeFileSync(tmp, JSON.stringify({ schedules: cache ?? [] }, null, 2), 'utf-8');
+    fs.renameSync(tmp, SCHEDULES_FILE);
   } catch (err) {
     console.error('[Agent Campus] Failed to save schedules:', err);
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing left to do about it */
+    }
   }
 }
 
@@ -73,13 +111,52 @@ export function setScheduleEnabled(id: string, enabled: boolean): ScheduleEntry[
   return list;
 }
 
-function parseTime(time: string): { h: number; m: number } | null {
+/**
+ * 'HH:MM' → the hour and minute, or null if it is not a time.
+ *
+ * EXPORTED, and the only place this judgement lives. Both callers used to
+ * validate with `/^\d{1,2}:\d{2}$/` on their own, which accepts 24:00 —
+ * a very plausible way for a model to write "midnight" — while this
+ * function rejects it. The schedule was then saved, reported `enabled:
+ * true` by list_schedules, never became due, and never appeared in the
+ * missed-runs modal either: dead in a way nothing on screen admitted.
+ */
+export function parseTime(time: string): { h: number; m: number } | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time);
   if (!match) return null;
   const h = Number(match[1]);
   const m = Number(match[2]);
   if (h > 23 || m > 59) return null;
   return { h, m };
+}
+
+/** Whether a schedule entry is one the scheduler can actually act on. */
+export function scheduleProblem(entry: {
+  kind: ScheduleEntry['kind'];
+  time?: string;
+  days?: number[];
+  everyMinutes?: number;
+}): string | null {
+  if (entry.kind === 'interval') {
+    const every = entry.everyMinutes ?? 0;
+    if (!Number.isInteger(every) || every < 1) {
+      return 'An interval schedule needs everyMinutes as a whole number of 1 or more.';
+    }
+    return null;
+  }
+  if (!entry.time || !parseTime(entry.time)) {
+    return `"${entry.time ?? ''}" is not a time of day. Use HH:MM between 00:00 and 23:59.`;
+  }
+  if (entry.kind === 'weekly') {
+    const days = entry.days ?? [];
+    if (days.length === 0) {
+      return 'A weekly schedule needs at least one day (0 = Sunday … 6 = Saturday).';
+    }
+    if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return 'Weekly days must be whole numbers from 0 (Sunday) to 6 (Saturday).';
+    }
+  }
+  return null;
 }
 
 /** Start of the minute an entry was scheduled to fire at today (local), or null. */

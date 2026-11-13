@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ScheduleEntry } from '../../shared/protocol.js';
-import { isDue, missedOccurrences } from '../schedules.js';
+import { isDue, missedOccurrences, parseTime, scheduleProblem } from '../schedules.js';
 
 function entry(partial: Partial<ScheduleEntry>): ScheduleEntry {
   return {
@@ -101,5 +101,63 @@ describe('isDue', () => {
     expect(isDue(entry({ kind: 'daily' }), WED_0900)).toBe(false); // no time
     expect(isDue(entry({ kind: 'daily', time: '99:99' }), WED_0900)).toBe(false);
     expect(isDue(entry({ kind: 'interval' }), WED_0900)).toBe(false); // no everyMinutes
+  });
+});
+
+describe('parseTime', () => {
+  it('reads a real time of day', () => {
+    expect(parseTime('09:00')).toEqual({ h: 9, m: 0 });
+    expect(parseTime('9:05')).toEqual({ h: 9, m: 5 });
+    expect(parseTime('23:59')).toEqual({ h: 23, m: 59 });
+    expect(parseTime('00:00')).toEqual({ h: 0, m: 0 });
+  });
+
+  it('refuses hours and minutes that do not exist', () => {
+    for (const bad of ['24:00', '09:60', '30:00', '99:99']) {
+      expect(parseTime(bad)).toBeNull();
+    }
+  });
+
+  it('refuses things that are not times', () => {
+    for (const bad of ['', 'midnight', '9', '9:5', '09:00:00', ' 09:00']) {
+      expect(parseTime(bad)).toBeNull();
+    }
+  });
+});
+
+describe('scheduleProblem', () => {
+  it('accepts the three valid shapes', () => {
+    expect(scheduleProblem({ kind: 'daily', time: '09:00' })).toBeNull();
+    expect(scheduleProblem({ kind: 'weekly', time: '09:00', days: [1, 5] })).toBeNull();
+    expect(scheduleProblem({ kind: 'interval', everyMinutes: 30 })).toBeNull();
+  });
+
+  it('catches the time that validated everywhere and fired nowhere', () => {
+    // 24:00 is a very plausible way for a model to write "midnight". Three
+    // separate `/^\d{1,2}:\d{2}$/` checks let it through into a schedule
+    // that could never become due and reported itself enabled.
+    const why = scheduleProblem({ kind: 'daily', time: '24:00' });
+    expect(why).toContain('24:00');
+    expect(why).toContain('23:59');
+  });
+
+  it('insists a day-of-week schedule names a day', () => {
+    expect(scheduleProblem({ kind: 'weekly', time: '09:00', days: [] })).toContain('at least one');
+    expect(scheduleProblem({ kind: 'weekly', time: '09:00' })).toContain('at least one');
+    expect(scheduleProblem({ kind: 'weekly', time: '09:00', days: [7] })).toContain('0 (Sunday)');
+  });
+
+  it('insists an interval is a whole number of minutes', () => {
+    // These all answered isDue:false forever rather than storming, so the
+    // cost was silence — the same class as the 24:00 case.
+    for (const every of [0, -5, 0.5]) {
+      expect(scheduleProblem({ kind: 'interval', everyMinutes: every })).toContain('1 or more');
+    }
+    expect(scheduleProblem({ kind: 'interval' })).toContain('1 or more');
+  });
+
+  it('does not ask a time-of-day schedule for everyMinutes, or vice versa', () => {
+    expect(scheduleProblem({ kind: 'daily', time: '09:00', everyMinutes: undefined })).toBeNull();
+    expect(scheduleProblem({ kind: 'interval', everyMinutes: 5, time: undefined })).toBeNull();
   });
 });
