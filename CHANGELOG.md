@@ -7,6 +7,8 @@ extension's `1.x`.
 
 ## Unreleased
 
+## v0.4.1 — 2026-11-14
+
 Mostly the results of reading v0.4.0 back adversarially. Several of these are
 things the app did wrong to your repository or your files, so they are listed
 before the features.
@@ -42,6 +44,18 @@ before the features.
   worktree's setup command.
 - The slash-command palette and the rate-limit warning **never appeared at all** — both were
   wired to a host that emitted nothing.
+- **A schedule set to "24:00"** saved, reported itself enabled, and never ran. Degenerate
+  intervals and weekly schedules with no day did the same; creating one from Settings that the
+  app would not accept looked like it had worked.
+- **Removing a worktree on a detached HEAD destroyed its commits** while promising they were
+  kept, and a checkout whose folder you had deleted still looked healthy enough to start an
+  agent in.
+
+### Fixed — things that cost money
+
+- **A recurring schedule piled up agents forever.** Only the most recent run was checked, and
+  nothing closes a finished one — so a short interval left a live session and a billed turn
+  behind on every run. A schedule now pauses once it has three agents still open, and says so.
 
 ### Features
 
