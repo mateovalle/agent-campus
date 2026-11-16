@@ -260,6 +260,29 @@ electron/                     — Electron desktop host (imports src/core; tscon
                                 office; "Reset Starter Office" deletes it. The VS Code host's old single
                                 ~/.pixel-agents/layout.json is now fully dead — nothing reads,
                                 writes or watches it
+  updates.ts                  — Whether a newer release exists. Nobody revisits a Releases page,
+                                so an app that never mentions a new version effectively never
+                                ships one. Reads the repo's `/releases` — not `/releases/latest`,
+                                which 404s for a repo whose only releases are drafts and so cannot
+                                be told apart from "repo moved" — and skips drafts and
+                                prereleases. It ALSO skips a release carrying no installer for
+                                THIS platform (`hasInstallerFor`): v0.4.1 shipped macOS and Linux
+                                while the Windows build was blocked, and without that check every
+                                Windows user would be told every six hours about a download page
+                                with nothing on it for them. Falling through to an older release
+                                that does carry their installer keeps the answer useful rather
+                                than merely quiet. `isNewerVersion` is NUMERIC ('0.10.0' > '0.9.0',
+                                which a string compare gets backwards) and ranks a prerelease
+                                BELOW its own release; anything unreadable answers "no update",
+                                since claiming one it cannot name is worse than missing one.
+                                Deliberately stops at TELLING you: installing in place is
+                                platform-specific, needs a signed app on macOS, and can only be
+                                tested against a published release. Settings-only, never a bubble.
+                                `fetch` and the PLATFORM are both injectable — a test whose result
+                                depends on which OS runs it goes red for one contributor and green
+                                for another, the same trap the usage suite hit with timezones.
+                                Skipped entirely for a dev build and behind a "Check for Updates"
+                                toggle
   claudeAuth.ts               — First-run gate: `claude auth status --json` on the RESOLVED bundled
                                 executable (not ~/.claude — on macOS the credentials live in the
                                 login Keychain, so a file probe reports "logged out" on every Mac).

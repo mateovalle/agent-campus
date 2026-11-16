@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { fetchLatestRelease, isNewerVersion, parseVersion, pickLatestRelease } from '../updates.js';
+import {
+  fetchLatestRelease,
+  hasInstallerFor,
+  isNewerVersion,
+  parseVersion,
+  pickLatestRelease,
+} from '../updates.js';
 
 describe('parseVersion', () => {
   it('reads a tag with or without the v', () => {
@@ -58,6 +64,13 @@ describe('pickLatestRelease', () => {
     html_url: `https://github.com/o/r/releases/tag/${tag}`,
     draft: false,
     prerelease: false,
+    // Every platform's installer, unless a case overrides it: the default
+    // fixture should exercise the version logic, not the platform logic.
+    assets: [
+      { name: `App-${tag}.dmg` },
+      { name: `App-${tag}.AppImage` },
+      { name: `App-${tag}.exe` },
+    ],
     ...over,
   });
 
@@ -97,11 +110,20 @@ describe('fetchLatestRelease', () => {
     vi.fn().mockResolvedValue({ ok: true, json: async () => body } as unknown as Response);
 
   it('asks the right repository and reads the answer', async () => {
+    // The platform is passed in rather than read from the machine: a test
+    // whose result depends on which OS runs it goes red for one contributor
+    // and green for another.
     const fetchImpl = ok([
-      { tag_name: 'v9.0.0', html_url: 'https://example.test/9', draft: false, prerelease: false },
+      {
+        tag_name: 'v9.0.0',
+        html_url: 'https://example.test/9',
+        draft: false,
+        prerelease: false,
+        assets: [{ name: 'App-9.0.0.dmg' }],
+      },
     ]);
     await expect(
-      fetchLatestRelease('owner/repo', fetchImpl as unknown as typeof fetch),
+      fetchLatestRelease('owner/repo', fetchImpl as unknown as typeof fetch, 'darwin'),
     ).resolves.toEqual({ version: '9.0.0', url: 'https://example.test/9' });
     expect(fetchImpl.mock.calls[0][0]).toContain('/repos/owner/repo/releases');
   });
@@ -132,5 +154,68 @@ describe('fetchLatestRelease', () => {
     await expect(
       fetchLatestRelease('owner/repo', fetchImpl as unknown as typeof fetch),
     ).resolves.toBeNull();
+  });
+});
+
+describe('a release that does not carry your installer', () => {
+  // v0.4.1 shipped macOS and Linux while the Windows build was blocked, and
+  // the check would have told every Windows user about a download page with
+  // nothing on it for them — every six hours, forever.
+  const full = (tag: string, assets: string[]) => ({
+    tag_name: tag,
+    html_url: `https://github.com/o/r/releases/tag/${tag}`,
+    draft: false,
+    prerelease: false,
+    assets: assets.map((name) => ({ name })),
+  });
+
+  const PARTIAL = [
+    full('v0.4.1', ['App-0.4.1.dmg', 'App-0.4.1.AppImage']),
+    full('v0.4.0', ['App-0.4.0.dmg', 'App-0.4.0.AppImage', 'App-0.4.0.exe']),
+  ];
+
+  it('offers it to the platforms it shipped for', () => {
+    expect(pickLatestRelease(PARTIAL, 'darwin')).toMatchObject({ version: '0.4.1' });
+    expect(pickLatestRelease(PARTIAL, 'linux')).toMatchObject({ version: '0.4.1' });
+  });
+
+  it('skips it for the platform it did not', () => {
+    // And falls through to the older release that DOES carry their
+    // installer, so the answer stays useful rather than merely quiet.
+    expect(pickLatestRelease(PARTIAL, 'win32')).toMatchObject({ version: '0.4.0' });
+  });
+
+  it('answers null when no release carries this platform at all', () => {
+    const macOnly = [full('v1.0.0', ['App-1.0.0.dmg'])];
+    expect(pickLatestRelease(macOnly, 'win32')).toBeNull();
+    expect(pickLatestRelease(macOnly, 'darwin')).toMatchObject({ version: '1.0.0' });
+  });
+
+  it('treats an unknown platform as Linux rather than offering nothing', () => {
+    expect(pickLatestRelease(PARTIAL, 'freebsd' as NodeJS.Platform)).toMatchObject({
+      version: '0.4.1',
+    });
+  });
+});
+
+describe('hasInstallerFor', () => {
+  it('matches each platform to its own installer', () => {
+    const assets = [{ name: 'App.dmg' }, { name: 'App.AppImage' }, { name: 'App Setup.exe' }];
+    expect(hasInstallerFor(assets, 'darwin')).toBe(true);
+    expect(hasInstallerFor(assets, 'linux')).toBe(true);
+    expect(hasInstallerFor(assets, 'win32')).toBe(true);
+  });
+
+  it("is not fooled by another platform's file", () => {
+    expect(hasInstallerFor([{ name: 'App.AppImage' }], 'win32')).toBe(false);
+    expect(hasInstallerFor([{ name: 'App.exe' }], 'darwin')).toBe(false);
+    // A blockmap sits beside the dmg and is not something to install.
+    expect(hasInstallerFor([{ name: 'App.dmg.blockmap' }], 'darwin')).toBe(false);
+  });
+
+  it('says no rather than guessing when the list is missing or odd', () => {
+    expect(hasInstallerFor(undefined, 'darwin')).toBe(false);
+    expect(hasInstallerFor([], 'darwin')).toBe(false);
+    expect(hasInstallerFor([null, { name: 42 }], 'darwin')).toBe(false);
   });
 });
