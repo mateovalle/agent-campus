@@ -175,6 +175,9 @@ const errorHintStyle: React.CSSProperties = {
 const errorLinkStyle: React.CSSProperties = {
   color: 'var(--pixel-accent)',
   wordBreak: 'break-all',
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  textDecorationStyle: 'dotted',
 };
 
 /** Alternates text/URL thanks to the capturing group in split(). */
@@ -186,9 +189,16 @@ function TextWithLinks({ text }: { text: string }) {
     <>
       {text.split(URL_SPLIT_PATTERN).map((part, i) =>
         i % 2 === 1 ? (
-          <a key={i} href={part} style={errorLinkStyle}>
+          // A span, not an <a href>: an anchor NAVIGATES, which in a webview
+          // means replacing the app with the page. The host opens it instead.
+          <span
+            key={i}
+            style={errorLinkStyle}
+            title={`Open ${part}`}
+            onClick={() => vscode.postMessage({ type: 'openExternal', url: part })}
+          >
             {part}
-          </a>
+          </span>
         ) : (
           <span key={i}>{part}</span>
         ),

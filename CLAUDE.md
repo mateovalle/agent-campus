@@ -539,7 +539,23 @@ webview-ui/src/               — React + TypeScript (Vite)
                                 span whose every word is path-shaped is a LIST, not one path. fileRefContext.ts
                                 carries the agent id paths resolve against — a separate module from
                                 FileRefText.tsx because a file exporting both a component and a
-                                context breaks fast refresh. chatModel.ts is the pure
+                                context breaks fast refresh. A MARKDOWN LINK is the same problem
+                                one layer out: an <a href> NAVIGATES, and in a webview that means
+                                replacing the app with the page, so Markdown.tsx renders a span and
+                                the HOST opens the URL (`openExternal` → shell.openExternal). It
+                                used to render a span that silently copied the url to the
+                                clipboard, which is indistinguishable from a dead link — the
+                                comment even said navigation was blocked, while main.ts's
+                                will-navigate had grown an openExternal fallback (https only, so an
+                                http://localhost link an agent wrote was still swallowed). The
+                                scheme whitelist is `src/core/externalUrl.ts`, pure and tested, and
+                                it lives there because BOTH ends check it: the webview to decide
+                                whether a span is clickable, the host to decide whether to obey.
+                                It is a trust boundary, not a formality — the URL text comes out of
+                                a model's output and shell.openExternal runs whatever handler is
+                                registered, so `file://`, `javascript:` and every editor's custom
+                                scheme are launchable. A URL it refuses falls back to
+                                click-to-copy, and the host SAYS it refused. chatModel.ts is the pure
                                 ChatEvent[] → ChatItem[] reducer (stable monotonic React keys,
                                 plus `user-id`, which attaches the CLI's id to the LAST user item:
                                 our echo of a prompt is emitted optimistically on send, so its id
@@ -750,7 +766,11 @@ watcher exist before the session does. The watcher polls for the JSONL with a DE
 for real reasons (a `claude` that never launched, a cwd that is gone, a worktree whose setup left
 no usable environment), and without a deadline the character sat at its desk forever while a 1s
 timer ran for the life of the app. It closes NOTHING — the session itself is usually fine, and
-what was lost is only the office's ability to follow it. "+ Agent" → `openChatAgent` → `launchChatAgent()` (SDK
+what was lost is only the office's ability to follow it. The clock runs from the last PROMPT
+(`promptedAt` on the chat session / PTY record), not from creation: the CLI writes no transcript
+until it is given a prompt, so counting from creation raised the notice on every agent whose first
+prompt took over 30s to write, and then stopped polling, so a healthy session was never followed.
+The notice is said once and the poll continues until the agent closes. "+ Agent" → `openChatAgent` → `launchChatAgent()` (SDK
 session + chat tab). "+ Terminal" → `openClaude` → a PTY running
 `claude --session-id <uuid>` (plus `--dangerously-skip-permissions` when the Settings toggle is
 on), then a 1s poll for `<uuid>.jsonl`.

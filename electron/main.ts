@@ -55,6 +55,7 @@ import {
   UPDATE_CHECK_REPO,
   UPDATE_CHECK_START_DELAY_MS,
 } from '../src/core/constants.js';
+import { isExternalUrl } from '../src/core/externalUrl.js';
 import { readNewLines, startFileWatching, stopFileWatching } from '../src/core/fileWatcher.js';
 import type { LayoutParseResult } from '../src/core/layoutPersistence.js';
 import { isValidLayout, parseLayout } from '../src/core/layoutPersistence.js';
@@ -174,6 +175,16 @@ const WORKSPACE_LAYOUT_OWN_WRITE_MS = 1000;
 const WINDOW_WIDTH = 900;
 const WINDOW_HEIGHT = 700;
 const WINDOW_BACKGROUND = '#1e1e2e';
+/**
+ * Hand a URL to the system browser, if it is one we are willing to open.
+ * Answers whether it went, so a refusal can be reported rather than silently
+ * doing nothing — the exact failure this whole path exists to fix.
+ */
+function openUrlExternally(url: string): boolean {
+  if (!isExternalUrl(url)) return false;
+  void shell.openExternal(url.trim());
+  return true;
+}
 // Auto-naming: tab labels derived from the agent's first real prompt
 const AGENT_NAME_MAX_CHARS = 28;
 const RESUMED_SESSION_STATUS = 'Resumed session — previous conversation shown above';
@@ -247,6 +258,9 @@ interface PtyRecord {
   cwd?: string;
   /** Last time the user typed into this terminal — used for /clear attribution */
   lastInputAt: number;
+  /** Last time Enter went in, null until the first — the nearest a PTY has to
+   *  "a prompt was sent", which is when a transcript becomes due. */
+  promptedAt: number | null;
 }
 
 // ── State ────────────────────────────────────────────────────
@@ -750,6 +764,7 @@ function spawnPty(opts: {
     sessionId: opts.sessionId,
     cwd: opts.cwd,
     lastInputAt: Date.now(),
+    promptedAt: null,
   };
   ptys.set(ptyId, record);
   if (opts.sessionId) {
@@ -1611,14 +1626,20 @@ async function launchChatAgent(
  *
  * With a DEADLINE, because there are real ways for it never to appear — a
  * `claude` that failed to launch, a cwd that is gone, a worktree whose setup
- * left no usable environment — and without one the character sat at its desk
- * forever while a 1s timer ran for the life of the app. The session may well
- * be fine (a terminal tab still works, a chat tab still streams); what is lost
- * is the office's ability to FOLLOW it. So this reports and stops polling,
- * and closes nothing.
+ * left no usable environment. The session may well be fine (a terminal tab
+ * still works, a chat tab still streams); what is lost is the office's ability
+ * to FOLLOW it, so this reports and closes nothing.
+ *
+ * The clock runs from the last PROMPT, not from creation: the CLI writes no
+ * transcript until it is given one, so counting from creation raised the
+ * notice on every agent whose first prompt took more than thirty seconds to
+ * write — and then stopped polling, so the office never followed a session
+ * that was perfectly healthy. For the same reason the notice no longer ends
+ * the poll: it is said once, and a transcript that turns up late is still
+ * picked up. The timer dies with the agent (removeAgent).
  */
 function pollForJsonlFile(agentId: number, skipToEnd = false): void {
-  const startedAt = Date.now();
+  let reported = false;
   const timer = setInterval(() => {
     const agent = ctx.agents.get(agentId);
     if (!agent) {
@@ -1626,15 +1647,17 @@ function pollForJsonlFile(agentId: number, skipToEnd = false): void {
       jsonlPollTimers.delete(agentId);
       return;
     }
-    if (Date.now() - startedAt > JSONL_POLL_TIMEOUT_MS) {
-      clearInterval(timer);
-      jsonlPollTimers.delete(agentId);
+    const promptedAt =
+      agent.kind === 'terminal'
+        ? ((agent.ptyId ? ptys.get(agent.ptyId)?.promptedAt : null) ?? null)
+        : (chatSessions.get(agent.id)?.promptedAt ?? null);
+    if (!reported && promptedAt !== null && Date.now() - promptedAt > JSONL_POLL_TIMEOUT_MS) {
+      reported = true;
       notify(
         'error',
         `${agent.label} never wrote a transcript in ${agent.cwd}, so the office ` +
           'cannot follow it. Its tab still works.',
       );
-      return;
     }
     try {
       if (fs.existsSync(agent.jsonlFile)) {
@@ -2267,6 +2290,7 @@ function setupIpcHandlers(): void {
     const record = ptys.get(opts.id);
     if (record) {
       record.lastInputAt = Date.now();
+      if (opts.data.includes('\r')) record.promptedAt = record.lastInputAt;
       record.proc.write(opts.data);
     }
   });
@@ -2592,6 +2616,10 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
     } else if (outcome.kind === 'unresolved') {
       notify('error', `Cannot tell where ${outcome.raw} is — no agent to resolve it against.`);
     }
+  } else if (msg.type === 'openExternal') {
+    if (!openUrlExternally(msg.url)) {
+      notify('error', `Will not open ${msg.url} — only web and mail links open externally.`);
+    }
   } else if (msg.type === 'listWorktrees') {
     sendWorktrees(msg.workspacePath);
   } else if (msg.type === 'removeWorktree') {
@@ -2775,6 +2803,7 @@ function handleWebviewMessage(msg: WebviewToHostMessage): void {
           const live = ptys.get(ptyId);
           if (live) {
             live.lastInputAt = Date.now();
+            live.promptedAt = live.lastInputAt;
             live.proc.write('\r');
           }
         }, PTY_ACTION_ENTER_DELAY_MS);
@@ -3100,9 +3129,10 @@ function createWindow(): void {
     const devServer = process.env.VITE_DEV_SERVER_URL;
     if (!(devServer && url.startsWith(devServer)) && !url.startsWith('file://')) {
       event.preventDefault();
-      // In-app links (e.g. the setup hint in chat error cards) open in the
-      // system browser instead of navigating the window.
-      if (url.startsWith('https://')) void shell.openExternal(url);
+      // Last-resort guard only: links in chat go through the `openExternal`
+      // message, which validates the scheme. Anything that reaches here is a
+      // stray <a href>, so apply the same whitelist rather than trusting it.
+      openUrlExternally(url);
     }
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

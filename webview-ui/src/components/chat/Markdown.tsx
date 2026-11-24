@@ -1,10 +1,12 @@
 import { useState } from 'react';
 
+import { isExternalUrl } from '../../../../src/core/externalUrl.js';
 import {
   CHAT_BODY_FONT_SIZE_PX,
   CHAT_CODE_FONT_SIZE_PX,
   CHAT_COPY_FEEDBACK_MS,
 } from '../../constants.js';
+import { vscode } from '../../vscodeApi.js';
 import { FileRefText } from './FileRefText.js';
 
 const paragraphStyle: React.CSSProperties = {
@@ -199,10 +201,23 @@ function renderInline(text: string, keyBase: string): React.ReactNode[] {
     } else {
       const link = LINK_RE.exec(tok);
       if (link) {
-        // Navigation is blocked in the webview — clicking copies the url
+        // The webview cannot navigate (it would replace the app), so the host
+        // opens the link in the system browser. A URL it would refuse stays a
+        // click-to-copy span: silently doing nothing is what made these links
+        // look broken in the first place.
         const url = link[2];
+        const external = isExternalUrl(url);
         out.push(
-          <span key={key} style={linkStyle} title={url} onClick={() => copyToClipboard(url)}>
+          <span
+            key={key}
+            style={linkStyle}
+            title={external ? `Open ${url}` : `Copy ${url}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (external) vscode.postMessage({ type: 'openExternal', url });
+              else copyToClipboard(url);
+            }}
+          >
             {link[1] || url}
           </span>,
         );
