@@ -310,6 +310,10 @@ export interface ChatSession {
   ended: boolean;
   /** Last time the user sent a prompt — used for /clear attribution. */
   lastInputAt: number;
+  /** Last time a prompt was actually SENT, null until the first one — the CLI
+   *  writes no transcript before that, so "no transcript yet" means nothing
+   *  until this is set. */
+  promptedAt: number | null;
   mode: ChatPermissionMode;
   /** Models this session can switch to, as reported by the CLI (empty until init). */
   models: ChatModelOption[];
@@ -446,6 +450,7 @@ export function startChatSession(opts: {
     busy: false,
     ended: false,
     lastInputAt: Date.now(),
+    promptedAt: null,
     mode: opts.bypassPermissions ? 'bypassPermissions' : 'default',
     models: [],
     commands: [],
@@ -456,6 +461,7 @@ export function startChatSession(opts: {
     send(text: string, images?: ChatImageAttachment[]): void {
       if (disposed) return;
       session.lastInputAt = Date.now();
+      session.promptedAt = session.lastInputAt;
       const validImages = (images ?? []).filter((img) => SUPPORTED_IMAGE_TYPES.has(img.mediaType));
       emit({
         kind: 'user-text',

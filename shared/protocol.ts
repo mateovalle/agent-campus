@@ -735,6 +735,14 @@ export type WebviewToHostMessage =
    * that can jump to it, when one is installed.
    */
   | { type: 'openFile'; agentId?: number; path: string; line?: number }
+  /**
+   * Open a URL in the system browser. The webview cannot navigate — that
+   * would replace the app with the page — so a link an agent wrote is sent
+   * here instead of being an <a href>. The host re-validates the scheme
+   * (http/https/mailto only): `shell.openExternal` will otherwise launch a
+   * `file://` path or any custom protocol handler a model can type.
+   */
+  | { type: 'openExternal'; url: string }
   /** Asks for a repo's checkouts (answered with worktreesLoaded). */
   | { type: 'listWorktrees'; workspacePath: string }
   /**
